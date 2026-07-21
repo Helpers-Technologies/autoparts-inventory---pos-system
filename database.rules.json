@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "licenses": {
+      ".read": false,
+      ".write": false,
+      "$machineKey": {
+        ".read": true,
+        ".write": false
+      }
+    }
+  }
+}

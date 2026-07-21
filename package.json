@@ -1,0 +1,161 @@
+{
+  "name": "autoparts-inventory-system",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Protected desktop auto parts inventory and sales management system",
+  "author": "Helpers Technologies",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "electron:dev": "cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 concurrently -k \"vite --host 127.0.0.1 --strictPort\" \"wait-on http://127.0.0.1:5173 && node electron/run-electron.cjs .\"",
+    "dev:live": "node scripts/dev-live.cjs",
+    "catalog:sync": "node scripts/sync-vehicle-catalog.mjs",
+    "build": "tsc -b && vite build",
+    "dist:win": "node scripts/prepare-dist-win.cjs && npm run build && electron-builder --win nsis",
+    "license:init": "node ../autoparts-license-studio/scripts/generate-license.cjs --init-keypair",
+    "license:generate": "node ../autoparts-license-studio/scripts/generate-license.cjs",
+    "license:studio": "node ../autoparts-license-studio/scripts/license-studio.cjs",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:smoke:e2e": "playwright test --grep @smoke"
+  },
+  "build": {
+    "appId": "com.helperstechnologies.autoparts",
+    "productName": "AutoParts Inventory & Sales System",
+    "directories": {
+      "output": "release"
+    },
+    "afterPack": "scripts/electron-builder-after-pack.cjs",
+    "files": [
+      "build/icon.ico",
+      "dist/**/*",
+      "electron/**/*",
+      "!electron/run-electron.cjs",
+      "!electron/license-public-key.example.cjs",
+      "node_modules/**/*",
+      "package.json",
+      "!**/scripts/**",
+      "!**/.license/**",
+      "!**/*.pem",
+      "!**/*.md",
+      "!**/.git/**",
+      "!**/.gitignore",
+      "!**/Missing features.md"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3-multiple-ciphers/**/*",
+      "node_modules/argon2/**/*"
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": false,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": true
+    },
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "build/icon.ico"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "signAndEditExecutable": true,
+      "signtoolOptions": {
+        "sign": "scripts/sign-win.cjs",
+        "certificateSha1": "E950B2D3C22831B0EDE52E0F69D7C0C422BCBE02",
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
+  },
+  "dependencies": {
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toast": "^1.2.15",
+    "argon2": "^0.44.0",
+    "better-sqlite3-multiple-ciphers": "^12.9.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "jsbarcode": "^3.12.3",
+    "lucide-react": "^1.8.0",
+    "node-machine-id": "^1.1.12",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-is": "^19.2.6",
+    "react-router-dom": "^6.30.3",
+    "recharts": "^3.8.1",
+    "tailwind-merge": "^3.5.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.60.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.7",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^39.8.5",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "fast-check": "^4.8.0",
+    "globals": "^17.5.0",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^3.4.19",
+    "terser": "^5.47.1",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.9",
+    "vitest": "^4.1.7",
+    "wait-on": "^9.0.10"
+  },
+  "allowScripts": {
+    "argon2@0.44.0": true,
+    "better-sqlite3-multiple-ciphers@12.9.0": true,
+    "electron@39.8.5": true,
+    "electron-winstaller@5.4.0": true
+  }
+}

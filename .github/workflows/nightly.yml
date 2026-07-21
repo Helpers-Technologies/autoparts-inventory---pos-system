@@ -1,0 +1,109 @@
+name: Nightly Regression
+
+on:
+  schedule:
+    # 02:00 UTC every night (04:00 Cairo time / EET)
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  regression:
+    name: Full Regression Suite
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare local license public key
+        shell: pwsh
+        run: Copy-Item electron/license-public-key.example.cjs electron/license-public-key.cjs
+
+      - name: Run full unit + integration suite with coverage
+        run: npm run test:coverage
+        env:
+          CI: true
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-coverage-${{ github.run_number }}
+          path: coverage/
+          retention-days: 30
+
+      - name: Upload JUnit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-test-results-${{ github.run_number }}
+          path: reports/vitest-junit.xml
+          retention-days: 30
+
+      - name: Annotate test results
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: reports/vitest-junit.xml
+          check_name: Nightly Regression Results
+          fail_on_failure: true
+
+  # ── Playwright E2E smoke ──────────────────────────────────────────────────
+  e2e:
+    name: Playwright E2E Smoke
+    runs-on: windows-latest
+    needs: regression
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare local license public key
+        shell: pwsh
+        run: Copy-Item electron/license-public-key.example.cjs electron/license-public-key.cjs
+
+      - name: Build renderer (E2E loads the built dist/)
+        run: npm run build
+
+      - name: Install Playwright Electron dependencies
+        run: npx playwright install --with-deps
+
+      - name: Run E2E smoke suite
+        run: npm run test:smoke:e2e
+        env:
+          CI: true
+          HW_E2E: "1"
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-playwright-report-${{ github.run_number }}
+          path: reports/playwright/
+          retention-days: 14
+
+      - name: Upload Playwright JUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-playwright-results-${{ github.run_number }}
+          path: reports/playwright-junit.xml
+          retention-days: 14
