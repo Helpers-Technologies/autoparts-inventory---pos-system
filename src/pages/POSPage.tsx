@@ -15,7 +15,6 @@ import {
   ShoppingBag,
   CarFront,
   Building2,
-  Tags,
   ShieldCheck,
 } from "lucide-react";
 import { useCatalog } from "../store/CatalogContext";
@@ -36,12 +35,7 @@ import { useFeatures } from "../lib/useFeatures";
 import { computeCreditPaymentView } from "../store/_pure";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
 import { printAppRoute } from "../lib/print";
-import {
-  calculateTierPrice,
-  productVehicleFitmentStatus,
-  useAutoPartsPro,
-  vehicleDisplayName,
-} from "../store/AutoPartsProContext";
+import { productVehicleFitmentStatus, useAutoPartsPro, vehicleDisplayName } from "../store/AutoPartsProContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 
 interface LineDraft {
@@ -124,7 +118,6 @@ export function POSPage() {
   const [paymentType, setPaymentType] = useState<SalesPaymentType>("cash");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [useCredit, setUseCredit] = useState(false);
-  const [invoicePriceType] = useState<SalesPriceType>(DEFAULT_PRICE_TYPE);
   const [discount, setDiscount] = useState<number>(0);
   const [amountReceived, setAmountReceived] = useState<number>(0);
   const [notes, setNotes] = useState("");
@@ -133,9 +126,6 @@ export function POSPage() {
   const [compatibilityOnly, setCompatibilityOnly] = useState(true);
   const [selectedBranchId, setSelectedBranchId] = useState(
     pro.branches.find((branch) => branch.isMain)?.id ?? pro.branches[0]?.id ?? "",
-  );
-  const [selectedPriceTierId, setSelectedPriceTierId] = useState(
-    pro.priceTiers.find((tier) => tier.isDefault)?.id ?? pro.priceTiers[0]?.id ?? "",
   );
 
   // Barcode & Catalog UI state
@@ -173,7 +163,6 @@ export function POSPage() {
   );
   const selectedVehicle = pro.customerVehicles.find((vehicle) => vehicle.id === selectedVehicleId);
   const selectedBranch = pro.branches.find((branch) => branch.id === selectedBranchId);
-  const selectedPriceTier = pro.priceTiers.find((tier) => tier.id === selectedPriceTierId);
 
   useEffect(() => {
     if (selectedVehicleId && !customerVehicles.some((vehicle) => vehicle.id === selectedVehicleId)) {
@@ -183,17 +172,7 @@ export function POSPage() {
 
   useEffect(() => {
     if (!selectedBranchId && pro.branches[0]) setSelectedBranchId(pro.branches[0].id);
-    if (!selectedPriceTierId && pro.priceTiers[0]) setSelectedPriceTierId(pro.priceTiers[0].id);
-  }, [pro.branches, pro.priceTiers, selectedBranchId, selectedPriceTierId]);
-
-  useEffect(() => {
-    if (!selectedPriceTier) return;
-    const tierPriceType: SalesPriceType = selectedPriceTier.basis === "retail" ? "retail" : "wholesale";
-    setLines((current) => current.map((line) => {
-      const product = products.find((item) => item.id === line.productId);
-      return product ? { ...line, price: calculateTierPrice(product, selectedPriceTier), priceType: tierPriceType } : line;
-    }));
-  }, [products, selectedPriceTier]);
+  }, [pro.branches, selectedBranchId]);
 
   // Autofocus barcode input
   const focusBarcode = () => {
@@ -257,7 +236,7 @@ export function POSPage() {
     lines.forEach((l) => {
       if (!l.productId) return;
       const product = products.find((x) => x.id === l.productId);
-      const ept = multiSalePricesEnabled ? l.priceType : invoicePriceType;
+      const ept = l.priceType;
       byProduct.set(
         l.productId,
         (byProduct.get(l.productId) ?? 0) + quantityAsBaseUnits(product, l.quantity, ept)
@@ -277,7 +256,7 @@ export function POSPage() {
       }
     });
     return out;
-  }, [lines, products, multiSalePricesEnabled, invoicePriceType, branchAvailableAsBaseUnits]);
+  }, [lines, products, branchAvailableAsBaseUnits]);
 
   // Add product to cart
   const addProductToCart = (product: Product) => {
@@ -286,8 +265,7 @@ export function POSPage() {
       toast.error("القطعة غير متوافقة مع السيارة المختارة", "غيّر السيارة أو راجع توافق القطعة قبل البيع.");
       return;
     }
-    const tierPriceType: SalesPriceType = selectedPriceTier?.basis === "retail" ? "retail" : "wholesale";
-    const defaultPriceType = selectedPriceTier ? tierPriceType : (multiSalePricesEnabled ? DEFAULT_PRICE_TYPE : invoicePriceType);
+    const defaultPriceType = DEFAULT_PRICE_TYPE;
     const existing = lines.find((l) => l.productId === product.id && l.priceType === defaultPriceType);
     
     // Check stock warning
@@ -313,7 +291,7 @@ export function POSPage() {
           id: uid("line"),
           productId: product.id,
           quantity: 1,
-          price: selectedPriceTier ? calculateTierPrice(product, selectedPriceTier) : getProductPrice(product, defaultPriceType),
+          price: getProductPrice(product, defaultPriceType),
           priceType: defaultPriceType,
         },
       ]);
@@ -358,7 +336,7 @@ export function POSPage() {
     const product = products.find((p) => p.id === line.productId);
     if (!product) return;
 
-    const priceType = multiSalePricesEnabled ? line.priceType : invoicePriceType;
+    const priceType = line.priceType;
     const baseQtyRequested = quantityAsBaseUnits(product, newQty, priceType);
     const available = branchAvailableAsBaseUnits(product);
     
@@ -427,7 +405,7 @@ export function POSPage() {
     const customer = customers.find((c) => c.id === customerId)!;
     const invLines: InvoiceLine[] = lines.map((l) => {
       const p = products.find((x) => x.id === l.productId)!;
-      const ept = multiSalePricesEnabled ? l.priceType : invoicePriceType;
+      const ept = l.priceType;
       const isRetailUnit = ept === "retail" && !!p.piecesPerUnit;
       return {
         id: l.id,
@@ -466,8 +444,6 @@ export function POSPage() {
       vehicleLabel: selectedVehicle ? vehicleDisplayName(selectedVehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels) : undefined,
       branchId: selectedBranch?.id,
       branchName: selectedBranch?.name,
-      priceTierId: selectedPriceTier?.id,
-      priceTierName: selectedPriceTier?.name,
       notes: notes.trim() || undefined,
     });
 
@@ -555,7 +531,7 @@ export function POSPage() {
             />
             </div>
 
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div className="relative">
                 <CarFront className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-cyan-600" />
                 <Select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="pr-8 text-xs">
@@ -567,12 +543,6 @@ export function POSPage() {
                 <Building2 className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-indigo-600" />
                 <Select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="pr-8 text-xs">
                   {pro.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-                </Select>
-              </div>
-              <div className="relative">
-                <Tags className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-amber-600" />
-                <Select value={selectedPriceTierId} onChange={(event) => setSelectedPriceTierId(event.target.value)} className="pr-8 text-xs">
-                  {pro.priceTiers.filter((tier) => tier.active).map((tier) => <option key={tier.id} value={tier.id}>{tier.name}</option>)}
                 </Select>
               </div>
             </div>
@@ -925,7 +895,7 @@ export function POSPage() {
                           {prod.unit}
                         </span>
                         <span className="font-bold text-sm text-brand-600">
-                          {formatCurrency(selectedPriceTier ? calculateTierPrice(prod, selectedPriceTier) : getProductPrice(prod, DEFAULT_PRICE_TYPE))}
+                          {formatCurrency(getProductPrice(prod, DEFAULT_PRICE_TYPE))}
                         </span>
                       </div>
                     </button>
