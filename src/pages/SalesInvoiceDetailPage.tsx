@@ -37,6 +37,7 @@ export function SalesInvoiceDetailPage() {
   const { customerBalance } = useReporting();
   const { isEnabled } = useFeatures();
   const whatsappEnabled = isEnabled("whatsappIntegration");
+  const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const inv = salesInvoices.find((s) => s.id === id);
   const canEditSales = hasPermission(currentUser, "salesInvoices", "edit");
   const canReceiveSales = hasPermission(currentUser, "salesInvoices", "receive");
@@ -228,7 +229,7 @@ export function SalesInvoiceDetailPage() {
         <div className="space-y-3">
           <div className="bg-surface border border-line rounded-xl p-4 space-y-2">
             <div className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-3">معلومات الفاتورة</div>
-            <InfoRow label="نوع السعر" value={priceTypeLabel} />
+            {multiSalePricesEnabled && <InfoRow label="نوع السعر" value={priceTypeLabel} />}
             {inv.vehicleLabel && <InfoRow label="سيارة العميل" value={inv.vehicleLabel} />}
             {inv.branchName && <InfoRow label="الفرع" value={inv.branchName} />}
             {inv.priceTierName && <InfoRow label="شريحة التسعير" value={inv.priceTierName} />}
@@ -288,7 +289,7 @@ export function SalesInvoiceDetailPage() {
               <TR>
                 <TH className="w-10">#</TH>
                 <TH>المنتج</TH>
-                <TH>نوع السعر</TH>
+                {multiSalePricesEnabled && <TH>نوع السعر</TH>}
                 <TH>الوحدة</TH>
                 <TH className="text-end">الكمية</TH>
                 <TH className="text-end">السعر</TH>
@@ -300,16 +301,18 @@ export function SalesInvoiceDetailPage() {
                 <TR key={l.id}>
                   <TD>{idx + 1}</TD>
                   <TD className="font-medium text-ink">{l.productName}</TD>
-                  <TD>
-                    {(() => {
-                      const linePriceType = resolveSalesLinePriceType(l, inv.priceType);
-                      return (
-                        <Badge tone={linePriceType === "retail" ? "blue" : "slate"}>
-                          {salesPriceTypeLabel(linePriceType)}
-                        </Badge>
-                      );
-                    })()}
-                  </TD>
+                  {multiSalePricesEnabled && (
+                    <TD>
+                      {(() => {
+                        const linePriceType = resolveSalesLinePriceType(l, inv.priceType);
+                        return (
+                          <Badge tone={linePriceType === "retail" ? "blue" : "slate"}>
+                            {salesPriceTypeLabel(linePriceType)}
+                          </Badge>
+                        );
+                      })()}
+                    </TD>
+                  )}
                   <TD>{l.unit}</TD>
                   <TD className="text-end">{l.quantity}</TD>
                   <TD className="text-end">{formatCurrency(l.price, settings.currency)}</TD>

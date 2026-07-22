@@ -43,13 +43,14 @@ export function InvoicePrintLayout(props: Props) {
     return () => { document.title = prev; };
   }, [props.invoiceNumber, props.kind]);
 
+  const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const isSales = props.kind === "sales";
   const returnsTotal = (props.returns ?? []).reduce((a, r) => a + r.total, 0);
   const paymentLog = props.paymentLog ?? [];
   const overpayment = isSales ? props.overpayment ?? 0 : 0;
   const totalCollected = props.amountPaid + overpayment;
   const fallbackPriceType: SalesPriceType = props.priceTypeLabel === "تجزئة" ? "retail" : "wholesale";
-  const showLinePriceType = isSales && props.lines.some((line) => line.priceType || line.isRetailUnit);
+  const showLinePriceType = isSales && multiSalePricesEnabled && props.lines.some((line) => line.priceType || line.isRetailUnit);
 
   return (
     <div className="min-h-screen bg-canvas py-8 px-4 print:p-0 print:bg-surface" dir="rtl">
@@ -135,10 +136,17 @@ export function InvoicePrintLayout(props: Props) {
           </div>
 
           {/* ── INFO ROW ── */}
-          <div style={{ display: "grid", gridTemplateColumns: props.paymentDueDate ? "1.2fr .85fr .85fr .9fr .9fr" : "1.2fr .85fr .85fr .9fr", gap: 6, marginBottom: 9 }}>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: `1.2fr .85fr ${multiSalePricesEnabled ? ".85fr " : ""}${props.paymentDueDate ? ".9fr " : ""}.9fr`,
+            gap: 6,
+            marginBottom: 9
+          }}>
             <InfoBox label={props.partyLabel} value={props.partyName} accent />
             <InfoBox label="طريقة الدفع" value={props.paymentLabel ?? "—"} />
-            <InfoBox label="نوع السعر" value={props.priceTypeLabel ?? "—"} />
+            {multiSalePricesEnabled && (
+              <InfoBox label="نوع السعر" value={props.priceTypeLabel ?? "—"} />
+            )}
             {props.paymentDueDate ? (
               <InfoBox label="تاريخ الاستحقاق" value={formatDate(props.paymentDueDate)} />
             ) : null}
