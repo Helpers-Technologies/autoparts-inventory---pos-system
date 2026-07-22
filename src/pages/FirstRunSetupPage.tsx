@@ -26,6 +26,7 @@ import { Button } from "../components/ui/Button";
 import { Field, Input, Select } from "../components/ui/Input";
 import { useToast } from "../components/ui/Toast";
 import { hashPassword } from "../lib/auth";
+import { isValidEgyptianMobile, normalizePhoneInput } from "../lib/utils";
 import {
   createPermissions,
   setPermission,
@@ -154,6 +155,9 @@ export function FirstRunSetupPage() {
       if (!companyNameAr.trim()) return "اسم الشركة بالعربية مطلوب";
       if (!ownerName.trim()) return "اسم صاحب الشركة / المحل مطلوب";
       if (!ownerPhone.trim()) return "رقم موبايل صاحب الشركة / المحل مطلوب";
+      if (!isValidEgyptianMobile(ownerPhone)) {
+        return "رقم موبايل صاحب الشركة يجب أن يتكون من 11 رقمًا ويبدأ بـ 01 (مثال: 01018194709)";
+      }
     }
     if (s === 4) {
       if (!backupPath.trim()) return "اختر مجلد النسخ الاحتياطي التلقائي";
@@ -527,11 +531,15 @@ export function FirstRunSetupPage() {
                     placeholder="مثال: عمر أحمد"
                   />
                 </Field>
-                <Field label="رقم موبايل صاحب الشركة / المحل" required>
+                <Field label="رقم موبايل صاحب الشركة / المحل" required hint="يجب أن يتكون من 11 رقمًا ويبدأ بـ 01">
                   <Input
+                    type="tel"
+                    maxLength={11}
                     value={ownerPhone}
-                    onChange={(e) => setOwnerPhone(e.target.value)}
-                    placeholder="مثال: 01118445625"
+                    onChange={(e) => setOwnerPhone(normalizePhoneInput(e.target.value))}
+                    placeholder="01xxxxxxxxx (11 رقم)"
+                    dir="ltr"
+                    className="tracking-wider font-mono text-right"
                   />
                 </Field>
               </>

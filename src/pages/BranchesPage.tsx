@@ -78,7 +78,6 @@ export function BranchesPage() {
     <div className="space-y-5" dir="rtl">
       <AutoPartsHero
         icon={Building2}
-        eyebrow="MULTI BRANCH · STOCK ALLOCATION · TRANSFERS"
         title="الفروع وتوزيع قطع الغيار"
         description="إجمالي المنتج يظل ثابتًا، بينما يوضح النظام مكان وجود كل وحدة ويمنع التحويل بأكثر من المتاح."
         stats={[

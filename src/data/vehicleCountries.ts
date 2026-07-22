@@ -162,7 +162,7 @@ export function normalizeVehicleCountryCode(value?: string): string | undefined 
   return COUNTRY_CODE_ALIASES[normalized.toLowerCase()];
 }
 
-export function inferVehicleCountryCode(make: Pick<VehicleMake, "slug" | "country" | "countryCode">): string | undefined {
+export function inferVehicleCountryCode(make: { slug: string; country?: string; countryCode?: string }): string | undefined {
   return normalizeVehicleCountryCode(make.countryCode) ??
     normalizeVehicleCountryCode(make.country) ??
     COUNTRY_BY_SLUG.get(make.slug);

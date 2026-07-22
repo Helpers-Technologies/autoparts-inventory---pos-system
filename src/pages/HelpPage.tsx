@@ -25,7 +25,6 @@ export function HelpPage() {
     [isEnabled]
   );
   const sections = useMemo(() => searchHelp(available, query), [available, query]);
-  const totalQuestions = available.reduce((sum, section) => sum + section.items.length, 0);
   const resultQuestions = sections.reduce((sum, section) => sum + section.items.length, 0);
   const canViewPartsFinder = hasPermission(currentUser, "products");
 

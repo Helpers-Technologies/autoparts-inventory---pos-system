@@ -6,12 +6,12 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Field, Input, Select } from "../components/ui/Input";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { YearSelect } from "../components/ui/YearSelect";
 import { useSettings } from "../store/SettingsContext";
 import { useCatalog } from "../store/CatalogContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { formatCurrency } from "../lib/format";
 import { productMatchesSearch } from "../lib/partSearch";
-import { vehicleCountryLabel } from "../data/vehicleCountries";
 import { ProductDetailsDrawer } from "../features/products/ProductDetailsDrawer";
 import type { Product } from "../types";
 
@@ -87,7 +87,7 @@ export function PartsFinderPage() {
           </Field>
           <Field label="الجيل"><Select value={generationId} onChange={(e) => { setGenerationId(e.target.value); setEngineId(""); }} disabled={!modelId}><option value="">كل الأجيال</option>{generations.map((generation) => <option key={generation.id} value={generation.id}>{generation.name}</option>)}</Select></Field>
           <Field label="المحرك"><Select value={engineId} onChange={(e) => setEngineId(e.target.value)} disabled={!generationId}><option value="">كل المحركات</option>{engines.map((engine) => <option key={engine.id} value={engine.id}>{engine.name}{engine.code ? ` — ${engine.code}` : ""}</option>)}</Select></Field>
-          <Field label="سنة الصنع"><Input type="number" min={1900} max={2100} value={year} onChange={(e) => setYear(e.target.value)} placeholder="مثال: 2020" /></Field>
+          <Field label="سنة الصنع"><YearSelect value={year} onChange={(val) => setYear(val)} placeholder="كل السنوات" /></Field>
         </CardBody>
       </Card>
 

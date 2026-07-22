@@ -269,18 +269,18 @@ export function AutoPartsReportsPage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card>
-          <CardHeader title="المخزون الراكد" subtitle="رصيد لم يتحرك خلال آخر 90 يومًا" actions={<Button size="xs" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("stagnant")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
+          <CardHeader title="المخزون الراكد" subtitle="رصيد لم يتحرك خلال آخر 90 يومًا" actions={<Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("stagnant")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
           <CardBody>{deadStock.length === 0 ? <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="لا يوجد مخزون راكد" /> : <div className="space-y-2">{deadStock.slice(0, 12).map((product) => <div key={product.id} className="flex items-center justify-between gap-3 rounded-xl border border-line p-3"><div><div className="text-sm font-semibold">{product.name}</div><div className="font-mono text-[11px] text-ink-faint" dir="ltr">{product.partNumber || product.code}</div></div><div className="text-left"><Badge tone="amber">{product.quantity} وحدة</Badge><div className="mt-1 text-xs font-semibold">{formatCurrency(product.quantity * product.purchasePrice, settings.currency)}</div></div></div>)}</div>}</CardBody>
         </Card>
         <Card>
-          <CardHeader title={<span className="flex items-center gap-2"><Undo2 className="h-4 w-4 text-rose-600" /> مراقبة المرتجعات</span>} subtitle="القطع الأعلى في الكمية المرتجعة" actions={<Button size="xs" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("returns")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
+          <CardHeader title={<span className="flex items-center gap-2"><Undo2 className="h-4 w-4 text-rose-600" /> مراقبة المرتجعات</span>} subtitle="القطع الأعلى في الكمية المرتجعة" actions={<Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("returns")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
           <CardBody>{returnedByProduct.size === 0 ? <EmptyState icon={<Undo2 className="h-5 w-5" />} title="لا توجد مرتجعات مبيعات" /> : <div className="space-y-2">{[...returnedByProduct.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([productId, quantity]) => { const product = productById.get(productId); return <div key={productId} className="flex items-center justify-between rounded-xl border border-line p-3"><div><div className="text-sm font-semibold">{product?.name || "منتج محذوف"}</div><div className="font-mono text-[11px] text-ink-faint" dir="ltr">{product?.partNumber || product?.code || productId}</div></div><Badge tone="rose">{quantity} مرتجع</Badge></div>; })}</div>}</CardBody>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-4 items-start">
         <Card>
-          <CardHeader title="مقترحات إعادة الطلب" subtitle="القطع التي وصلت للحد الأدنى أو نفدت" actions={<Button size="xs" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("reorder")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
+          <CardHeader title="مقترحات إعادة الطلب" subtitle="القطع التي وصلت للحد الأدنى أو نفدت" actions={<Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("reorder")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
           <CardBody>
             {reorderRows.length === 0 ? <EmptyState icon={<ShieldCheck className="w-5 h-5" />} title="المخزون في حالة جيدة" /> : (
               <Table><THead><TR><TH>رقم القطعة</TH><TH>الصنف</TH><TH>الموقع</TH><TH className="text-end">الحالي</TH><TH className="text-end">الحد الأدنى</TH><TH className="text-end">المقترح طلبه</TH></TR></THead><TBody>{reorderRows.map(({ product, suggested }) => <TR key={product.id}><TD className="font-mono text-xs" dir="ltr">{product.partNumber || product.code}</TD><TD><div className="font-medium">{product.name}</div><div className="text-[11px] text-ink-faint" dir="ltr">{product.partBrand || "—"}</div></TD><TD className="font-mono text-xs" dir="ltr">{product.rackLocation || "—"}</TD><TD className="text-end"><Badge tone={product.quantity <= 0 ? "red" : "amber"}>{product.quantity}</Badge></TD><TD className="text-end">{product.minStock}</TD><TD className="text-end font-bold text-brand-700">{suggested}</TD></TR>)}</TBody></Table>
@@ -327,8 +327,8 @@ function PrintableReportView({
   currency: string;
 }) {
   function downloadXlsx() {
-    let headers = [];
-    let rows = [];
+    let headers: string[] = [];
+    let rows: any[][] = [];
     let fileName = "";
     
     if (target === "stagnant") {

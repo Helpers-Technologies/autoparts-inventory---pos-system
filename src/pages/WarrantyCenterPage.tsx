@@ -76,9 +76,29 @@ export function WarrantyCenterPage() {
       }))
     .sort((a, b) => b.soldAt.localeCompare(a.soldAt)), [products, salesInvoices, today]);
 
+  const [coverageFilter, setCoverageFilter] = useState<"all" | "active" | "expired">("all");
+  const [claimStatusFilter, setClaimStatusFilter] = useState<string>("all");
+
   const q = query.trim().toLowerCase();
-  const filteredCoverage = coverage.filter((row) => `${row.invoiceNumber} ${row.customerName} ${row.productName}`.toLowerCase().includes(q));
-  const filteredClaims = pro.warrantyClaims.filter((claim) => `${claim.invoiceNumber} ${claim.customerName} ${claim.productName} ${claim.serialNumber ?? ""}`.toLowerCase().includes(q));
+  const filteredCoverage = useMemo(() => {
+    return coverage
+      .filter((row) => {
+        if (coverageFilter === "active") return row.active;
+        if (coverageFilter === "expired") return !row.active;
+        return true;
+      })
+      .filter((row) => `${row.invoiceNumber} ${row.customerName} ${row.productName}`.toLowerCase().includes(q));
+  }, [coverage, coverageFilter, q]);
+
+  const filteredClaims = useMemo(() => {
+    return pro.warrantyClaims
+      .filter((claim) => {
+        if (claimStatusFilter !== "all") return claim.status === claimStatusFilter;
+        return true;
+      })
+      .filter((claim) => `${claim.invoiceNumber} ${claim.customerName} ${claim.productName} ${claim.serialNumber ?? ""}`.toLowerCase().includes(q));
+  }, [claimStatusFilter, pro.warrantyClaims, q]);
+
   const openClaims = pro.warrantyClaims.filter((claim) => !["rejected", "replaced"].includes(claim.status));
 
   function submitClaim() {
@@ -114,7 +134,6 @@ export function WarrantyCenterPage() {
     <div className="space-y-5" dir="rtl">
       <AutoPartsHero
         icon={ShieldCheck}
-        eyebrow="WARRANTY · SERIAL · SUPPLIER CLAIMS"
         title="مركز ضمان قطع الغيار"
         description="الضمان يُنشأ تلقائيًا من تاريخ فاتورة البيع ومدة ضمان المنتج، مع متابعة الفحص والمورد والاستبدال."
         stats={[
@@ -130,7 +149,29 @@ export function WarrantyCenterPage() {
             <button type="button" onClick={() => setTab("coverage")} className={`rounded-lg px-4 py-2 text-sm font-bold ${tab === "coverage" ? "bg-surface text-brand-700 shadow-sm" : "text-ink-muted"}`}>الضمانات المباعة</button>
             <button type="button" onClick={() => setTab("claims")} className={`rounded-lg px-4 py-2 text-sm font-bold ${tab === "claims" ? "bg-surface text-brand-700 shadow-sm" : "text-ink-muted"}`}>طلبات الضمان ({pro.warrantyClaims.length})</button>
           </div>
-          <div className="relative w-full md:max-w-sm"><Search className="absolute right-3 top-2.5 h-4 w-4 text-ink-faint" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="فاتورة، عميل، قطعة أو سيريال..." className="pr-10" /></div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {tab === "coverage" ? (
+              <Select value={coverageFilter} onChange={(e) => setCoverageFilter(e.target.value as "all" | "active" | "expired")} className="w-full sm:w-44">
+                <option value="all">كل الضمانات</option>
+                <option value="active">السارية فقط</option>
+                <option value="expired">المنتهية فقط</option>
+              </Select>
+            ) : (
+              <Select value={claimStatusFilter} onChange={(e) => setClaimStatusFilter(e.target.value)} className="w-full sm:w-44">
+                <option value="all">كل الحالات</option>
+                <option value="open">طلب جديد</option>
+                <option value="inspecting">تحت الفحص</option>
+                <option value="supplier">عند المورد</option>
+                <option value="approved">تمت الموافقة</option>
+                <option value="replaced">تم الاستبدال</option>
+                <option value="rejected">مرفوض</option>
+              </Select>
+            )}
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute right-3 top-2.5 h-4 w-4 text-ink-faint" />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="فاتورة، عميل، قطعة أو سيريال..." className="pr-10" />
+            </div>
+          </div>
         </CardBody>
       </Card>
 

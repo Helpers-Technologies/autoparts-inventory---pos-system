@@ -7,7 +7,9 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { SuppliersPage } from "./pages/SuppliersPage";
+import { SupplierDetailPage } from "./pages/SupplierDetailPage";
 import { CustomersPage } from "./pages/CustomersPage";
+import { CustomerDetailPage } from "./pages/CustomerDetailPage";
 import { PurchaseInvoicesPage } from "./pages/PurchaseInvoicesPage";
 import { PurchaseInvoiceNewPage } from "./pages/PurchaseInvoiceNewPage";
 import { PurchaseInvoiceDetailPage } from "./pages/PurchaseInvoiceDetailPage";
@@ -186,10 +188,26 @@ export default function App() {
         }
       />
       <Route
+        path="/suppliers/:id"
+        element={
+          <ProtectedShell permission="suppliers" feature="suppliers">
+            <SupplierDetailPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
         path="/customers"
         element={
           <ProtectedShell permission="customers" feature="customers">
             <CustomersPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
+        path="/customers/:id"
+        element={
+          <ProtectedShell permission="customers" feature="customers">
+            <CustomerDetailPage />
           </ProtectedShell>
         }
       />

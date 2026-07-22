@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { cn } from "../lib/utils";
+import { cn, isValidEgyptianMobile, normalizePhoneInput } from "../lib/utils";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -9,7 +9,8 @@ import { useApp } from "../store/AppContext";
 import { useToast } from "../components/ui/Toast";
 import { lsGet } from "../lib/storage";
 import { FEATURES, defaultFeatureState, isAllowedByLicense, type FeatureKey } from "../lib/features";
-import { Save, Printer, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle } from "lucide-react";
+import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle } from "lucide-react";
+import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import {
   DEFAULT_INVOICE_WHATSAPP_TEMPLATE,
   WHATSAPP_INVOICE_TAGS,
@@ -166,6 +167,10 @@ export function SettingsPage() {
       toast.error("بيانات غير مكتملة", "رقم موبايل صاحب الشركة / المحل مطلوب");
       return;
     }
+    if (!isValidEgyptianMobile(form.ownerPhone)) {
+      toast.error("رقم موبايل غير صحيح", "رقم الموبايل يجب أن يتكون من 11 رقمًا ويبدأ بـ 01 (مثال: 01018194709)");
+      return;
+    }
 
     const derivedLogoText = form.companyNameAr?.trim()
       ? form.companyNameAr.trim().slice(0, 2)
@@ -315,10 +320,15 @@ export function SettingsPage() {
                   onChange={(e) => setForm({ ...form, ownerName: e.target.value })}
                 />
               </Field>
-              <Field label="رقم موبايل صاحب الشركة / المحل" required>
+              <Field label="رقم موبايل صاحب الشركة / المحل" required hint="يجب أن يتكون من 11 رقمًا ويبدأ بـ 01">
                 <Input
+                  type="tel"
+                  maxLength={11}
                   value={form.ownerPhone || ""}
-                  onChange={(e) => setForm({ ...form, ownerPhone: e.target.value })}
+                  onChange={(e) => setForm({ ...form, ownerPhone: normalizePhoneInput(e.target.value) })}
+                  placeholder="01xxxxxxxxx (11 رقم)"
+                  dir="ltr"
+                  className="tracking-wider font-mono text-right"
                 />
               </Field>
             </div>

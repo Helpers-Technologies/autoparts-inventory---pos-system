@@ -90,3 +90,20 @@ export function monthLabel(yyyymm: string): string {
   const [y, m] = yyyymm.split("-").map(Number);
   return `${MONTH_NAMES_AR[m - 1]} ${y}`;
 }
+
+/** Validates that a phone number is an 11-digit Egyptian mobile number starting with 01 */
+export function isValidEgyptianMobile(phone: string): boolean {
+  const digits = phone.trim().replace(/\D/g, "");
+  return /^01\d{9}$/.test(digits);
+}
+
+/** Formats/cleans phone input to only allow up to 11 digits */
+export function normalizePhoneInput(value: string): string {
+  const arabicDigits = "٠١٢٣٤٥٦٧٨٩";
+  const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
+  const normalized = value
+    .replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String(persianDigits.indexOf(digit)))
+    .replace(/\D/g, "");
+  return normalized.slice(0, 11);
+}

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBlocker, useNavigate } from "react-router-dom";
 import { ArrowRight, Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
@@ -21,6 +21,7 @@ import { SupplierFormDialog } from "../features/suppliers/SupplierForm";
 import { useAuth } from "../store/AuthContext";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
+import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
 
 interface LineDraft {
   id: string;
@@ -483,14 +484,13 @@ function ProductCombo({
   onChange: (id: string) => void;
 }) {
   return (
-    <Select aria-label="المنتج" value={value} onChange={(e) => onChange(e.target.value)} className="w-full">
-      <option value="">— اختر منتجاً —</option>
-      {products.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.partNumber || p.code} — {p.name}{p.partBrand ? ` (${p.partBrand})` : ""}
-        </option>
-      ))}
-    </Select>
+    <SearchableProductSelect
+      products={products}
+      value={value}
+      onChange={onChange}
+      placeholder="— اختر منتجاً أو ابحث —"
+      showStock
+    />
   );
 }
 

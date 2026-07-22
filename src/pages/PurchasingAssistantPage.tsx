@@ -81,7 +81,6 @@ export function PurchasingAssistantPage() {
     <div className="space-y-5" dir="rtl">
       <AutoPartsHero
         icon={Sparkles}
-        eyebrow="DEMAND FORECAST · REORDER · SUPPLIER COST"
         title="مساعد المشتريات الذكي"
         description="يحوّل حركة البيع والحد الأدنى والتغطية بالأيام إلى خطة طلب واضحة، مع آخر مورد وتكلفة وميزانية متوقعة."
         stats={[

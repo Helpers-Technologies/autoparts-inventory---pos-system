@@ -274,7 +274,7 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
 
   const updateVehicleCatalogPreferences = useCallback(
     (patch: Partial<VehicleCatalogPreferences>) => {
-      setVehicleCatalogPreferences((current) =>
+      setVehicleCatalogPreferences((current: VehicleCatalogPreferences) =>
         normalizePreferences({ ...current, ...patch, updatedAt: now() }),
       );
     },

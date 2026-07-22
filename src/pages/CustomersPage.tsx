@@ -1,6 +1,21 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, Plus, Trash2, Eye, Users, Search, ScrollText, Archive, ArchiveRestore } from "lucide-react";
-import { PageHeader } from "../components/layout/AppLayout";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Pencil,
+  Plus,
+  Trash2,
+  Eye,
+  Users,
+  Search,
+  ScrollText,
+  Archive,
+  ArchiveRestore,
+  Wallet,
+  UserRound,
+  Car,
+  ShoppingBag,
+  TrendingUp,
+} from "lucide-react";
+import { AutoPartsHero } from "../components/AutoPartsHero";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
@@ -8,17 +23,30 @@ import { Input, Field, Select, Textarea } from "../components/ui/Input";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
 import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
-import { Drawer } from "../components/ui/Drawer";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useReporting } from "../store/ReportingContext";
 import { useAuth } from "../store/AuthContext";
 import { useSettings } from "../store/SettingsContext";
+import { useAutoPartsPro } from "../store/AutoPartsProContext";
 import { useToast } from "../components/ui/Toast";
 import { formatCurrency, formatDate } from "../lib/format";
 import type { Customer } from "../types";
 import { Link, useLocation } from "react-router-dom";
 import { hasPermission } from "../lib/permissions";
+
+type Segment = "all" | "debtors" | "creditors" | "inactive";
+type SortKey = "recent" | "purchases" | "balance" | "name" | "new";
+
+interface CustomerRow {
+  customer: Customer;
+  archived: boolean;
+  invoiceCount: number;
+  totalPurchases: number;
+  lastActivity?: string;
+  vehicles: number;
+  balance: number;
+}
 
 export function CustomersPage() {
   const { customers, addCustomer, updateCustomer, deleteCustomer, archiveCustomer, nextCustomerCode } = useCatalog();
@@ -26,6 +54,7 @@ export function CustomersPage() {
   const { customerBalance } = useReporting();
   const { currentUser } = useAuth();
   const { settings } = useSettings();
+  const { customerVehicles } = useAutoPartsPro();
   const toast = useToast();
   const loc = useLocation();
   const canAddCustomer = hasPermission(currentUser, "customers", "add");
@@ -46,36 +75,110 @@ export function CustomersPage() {
   }, []);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
-  const [viewing, setViewing] = useState<Customer | null>(null);
   const [toDelete, setToDelete] = useState<Customer | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [segment, setSegment] = useState<Segment>("all");
+  const [sortBy, setSortBy] = useState<SortKey>("recent");
 
   const [form, setForm] = useState<Omit<Customer, "id" | "createdAt">>({
     code: "",
     name: "",
     phone: "",
     address: "",
-    shippingDirection: undefined,
     notes: "",
   });
 
-  const archivedCount = useMemo(() => customers.filter((c) => c.archived).length, [customers]);
+  // ── Per-customer analytics ──
+  const allRows = useMemo<CustomerRow[]>(() => {
+    return customers.map((c) => {
+      const invs = salesInvoices.filter((s) => s.customerId === c.id && !s.cancelled);
+      const totalPurchases = invs.reduce((sum, s) => sum + s.total, 0);
+      const lastActivity = invs.map((s) => s.date).sort().at(-1);
+      const vehicles = customerVehicles.filter((v) => v.customerId === c.id && !v.archived).length;
+      return {
+        customer: c,
+        archived: !!c.archived,
+        invoiceCount: invs.length,
+        totalPurchases,
+        lastActivity,
+        vehicles,
+        balance: customerBalance(c.id),
+      };
+    });
+  }, [customers, salesInvoices, customerVehicles, customerBalance]);
 
-  const filtered = useMemo(() => {
-    const active = customers.filter((c) => !c.archived);
-    if (!q.trim()) return active;
+  const rows = useMemo(() => allRows.filter((r) => !r.archived), [allRows]);
+  const archivedRows = useMemo(() => allRows.filter((r) => r.archived), [allRows]);
+  const archivedCount = archivedRows.length;
+
+  const stats = useMemo(() => {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    let totalPurchases = 0;
+    let receivables = 0;
+    let debtors = 0;
+    let activeThisMonth = 0;
+    for (const r of rows) {
+      totalPurchases += r.totalPurchases;
+      if (r.balance > 0) {
+        receivables += r.balance;
+        debtors += 1;
+      }
+      if (r.lastActivity?.startsWith(ym)) activeThisMonth += 1;
+    }
+    return { activeCount: rows.length, totalPurchases, receivables, debtors, activeThisMonth };
+  }, [rows]);
+
+  const segCounts = useMemo(
+    () => ({
+      all: rows.length,
+      debtors: rows.filter((r) => r.balance > 0).length,
+      creditors: rows.filter((r) => r.balance < 0).length,
+      inactive: rows.filter((r) => r.invoiceCount === 0).length,
+    }),
+    [rows]
+  );
+
+  const visible = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return active.filter(
-      (c) =>
-        c.name.toLowerCase().includes(t) ||
-        (c.phone ?? "").toLowerCase().includes(t) ||
-        (c.code ?? "").toLowerCase().includes(t)
-    );
-  }, [q, customers]);
+    let list = rows.filter((r) => {
+      if (t) {
+        const matches =
+          r.customer.name.toLowerCase().includes(t) ||
+          (r.customer.phone ?? "").toLowerCase().includes(t) ||
+          (r.customer.code ?? "").toLowerCase().includes(t);
+        if (!matches) return false;
+      }
+      if (segment === "debtors") return r.balance > 0;
+      if (segment === "creditors") return r.balance < 0;
+      if (segment === "inactive") return r.invoiceCount === 0;
+      return true;
+    });
+    list = [...list];
+    switch (sortBy) {
+      case "purchases":
+        list.sort((a, b) => b.totalPurchases - a.totalPurchases);
+        break;
+      case "balance":
+        list.sort((a, b) => b.balance - a.balance);
+        break;
+      case "name":
+        list.sort((a, b) => a.customer.name.localeCompare(b.customer.name, "ar"));
+        break;
+      case "new":
+        list.sort((a, b) => (b.customer.createdAt ?? "").localeCompare(a.customer.createdAt ?? ""));
+        break;
+      case "recent":
+      default:
+        list.sort((a, b) => (b.lastActivity ?? "").localeCompare(a.lastActivity ?? ""));
+        break;
+    }
+    return list;
+  }, [rows, q, segment, sortBy]);
 
   function openNew() {
     setEditing(null);
-    setForm({ code: `CUS-${String(nextCustomerCode).padStart(4, "0")}`, name: "", phone: "", address: "", shippingDirection: undefined, notes: "" });
+    setForm({ code: `CUS-${String(nextCustomerCode).padStart(4, "0")}`, name: "", phone: "", address: "", notes: "" });
     setOpen(true);
   }
   function openEdit(c: Customer) {
@@ -85,7 +188,6 @@ export function CustomersPage() {
       name: c.name,
       phone: c.phone ?? "",
       address: c.address ?? "",
-      shippingDirection: c.shippingDirection,
       notes: c.notes ?? "",
     });
     setOpen(true);
@@ -105,10 +207,6 @@ export function CustomersPage() {
     }
     if (!form.address?.trim()) {
       toast.error("العنوان مطلوب");
-      return;
-    }
-    if (!form.shippingDirection) {
-      toast.error("اتجاه الشحن مطلوب");
       return;
     }
     if (editing) {
@@ -132,18 +230,15 @@ export function CustomersPage() {
     setToDelete(null);
   }
 
-  const viewingInvoices = viewing
-    ? salesInvoices.filter((s) => s.customerId === viewing.id)
-    : [];
-
   return (
     <>
-      <PageHeader
-        title="العملاء"
-        description={`إدارة العملاء وأرصدتهم (${customers.length})`}
+      <AutoPartsHero
+        icon={Users}
+        title="عملاء المحل وحساباتهم"
+        description="قاعدة بيانات العملاء مع سياراتهم وأرصدتهم وسجل مشترياتهم وكشوف حساباتهم — تابع تعاملات كل عميل من مكان واحد."
         actions={
           canAddCustomer ? (
-            <Button onClick={openNew}>
+            <Button onClick={openNew} className="h-10 bg-amber-400 text-slate-950 hover:bg-amber-300">
               <Plus className="w-4 h-4" />
               إضافة عميل
             </Button>
@@ -151,9 +246,41 @@ export function CustomersPage() {
         }
       />
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <StatCard
+          icon={<UserRound className="w-5 h-5" />}
+          label="إجمالي العملاء"
+          value={String(stats.activeCount)}
+          detail={archivedCount > 0 ? `${archivedCount} في الأرشيف` : "كل العملاء نشطون"}
+          tone="blue"
+        />
+        <StatCard
+          icon={<ShoppingBag className="w-5 h-5" />}
+          label="إجمالي مشتريات العملاء"
+          value={formatCurrency(stats.totalPurchases, settings.currency)}
+          detail="قيمة كل فواتير البيع"
+          tone="green"
+        />
+        <StatCard
+          icon={<Wallet className="w-5 h-5" />}
+          label="مستحق على العملاء"
+          value={formatCurrency(stats.receivables, settings.currency)}
+          detail={stats.debtors > 0 ? `${stats.debtors} عميل مدين` : "لا مديونيات"}
+          tone="amber"
+        />
+        <StatCard
+          icon={<TrendingUp className="w-5 h-5" />}
+          label="نشطون هذا الشهر"
+          value={String(stats.activeThisMonth)}
+          detail="عميل تعامل خلال الشهر الحالي"
+          tone="indigo"
+        />
+      </div>
+
       <Card>
         <CardHeader
           title="قائمة العملاء"
+          subtitle={`عرض ${visible.length} من ${rows.length} عميل`}
           actions={archivedCount > 0 ? (
             <Button
               size="sm"
@@ -167,23 +294,46 @@ export function CustomersPage() {
           ) : undefined}
         />
         <CardBody className="space-y-3">
-          <div className="relative w-72">
-            <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
-            <Input
-              ref={searchRef}
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="بحث بالاسم أو الهاتف أو الكود (/ أو Ctrl+F)"
-              className="pe-9"
-            />
+          {/* Controls: search + sort */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
+              <Input
+                ref={searchRef}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="بحث بالاسم أو الهاتف أو الكود (/ أو Ctrl+F)"
+                className="pe-9"
+              />
+            </div>
+            <Select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+              className="w-full sm:w-52"
+            >
+              <option value="recent">الأحدث تعاملاً</option>
+              <option value="purchases">الأكثر شراءً</option>
+              <option value="balance">الأعلى مديونية</option>
+              <option value="name">الاسم أبجدياً (أ-ي)</option>
+              <option value="new">الأحدث إضافةً</option>
+            </Select>
           </div>
-          {filtered.length === 0 ? (
+
+          {/* Segment filter chips */}
+          <div className="flex flex-wrap gap-1.5">
+            <SegmentChip label="الكل" count={segCounts.all} active={segment === "all"} onClick={() => setSegment("all")} />
+            <SegmentChip label="عليهم مستحقات" count={segCounts.debtors} active={segment === "debtors"} onClick={() => setSegment("debtors")} tone="amber" />
+            <SegmentChip label="لهم رصيد دائن" count={segCounts.creditors} active={segment === "creditors"} onClick={() => setSegment("creditors")} tone="green" />
+            <SegmentChip label="بدون تعاملات" count={segCounts.inactive} active={segment === "inactive"} onClick={() => setSegment("inactive")} tone="slate" />
+          </div>
+
+          {visible.length === 0 && (!showArchived || archivedRows.length === 0) ? (
             <EmptyState
               icon={<Users className="w-5 h-5" />}
-              title="لا يوجد عملاء"
-              description="ابدأ بإضافة أول عميل."
+              title={q.trim() || segment !== "all" ? "لا يوجد عملاء مطابقون" : "لا يوجد عملاء"}
+              description={q.trim() || segment !== "all" ? "جرّب تعديل البحث أو الفلتر." : "ابدأ بإضافة أول عميل."}
               action={
-                canAddCustomer ? (
+                canAddCustomer && !q.trim() && segment === "all" ? (
                   <Button onClick={openNew}><Plus className="w-4 h-4" /> إضافة عميل</Button>
                 ) : undefined
               }
@@ -192,78 +342,110 @@ export function CustomersPage() {
             <Table>
               <THead>
                 <TR>
-                  <TH>الكود</TH>
-                  <TH>اسم العميل</TH>
+                  <TH>العميل</TH>
                   <TH>الهاتف</TH>
-                  <TH>الاتجاه</TH>
+                  <TH className="text-center">السيارات</TH>
+                  <TH className="text-center">الفواتير</TH>
+                  <TH className="text-end">إجمالي المشتريات</TH>
+                  <TH>آخر تعامل</TH>
                   <TH className="text-end">الرصيد الحالي</TH>
                   <TH className="text-end">إجراءات</TH>
                 </TR>
               </THead>
               <TBody>
-                {filtered.map((c) => {
-                  const bal = customerBalance(c.id);
-                  return (
-                    <TR key={c.id}>
-                      <TD className="text-ink-muted font-mono text-xs">{c.code ?? "—"}</TD>
-                      <TD className="font-medium text-ink">{c.name}</TD>
-                      <TD className="text-ink-muted">{c.phone ?? "—"}</TD>
-                      <TD>
-                        {c.shippingDirection === "qibli" ? (
-                          <Badge tone="amber">قبلي</Badge>
-                        ) : c.shippingDirection === "bahri" ? (
-                          <Badge tone="blue">بحري</Badge>
-                        ) : (
-                          <span className="text-ink-faint text-xs">—</span>
-                        )}
-                      </TD>
-                      <TD className="text-end">
-                        {bal > 0 ? (
-                          <Badge tone="amber">عليه {formatCurrency(bal, settings.currency)}</Badge>
-                        ) : bal < 0 ? (
-                          <Badge tone="green">له رصيد {formatCurrency(-bal, settings.currency)}</Badge>
-                        ) : (
-                          <Badge tone="green">لا يوجد مستحق</Badge>
-                        )}
-                      </TD>
-                      <TD className="text-end">
-                        <div className="inline-flex items-center gap-1">
-                          <Link
-                            to={`/customers/${c.id}/statement`}
-                            title="كشف حساب"
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-md text-ink-muted hover:bg-surface-muted hover:text-ink transition-colors"
-                          >
-                            <ScrollText className="w-4 h-4" />
-                          </Link>
-                          <Button size="icon" variant="ghost" onClick={() => setViewing(c)}>
-                            <Eye className="w-4 h-4" />
+                {visible.map(({ customer: c, invoiceCount, totalPurchases, lastActivity, vehicles, balance }) => (
+                  <TR key={c.id}>
+                    <TD>
+                      <Link
+                        to={`/customers/${c.id}`}
+                        className="flex items-center gap-2.5 text-start group"
+                      >
+                        <span className="w-9 h-9 rounded-lg bg-brand-50 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 grid place-items-center text-xs font-bold shrink-0">
+                          {initials(c.name)}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block font-medium text-ink group-hover:text-brand-700 dark:group-hover:text-brand-300 transition-colors truncate">{c.name}</span>
+                          <span className="block font-mono text-[11px] text-ink-faint">{c.code ?? "—"}</span>
+                        </span>
+                      </Link>
+                    </TD>
+                    <TD className="text-ink-muted" dir="ltr">{c.phone ?? "—"}</TD>
+                    <TD className="text-center">
+                      {vehicles > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-ink-muted">
+                          <Car className="w-3.5 h-3.5 text-brand-600" />
+                          {vehicles}
+                        </span>
+                      ) : (
+                        <span className="text-ink-faint">—</span>
+                      )}
+                    </TD>
+                    <TD className="text-center text-ink-muted">{invoiceCount > 0 ? invoiceCount : <span className="text-ink-faint">—</span>}</TD>
+                    <TD className="text-end font-mono text-ink">{totalPurchases > 0 ? formatCurrency(totalPurchases, settings.currency) : <span className="text-ink-faint">—</span>}</TD>
+                    <TD className="text-ink-muted text-xs">{lastActivity ? formatDate(lastActivity) : <span className="text-ink-faint">لا يوجد</span>}</TD>
+                    <TD className="text-end">
+                      {balance > 0 ? (
+                        <Badge tone="amber">عليه {formatCurrency(balance, settings.currency)}</Badge>
+                      ) : balance < 0 ? (
+                        <Badge tone="green">له {formatCurrency(-balance, settings.currency)}</Badge>
+                      ) : (
+                        <Badge tone="slate">لا مستحق</Badge>
+                      )}
+                    </TD>
+                    <TD className="text-end">
+                      <div className="inline-flex items-center gap-1">
+                        <Link
+                          to={`/customers/${c.id}/statement`}
+                          title="كشف حساب"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-md text-ink-muted hover:bg-surface-muted hover:text-ink transition-colors"
+                        >
+                          <ScrollText className="w-4 h-4" />
+                        </Link>
+                        <Link
+                          to={`/customers/${c.id}`}
+                          title="عرض الملف"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-md text-ink-muted hover:bg-surface-muted hover:text-ink transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Link>
+                        {canEditCustomer ? (
+                          <Button size="icon" variant="ghost" title="تعديل" onClick={() => openEdit(c)}>
+                            <Pencil className="w-4 h-4" />
                           </Button>
-                          {canEditCustomer ? (
-                            <Button size="icon" variant="ghost" onClick={() => openEdit(c)}>
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                          ) : null}
-                          {canDeleteCustomer ? (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-500/10"
-                              onClick={() => setToDelete(c)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          ) : null}
-                        </div>
-                      </TD>
-                    </TR>
-                  );
-                })}
-                {showArchived && customers.filter((c) => c.archived).map((c) => (
-                  <TR key={c.id} className="opacity-50 bg-surface-muted">
-                    <TD className="text-ink-faint font-mono text-xs">{c.code ?? "—"}</TD>
-                    <TD className="text-ink-muted line-through">{c.name}</TD>
-                    <TD className="text-ink-faint">{c.phone ?? "—"}</TD>
-                    <TD />
+                        ) : null}
+                        {canDeleteCustomer ? (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="حذف"
+                            className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-500/10"
+                            onClick={() => setToDelete(c)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TD>
+                  </TR>
+                ))}
+                {showArchived && archivedRows.map(({ customer: c }) => (
+                  <TR key={c.id} className="opacity-60 bg-surface-muted">
+                    <TD>
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-9 h-9 rounded-lg bg-surface-muted border border-line text-ink-faint grid place-items-center text-xs font-bold shrink-0">
+                          {initials(c.name)}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-ink-muted line-through truncate">{c.name}</span>
+                          <span className="block font-mono text-[11px] text-ink-faint">{c.code ?? "—"}</span>
+                        </span>
+                      </div>
+                    </TD>
+                    <TD className="text-ink-faint" dir="ltr">{c.phone ?? "—"}</TD>
+                    <TD className="text-center text-ink-faint">—</TD>
+                    <TD className="text-center text-ink-faint">—</TD>
+                    <TD className="text-end text-ink-faint">—</TD>
+                    <TD className="text-ink-faint text-xs">مؤرشف</TD>
                     <TD />
                     <TD className="text-end">
                       <div className="inline-flex items-center gap-1">
@@ -338,21 +520,6 @@ export function CustomersPage() {
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </Field>
-          <Field label="اتجاه الشحن" required className="col-span-2">
-            <Select
-              value={form.shippingDirection ?? ""}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  shippingDirection: (e.target.value as "qibli" | "bahri") || undefined,
-                })
-              }
-            >
-              <option value="">— غير محدد —</option>
-              <option value="qibli">قبلي (جنوب)</option>
-              <option value="bahri">بحري (شمال)</option>
-            </Select>
-          </Field>
           <Field label="ملاحظات" className="col-span-2">
             <Textarea
               rows={2}
@@ -362,95 +529,6 @@ export function CustomersPage() {
           </Field>
         </div>
       </Dialog>
-
-      <Drawer
-        open={!!viewing}
-        onClose={() => setViewing(null)}
-        title={viewing?.name}
-        subtitle="ملف العميل وسجل الفواتير"
-        width={560}
-      >
-        {viewing ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <Info label="الهاتف">{viewing.phone ?? "—"}</Info>
-              <Info label="العنوان">{viewing.address ?? "—"}</Info>
-              <Info label="الرصيد الحالي">
-                {(() => {
-                  const b = customerBalance(viewing.id);
-                  return (
-                    <span className={`font-semibold ${b > 0 ? "text-rose-700 dark:text-rose-400" : b < 0 ? "text-emerald-700 dark:text-emerald-400" : "text-ink"}`}>
-                      {b > 0
-                        ? `${formatCurrency(b, settings.currency)} (مديونية)`
-                        : b < 0
-                          ? `${formatCurrency(-b, settings.currency)} (رصيد دائن)`
-                          : "لا يوجد مستحق"}
-                    </span>
-                  );
-                })()}
-              </Info>
-              <Info label="عدد الفواتير">{viewingInvoices.length}</Info>
-              {viewing.notes ? (
-                <Info label="ملاحظات" className="col-span-2">
-                  {viewing.notes}
-                </Info>
-              ) : null}
-            </div>
-            <div>
-              <div className="text-sm font-medium mb-2">سجل الفواتير</div>
-              {viewingInvoices.length === 0 ? (
-                <EmptyState title="لا توجد فواتير" />
-              ) : (
-                <div className="border border-line rounded-lg overflow-hidden">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>الفاتورة</TH>
-                        <TH>التاريخ</TH>
-                        <TH className="text-end">الإجمالي</TH>
-                        <TH className="text-end">المتبقي</TH>
-                        <TH className="text-end"></TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {viewingInvoices.map((inv) => (
-                        <TR key={inv.id}>
-                          <TD className="font-mono text-xs">{inv.invoiceNumber}</TD>
-                          <TD>{formatDate(inv.date)}</TD>
-                          <TD className="text-end">
-                            {formatCurrency(inv.total, settings.currency)}
-                          </TD>
-                          <TD className="text-end">
-                            {inv.overpayment && inv.overpayment > 0 ? (
-                              <Badge tone="green">
-                                رصيد دائن {formatCurrency(inv.overpayment, settings.currency)}
-                              </Badge>
-                            ) : inv.remaining > 0 ? (
-                              <Badge tone="amber">
-                                {formatCurrency(inv.remaining, settings.currency)}
-                              </Badge>
-                            ) : (
-                              <Badge tone="green">مسدد</Badge>
-                            )}
-                          </TD>
-                          <TD className="text-end">
-                            <Link
-                              to={`/sales/${inv.id}`}
-                              className="text-xs text-brand-700 hover:underline"
-                            >
-                              عرض
-                            </Link>
-                          </TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : null}
-      </Drawer>
 
       <ConfirmDialog
         open={!!toDelete}
@@ -465,21 +543,77 @@ export function CustomersPage() {
   );
 }
 
-function Info({
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`;
+  return name.trim().slice(0, 2) || "؟";
+}
+
+function SegmentChip({
   label,
-  children,
-  className,
+  count,
+  active,
+  onClick,
+  tone = "brand",
 }: {
   label: string;
-  children: React.ReactNode;
-  className?: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  tone?: "brand" | "amber" | "green" | "slate";
 }) {
+  const activeColors: Record<typeof tone, string> = {
+    brand: "bg-brand-600 text-white border-brand-600",
+    amber: "bg-amber-500 text-white border-amber-500",
+    green: "bg-emerald-600 text-white border-emerald-600",
+    slate: "bg-slate-600 text-white border-slate-600",
+  };
   return (
-    <div
-      className={`bg-surface-muted border border-line rounded-lg p-3 ${className ?? ""}`}
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        active ? activeColors[tone] : "border-line bg-surface text-ink-muted hover:bg-surface-muted hover:text-ink"
+      }`}
     >
-      <div className="text-[11px] text-ink-faint">{label}</div>
-      <div className="text-sm text-ink mt-1">{children}</div>
+      {label}
+      <span className={`rounded-full px-1.5 text-[10px] ${active ? "bg-white/25" : "bg-surface-muted text-ink-faint"}`}>{count}</span>
+    </button>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+  tone: "green" | "red" | "amber" | "blue" | "indigo";
+}) {
+  const colors: Record<typeof tone, string> = {
+    green: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    red: "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400",
+    amber: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    blue: "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400",
+    indigo: "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400",
+  };
+
+  return (
+    <div className="bg-surface border border-line rounded-xl p-4 flex items-center gap-3 shadow-card">
+      <div className={`w-11 h-11 rounded-lg grid place-items-center shrink-0 ${colors[tone]}`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="text-xs text-ink-faint">{label}</div>
+        <div className="font-semibold text-ink text-lg truncate">{value}</div>
+        <div className="text-[11px] text-ink-faint truncate">{detail}</div>
+      </div>
     </div>
   );
 }
+

@@ -1,11 +1,11 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBlocker, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { ConfirmDialog } from "../components/ui/Dialog";
 import { Button } from "../components/ui/Button";
-import { Field, Input, Select, Textarea } from "../components/ui/Input";
+import { Field, Input, Textarea } from "../components/ui/Input";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useCatalog } from "../store/CatalogContext";
@@ -14,6 +14,7 @@ import { useToast } from "../components/ui/Toast";
 import { uid } from "../lib/utils";
 import type { InvoiceLine } from "../types";
 import { formatCurrency } from "../lib/format";
+import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
 
 interface LineDraft {
   id: string;
@@ -221,19 +222,14 @@ export function PurchaseInvoiceEditPage() {
                   const p = products.find((x) => x.id === l.productId);
                   return (
                     <TR key={l.id}>
-                      <TD>
-                        <Select
+                      <TD className="w-80">
+                        <SearchableProductSelect
+                          products={supplierProducts}
                           value={l.productId}
-                          onChange={(e) => updateLine(l.id, { productId: e.target.value })}
-                          className="w-full"
-                        >
-                          <option value="">— اختر منتجاً —</option>
-                          {supplierProducts.map((pr) => (
-                            <option key={pr.id} value={pr.id}>
-                              {pr.name}{pr.category ? ` (${pr.category})` : ""} — {pr.code}
-                            </option>
-                          ))}
-                        </Select>
+                          onChange={(pid) => updateLine(l.id, { productId: pid })}
+                          placeholder="— اختر منتجاً —"
+                          showStock
+                        />
                       </TD>
                       <TD>
                         <Input

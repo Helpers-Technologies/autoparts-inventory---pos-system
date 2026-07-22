@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, FileDown, Filter, MessageCircle, Plus, Receipt, Search, Printer, Trash2 } from "lucide-react";
@@ -209,7 +209,7 @@ export function SalesInvoicesPage() {
                   <TH>العميل</TH>
                   <TH>السائق</TH>
                   <TH className="text-end">الإجمالي</TH>
-                  <TH className="text-end">المستلم</TH>
+                  <TH className="text-end">المدفوع</TH>
                   <TH className="text-end">المتبقي</TH>
                   <TH>الدفع</TH>
                   <TH>الحالة</TH>

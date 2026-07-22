@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Minus, Wallet, HandCoins, Factory, NotebookPen, Users, UserRoundMinus, Search } from "lucide-react";
+import { Plus, Minus, Wallet, HandCoins, Factory, NotebookPen, Search } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -20,9 +20,9 @@ import { formatCurrency, formatDate, PAYMENT_METHOD_LABELS } from "../lib/format
 import { hasPermission } from "../lib/permissions";
 
 export function CashboxPage() {
-  const { customers, suppliers } = useCatalog();
+  const { suppliers } = useCatalog();
   const { cashEntries, salesInvoices, purchaseInvoices, addCashEntry, currentCashBalance } = useInvoicing();
-  const { customerBalance, supplierBalance } = useReporting();
+  const { supplierBalance } = useReporting();
   const { currentUser } = useAuth();
   const { settings, updateSettings } = useSettings();
   const toast = useToast();
@@ -66,14 +66,6 @@ export function CashboxPage() {
   const totalPurchasePayments = useMemo(
     () => purchaseInvoices.reduce((a, s) => a + s.amountPaid + (s.overpayment ?? 0), 0),
     [purchaseInvoices]
-  );
-  const receivables = useMemo(
-    () => customers.reduce((a, c) => a + Math.max(0, customerBalance(c.id)), 0),
-    [customers, customerBalance]
-  );
-  const customerCredits = useMemo(
-    () => customers.reduce((a, c) => a + Math.max(0, -customerBalance(c.id)), 0),
-    [customers, customerBalance]
   );
   const payables = useMemo(
     () => suppliers.reduce((a, s) => a + supplierBalance(s.id), 0),

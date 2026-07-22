@@ -70,7 +70,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { to: "/pos", label: "نقطة البيع (POS)", icon: Monitor, permission: "salesInvoices", feature: "pos" },
       { to: "/sales", label: "فواتير المبيعات", icon: Receipt, permission: "salesInvoices", feature: "salesInvoices" },
-      { to: "/customer-garage", label: "جراج سيارات العملاء", icon: CarFront, permission: "customers" },
+      { to: "/customer-garage", label: "سيارات العملاء", icon: CarFront, permission: "customers" },
       { to: "/quotations", label: "عروض الأسعار", icon: FileText, permission: "salesInvoices", feature: "quotations" },
       { to: "/returns", label: "المرتجعات", icon: ArrowLeftRight, permission: "returns", feature: "returns" },
       { to: "/warranty-center", label: "مركز الضمان", icon: ShieldCheck, permission: "returns" },

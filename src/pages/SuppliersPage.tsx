@@ -1,15 +1,28 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, Plus, Trash2, Eye, Factory, Search, ScrollText, Archive, ArchiveRestore } from "lucide-react";
-import { PageHeader } from "../components/layout/AppLayout";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Pencil,
+  Plus,
+  Trash2,
+  Eye,
+  Factory,
+  Search,
+  ScrollText,
+  Archive,
+  ArchiveRestore,
+  Wallet,
+  ShoppingBag,
+  Package,
+  Gift,
+} from "lucide-react";
+import { AutoPartsHero } from "../components/AutoPartsHero";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
-import { Input } from "../components/ui/Input";
+import { Input, Select } from "../components/ui/Input";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
-import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
+import { ConfirmDialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
-import { Field, Textarea } from "../components/ui/Input";
-import { Drawer } from "../components/ui/Drawer";
+import { SupplierFormDialog } from "../features/suppliers/SupplierForm";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useReporting } from "../store/ReportingContext";
@@ -17,14 +30,26 @@ import { useAuth } from "../store/AuthContext";
 import { useSettings } from "../store/SettingsContext";
 import { useToast } from "../components/ui/Toast";
 import { formatCurrency, formatDate } from "../lib/format";
-import type { Supplier, CommissionTier, CommissionType } from "../types";
-import { Select } from "../components/ui/Input";
+import type { Supplier } from "../types";
 import { hasPermission } from "../lib/permissions";
-import { formatSupplierCode } from "../lib/codes";
 import { Link, useLocation } from "react-router-dom";
 
+type Segment = "all" | "payable" | "credit" | "inactive";
+type SortKey = "recent" | "purchases" | "balance" | "name" | "new";
+
+interface SupplierRow {
+  supplier: Supplier;
+  archived: boolean;
+  invoiceCount: number;
+  totalPurchases: number;
+  lastActivity?: string;
+  parts: number;
+  balance: number;
+  commissionEarned: number;
+}
+
 export function SuppliersPage() {
-  const { suppliers, addSupplier, updateSupplier, deleteSupplier, archiveSupplier, addCommissionTier, updateCommissionTier, deleteCommissionTier, nextSupplierCode } = useCatalog();
+  const { suppliers, products, deleteSupplier, archiveSupplier } = useCatalog();
   const { purchaseInvoices } = useInvoicing();
   const { supplierBalance, calculateSupplierCommission } = useReporting();
   const { currentUser } = useAuth();
@@ -34,7 +59,6 @@ export function SuppliersPage() {
   const canAddSupplier = hasPermission(currentUser, "suppliers", "add");
   const canEditSupplier = hasPermission(currentUser, "suppliers", "edit");
   const canDeleteSupplier = hasPermission(currentUser, "suppliers", "delete");
-  const canManageCommissions = hasPermission(currentUser, "suppliers", "commissions");
 
   const [q, setQ] = useState<string>((loc.state as { initialSearch?: string } | null)?.initialSearch ?? "");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -48,85 +72,108 @@ export function SuppliersPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
-  const [open, setOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
-  const [viewing, setViewing] = useState<Supplier | null>(null);
   const [toDelete, setToDelete] = useState<Supplier | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  
-  const [tierDialogOpen, setTierDialogOpen] = useState(false);
-  const [editingTier, setEditingTier] = useState<CommissionTier | null>(null);
-  const [tierForm, setTierForm] = useState<Omit<CommissionTier, "id">>({
-    threshold: 0,
-    commissionType: "percentage",
-    commissionValue: 0,
-    periodDays: 30,
-  });
+  const [segment, setSegment] = useState<Segment>("all");
+  const [sortBy, setSortBy] = useState<SortKey>("recent");
 
-  const [form, setForm] = useState<Omit<Supplier, "id" | "createdAt">>({
-    code: "",
-    name: "",
-    phone: "",
-    address: "",
-    notes: "",
-    commissionNote: "",
-  });
+  // ── Per-supplier analytics ──
+  const allRows = useMemo<SupplierRow[]>(() => {
+    return suppliers.map((s) => {
+      const invs = purchaseInvoices.filter((p) => p.supplierId === s.id);
+      const totalPurchases = invs.reduce((sum, p) => sum + p.total, 0);
+      const lastActivity = invs.map((p) => p.date).sort().at(-1);
+      const parts = products.filter((p) => p.supplierId === s.id && !p.archived).length;
+      const commissionEarned = calculateSupplierCommission(s.id).reduce((sum, r) => sum + r.earned, 0);
+      return {
+        supplier: s,
+        archived: !!s.archived,
+        invoiceCount: invs.length,
+        totalPurchases,
+        lastActivity,
+        parts,
+        balance: supplierBalance(s.id),
+        commissionEarned,
+      };
+    });
+  }, [suppliers, products, purchaseInvoices, supplierBalance, calculateSupplierCommission]);
 
-  const archivedCount = useMemo(() => suppliers.filter((s) => s.archived).length, [suppliers]);
+  const rows = useMemo(() => allRows.filter((r) => !r.archived), [allRows]);
+  const archivedRows = useMemo(() => allRows.filter((r) => r.archived), [allRows]);
+  const archivedCount = archivedRows.length;
 
-  const filtered = useMemo(() => {
-    const active = suppliers.filter((s) => !s.archived);
-    if (!q.trim()) return active;
+  const stats = useMemo(() => {
+    let totalPurchases = 0;
+    let payables = 0;
+    let commission = 0;
+    let debtors = 0;
+    for (const r of rows) {
+      totalPurchases += r.totalPurchases;
+      commission += r.commissionEarned;
+      if (r.balance > 0) {
+        payables += r.balance;
+        debtors += 1;
+      }
+    }
+    return { count: rows.length, totalPurchases, payables, commission, debtors };
+  }, [rows]);
+
+  const segCounts = useMemo(
+    () => ({
+      all: rows.length,
+      payable: rows.filter((r) => r.balance > 0).length,
+      credit: rows.filter((r) => r.balance < 0).length,
+      inactive: rows.filter((r) => r.invoiceCount === 0).length,
+    }),
+    [rows]
+  );
+
+  const visible = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return active.filter(
-      (s) =>
-        s.name.toLowerCase().includes(t) ||
-        (s.phone ?? "").toLowerCase().includes(t) ||
-        (s.code ?? "").toLowerCase().includes(t)
-    );
-  }, [q, suppliers]);
+    let list = rows.filter((r) => {
+      if (t) {
+        const matches =
+          r.supplier.name.toLowerCase().includes(t) ||
+          (r.supplier.phone ?? "").toLowerCase().includes(t) ||
+          (r.supplier.code ?? "").toLowerCase().includes(t);
+        if (!matches) return false;
+      }
+      if (segment === "payable") return r.balance > 0;
+      if (segment === "credit") return r.balance < 0;
+      if (segment === "inactive") return r.invoiceCount === 0;
+      return true;
+    });
+    list = [...list];
+    switch (sortBy) {
+      case "purchases":
+        list.sort((a, b) => b.totalPurchases - a.totalPurchases);
+        break;
+      case "balance":
+        list.sort((a, b) => b.balance - a.balance);
+        break;
+      case "name":
+        list.sort((a, b) => a.supplier.name.localeCompare(b.supplier.name, "ar"));
+        break;
+      case "new":
+        list.sort((a, b) => (b.supplier.createdAt ?? "").localeCompare(a.supplier.createdAt ?? ""));
+        break;
+      case "recent":
+      default:
+        list.sort((a, b) => (b.lastActivity ?? "").localeCompare(a.lastActivity ?? ""));
+        break;
+    }
+    return list;
+  }, [rows, q, segment, sortBy]);
 
   function openNew() {
     setEditing(null);
-    setForm({
-      code: formatSupplierCode(nextSupplierCode),
-      name: "",
-      phone: "",
-      address: "",
-      notes: "",
-      commissionNote: "",
-    });
-    setOpen(true);
+    setFormOpen(true);
   }
   function openEdit(s: Supplier) {
     setEditing(s);
-    setForm({
-      code: s.code ?? "",
-      name: s.name,
-      phone: s.phone ?? "",
-      address: s.address ?? "",
-      notes: s.notes ?? "",
-      commissionNote: s.commissionNote ?? "",
-    });
-    setOpen(true);
-  }
-  function submit() {
-    if (!form.name.trim()) {
-      toast.error("الاسم مطلوب");
-      return;
-    }
-    if (form.phone && form.phone.trim().replace(/\D/g, "").length < 11) {
-      toast.error("رقم الهاتف غير صحيح", "يجب أن يحتوي على 11 رقماً على الأقل");
-      return;
-    }
-    if (editing) {
-      updateSupplier(editing.id, form);
-      toast.success("تم تحديث المورد");
-    } else {
-      addSupplier(form);
-      toast.success("تم إضافة المورد");
-    }
-    setOpen(false);
+    setFormOpen(true);
   }
   function handleDelete() {
     if (!toDelete) return;
@@ -140,18 +187,15 @@ export function SuppliersPage() {
     setToDelete(null);
   }
 
-  const viewingInvoices = viewing
-    ? purchaseInvoices.filter((p) => p.supplierId === viewing.id)
-    : [];
-
   return (
     <>
-      <PageHeader
-        title="الموردين / المصانع"
-        description={`إدارة الموردين وأرصدتهم (${suppliers.length})`}
+      <AutoPartsHero
+        icon={Factory}
+        title="موردو ومصانع قطع الغيار"
+        description="قاعدة بيانات الموردين مع مشترياتهم وأرصدتهم والأصناف الموردة وبونص العمولات — تابع كل مورد وكشف حسابه من مكان واحد."
         actions={
           canAddSupplier ? (
-            <Button onClick={openNew}>
+            <Button onClick={openNew} className="h-10 bg-amber-400 text-slate-950 hover:bg-amber-300">
               <Plus className="w-4 h-4" />
               إضافة مورد
             </Button>
@@ -159,9 +203,41 @@ export function SuppliersPage() {
         }
       />
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <StatCard
+          icon={<Factory className="w-5 h-5" />}
+          label="إجمالي الموردين"
+          value={String(stats.count)}
+          detail={archivedCount > 0 ? `${archivedCount} في الأرشيف` : "كل الموردين نشطون"}
+          tone="blue"
+        />
+        <StatCard
+          icon={<ShoppingBag className="w-5 h-5" />}
+          label="إجمالي المشتريات"
+          value={formatCurrency(stats.totalPurchases, settings.currency)}
+          detail="قيمة كل فواتير الشراء"
+          tone="indigo"
+        />
+        <StatCard
+          icon={<Wallet className="w-5 h-5" />}
+          label="مستحق للموردين"
+          value={formatCurrency(stats.payables, settings.currency)}
+          detail={stats.debtors > 0 ? `${stats.debtors} مورد له مستحقات` : "لا مستحقات"}
+          tone="amber"
+        />
+        <StatCard
+          icon={<Gift className="w-5 h-5" />}
+          label="بونص عمولات مستحق"
+          value={formatCurrency(stats.commission, settings.currency)}
+          detail="من شرائح عمولات الموردين"
+          tone="green"
+        />
+      </div>
+
       <Card>
         <CardHeader
           title="قائمة الموردين"
+          subtitle={`عرض ${visible.length} من ${rows.length} مورد`}
           actions={archivedCount > 0 ? (
             <Button
               size="sm"
@@ -175,23 +251,46 @@ export function SuppliersPage() {
           ) : undefined}
         />
         <CardBody className="space-y-3">
-          <div className="relative w-72">
-            <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
-            <Input
-              ref={searchRef}
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="بحث بالاسم أو الهاتف أو الكود (/ أو Ctrl+F)"
-              className="pe-9"
-            />
+          {/* Controls: search + sort */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
+              <Input
+                ref={searchRef}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="بحث بالاسم أو الهاتف أو الكود (/ أو Ctrl+F)"
+                className="pe-9"
+              />
+            </div>
+            <Select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+              className="w-full sm:w-52"
+            >
+              <option value="recent">الأحدث توريداً</option>
+              <option value="purchases">الأكثر توريداً</option>
+              <option value="balance">الأعلى مديونية</option>
+              <option value="name">الاسم أبجدياً (أ-ي)</option>
+              <option value="new">الأحدث إضافةً</option>
+            </Select>
           </div>
-          {filtered.length === 0 ? (
+
+          {/* Segment filter chips */}
+          <div className="flex flex-wrap gap-1.5">
+            <SegmentChip label="الكل" count={segCounts.all} active={segment === "all"} onClick={() => setSegment("all")} />
+            <SegmentChip label="مستحق عليهم" count={segCounts.payable} active={segment === "payable"} onClick={() => setSegment("payable")} tone="amber" />
+            <SegmentChip label="لنا رصيد" count={segCounts.credit} active={segment === "credit"} onClick={() => setSegment("credit")} tone="green" />
+            <SegmentChip label="بدون تعاملات" count={segCounts.inactive} active={segment === "inactive"} onClick={() => setSegment("inactive")} tone="slate" />
+          </div>
+
+          {visible.length === 0 && (!showArchived || archivedRows.length === 0) ? (
             <EmptyState
               icon={<Factory className="w-5 h-5" />}
-              title="لا يوجد موردون"
-              description="ابدأ بإضافة أول مورد لشركتك."
+              title={q.trim() || segment !== "all" ? "لا يوجد موردون مطابقون" : "لا يوجد موردون"}
+              description={q.trim() || segment !== "all" ? "جرّب تعديل البحث أو الفلتر." : "ابدأ بإضافة أول مورد لشركتك."}
               action={
-                canAddSupplier ? (
+                canAddSupplier && !q.trim() && segment === "all" ? (
                   <Button onClick={openNew}><Plus className="w-4 h-4" /> إضافة مورد</Button>
                 ) : undefined
               }
@@ -200,79 +299,107 @@ export function SuppliersPage() {
             <Table>
               <THead>
                 <TR>
-                  <TH>الكود</TH>
-                  <TH>اسم المورد</TH>
+                  <TH>المورد</TH>
                   <TH>الهاتف</TH>
-                  <TH>العنوان</TH>
-                  <TH>ملاحظة عمولة</TH>
+                  <TH className="text-center">أصناف</TH>
+                  <TH className="text-center">الفواتير</TH>
+                  <TH className="text-end">إجمالي المشتريات</TH>
+                  <TH>آخر توريد</TH>
                   <TH className="text-end">الرصيد المستحق</TH>
                   <TH className="text-end">إجراءات</TH>
                 </TR>
               </THead>
               <TBody>
-                {filtered.map((s) => {
-                  const bal = supplierBalance(s.id);
-                  return (
-                    <TR key={s.id}>
-                      <TD className="text-ink-faint font-mono text-xs">{s.code ?? "—"}</TD>
-                      <TD className="font-medium text-ink">{s.name}</TD>
-                      <TD className="text-ink-muted">{s.phone ?? "—"}</TD>
-                      <TD className="text-ink-muted">{s.address ?? "—"}</TD>
-                      <TD className="text-ink-muted text-xs">
-                        {s.commissionNote ?? "—"}
-                      </TD>
-                      <TD className="text-end">
-                        {bal > 0 ? (
-                          <Badge tone="amber">
-                            {formatCurrency(bal, settings.currency)}
-                          </Badge>
-                        ) : bal < 0 ? (
-                          <Badge tone="green">
-                            لنا رصيد {formatCurrency(-bal, settings.currency)}
-                          </Badge>
-                        ) : (
-                          <Badge tone="green">مسدد</Badge>
-                        )}
-                      </TD>
-                      <TD className="text-end">
-                        <div className="inline-flex items-center gap-1">
-                          <Link
-                            to={`/suppliers/${s.id}/statement`}
-                            title="كشف حساب"
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-md text-ink-muted hover:bg-surface-muted hover:text-ink transition-colors"
-                          >
-                            <ScrollText className="w-4 h-4" />
-                          </Link>
-                          <Button size="icon" variant="ghost" onClick={() => setViewing(s)}>
-                            <Eye className="w-4 h-4" />
+                {visible.map(({ supplier: s, invoiceCount, totalPurchases, lastActivity, parts, balance }) => (
+                  <TR key={s.id}>
+                    <TD>
+                      <Link to={`/suppliers/${s.id}`} className="flex items-center gap-2.5 text-start group">
+                        <span className="w-9 h-9 rounded-lg bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 grid place-items-center shrink-0">
+                          <Factory className="w-4 h-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block font-medium text-ink group-hover:text-brand-700 dark:group-hover:text-brand-300 transition-colors truncate">{s.name}</span>
+                          <span className="block font-mono text-[11px] text-ink-faint">{s.code ?? "—"}</span>
+                        </span>
+                      </Link>
+                    </TD>
+                    <TD className="text-ink-muted" dir="ltr">{s.phone ?? "—"}</TD>
+                    <TD className="text-center">
+                      {parts > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-ink-muted">
+                          <Package className="w-3.5 h-3.5 text-brand-600" />
+                          {parts}
+                        </span>
+                      ) : (
+                        <span className="text-ink-faint">—</span>
+                      )}
+                    </TD>
+                    <TD className="text-center text-ink-muted">{invoiceCount > 0 ? invoiceCount : <span className="text-ink-faint">—</span>}</TD>
+                    <TD className="text-end font-mono text-ink">{totalPurchases > 0 ? formatCurrency(totalPurchases, settings.currency) : <span className="text-ink-faint">—</span>}</TD>
+                    <TD className="text-ink-muted text-xs">{lastActivity ? formatDate(lastActivity) : <span className="text-ink-faint">لا يوجد</span>}</TD>
+                    <TD className="text-end">
+                      {balance > 0 ? (
+                        <Badge tone="amber">{formatCurrency(balance, settings.currency)}</Badge>
+                      ) : balance < 0 ? (
+                        <Badge tone="green">لنا {formatCurrency(-balance, settings.currency)}</Badge>
+                      ) : (
+                        <Badge tone="slate">مسدد</Badge>
+                      )}
+                    </TD>
+                    <TD className="text-end">
+                      <div className="inline-flex items-center gap-1">
+                        <Link
+                          to={`/suppliers/${s.id}/statement`}
+                          title="كشف حساب"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-md text-ink-muted hover:bg-surface-muted hover:text-ink transition-colors"
+                        >
+                          <ScrollText className="w-4 h-4" />
+                        </Link>
+                        <Link
+                          to={`/suppliers/${s.id}`}
+                          title="عرض الملف"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-md text-ink-muted hover:bg-surface-muted hover:text-ink transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Link>
+                        {canEditSupplier ? (
+                          <Button size="icon" variant="ghost" title="تعديل" onClick={() => openEdit(s)}>
+                            <Pencil className="w-4 h-4" />
                           </Button>
-                          {canEditSupplier ? (
-                            <Button size="icon" variant="ghost" onClick={() => openEdit(s)}>
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                          ) : null}
-                          {canDeleteSupplier ? (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-500/10"
-                              onClick={() => setToDelete(s)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          ) : null}
-                        </div>
-                      </TD>
-                    </TR>
-                  );
-                })}
-                {showArchived && suppliers.filter((s) => s.archived).map((s) => (
-                  <TR key={s.id} className="opacity-50 bg-surface-muted">
-                    <TD className="text-ink-faint font-mono text-xs">{s.code ?? "—"}</TD>
-                    <TD className="text-ink-faint line-through">{s.name}</TD>
-                    <TD className="text-ink-faint">{s.phone ?? "—"}</TD>
-                    <TD />
-                    <TD />
+                        ) : null}
+                        {canDeleteSupplier ? (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="حذف"
+                            className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-500/10"
+                            onClick={() => setToDelete(s)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TD>
+                  </TR>
+                ))}
+                {showArchived && archivedRows.map(({ supplier: s }) => (
+                  <TR key={s.id} className="opacity-60 bg-surface-muted">
+                    <TD>
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-9 h-9 rounded-lg bg-surface-muted border border-line text-ink-faint grid place-items-center shrink-0">
+                          <Factory className="w-4 h-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-ink-muted line-through truncate">{s.name}</span>
+                          <span className="block font-mono text-[11px] text-ink-faint">{s.code ?? "—"}</span>
+                        </span>
+                      </div>
+                    </TD>
+                    <TD className="text-ink-faint" dir="ltr">{s.phone ?? "—"}</TD>
+                    <TD className="text-center text-ink-faint">—</TD>
+                    <TD className="text-center text-ink-faint">—</TD>
+                    <TD className="text-end text-ink-faint">—</TD>
+                    <TD className="text-ink-faint text-xs">مؤرشف</TD>
                     <TD />
                     <TD className="text-end">
                       <div className="inline-flex items-center gap-1">
@@ -307,287 +434,11 @@ export function SuppliersPage() {
         </CardBody>
       </Card>
 
-      <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editing ? "تعديل مورد" : "إضافة مورد"}
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              إلغاء
-            </Button>
-            <Button onClick={submit}>{editing ? "حفظ" : "إضافة"}</Button>
-          </>
-        }
-      >
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="كود المورد">
-            <Input
-              value={form.code ?? ""}
-              readOnly
-              className="bg-surface-muted cursor-not-allowed text-ink-faint opacity-70 font-mono"
-            />
-          </Field>
-          <Field label="اسم المورد" required>
-            <Input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-          </Field>
-          <Field label="الهاتف">
-            <Input
-              value={form.phone ?? ""}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
-          </Field>
-          <Field label="العنوان">
-            <Input
-              value={form.address ?? ""}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-            />
-          </Field>
-          <Field label="ملاحظة عمولة / هدف" className="col-span-2">
-            <Input
-              value={form.commissionNote ?? ""}
-              onChange={(e) =>
-                setForm({ ...form, commissionNote: e.target.value })
-              }
-              placeholder="مثل: خصم 2% على الكميات الكبيرة"
-            />
-          </Field>
-          <Field label="ملاحظات" className="col-span-2">
-            <Textarea
-              rows={2}
-              value={form.notes ?? ""}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            />
-          </Field>
-        </div>
-      </Dialog>
-
-      <Drawer
-        open={!!viewing}
-        onClose={() => setViewing(null)}
-        title={viewing?.name}
-        subtitle="سجل المورد والفواتير"
-        width={560}
-      >
-        {viewing ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <Info label="الهاتف">{viewing.phone ?? "—"}</Info>
-              <Info label="العنوان">{viewing.address ?? "—"}</Info>
-              <Info label="الرصيد المستحق">
-                <span className={`font-semibold ${supplierBalance(viewing.id) < 0 ? "text-emerald-700 dark:text-emerald-400" : ""}`}>
-                  {supplierBalance(viewing.id) < 0
-                    ? `لنا رصيد ${formatCurrency(-supplierBalance(viewing.id), settings.currency)}`
-                    : formatCurrency(supplierBalance(viewing.id), settings.currency)}
-                </span>
-              </Info>
-              <Info label="عدد الفواتير">{viewingInvoices.length}</Info>
-              <Info label="ملاحظة عمولة" className="col-span-2">
-                {viewing.commissionNote ?? "—"}
-              </Info>
-              {viewing.notes ? (
-                <Info label="ملاحظات" className="col-span-2">
-                  {viewing.notes}
-                </Info>
-              ) : null}
-            </div>
-            <div>
-              <div className="text-sm font-medium mb-2">فواتير المورد</div>
-              {viewingInvoices.length === 0 ? (
-                <EmptyState title="لا توجد فواتير" />
-              ) : (
-                <div className="border border-line rounded-lg overflow-hidden">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>الفاتورة</TH>
-                        <TH>التاريخ</TH>
-                        <TH className="text-end">الإجمالي</TH>
-                        <TH className="text-end">المتبقي</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {viewingInvoices.map((inv) => (
-                        <TR key={inv.id}>
-                          <TD className="font-mono text-xs">{inv.invoiceNumber}</TD>
-                          <TD>{formatDate(inv.date)}</TD>
-                          <TD className="text-end">
-                            {formatCurrency(inv.total, settings.currency)}
-                          </TD>
-                          <TD className="text-end">
-                            {inv.overpayment && inv.overpayment > 0 ? (
-                              <Badge tone="green">
-                                لنا رصيد {formatCurrency(inv.overpayment, settings.currency)}
-                              </Badge>
-                            ) : inv.remaining > 0 ? (
-                              <Badge tone="amber">
-                                {formatCurrency(inv.remaining, settings.currency)}
-                              </Badge>
-                            ) : (
-                              <Badge tone="green">مسدد</Badge>
-                            )}
-                          </TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
-                </div>
-              )}
-            </div>
-
-            {/* Commissions Section */}
-            <div className="pt-4 border-t border-line-soft">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-medium">نظام العمولات والبونص</div>
-                {canManageCommissions && (
-                  <Button size="sm" variant="outline" onClick={() => {
-                    setEditingTier(null);
-                    setTierForm({ threshold: 0, commissionType: "percentage", commissionValue: 0, periodDays: 30 });
-                    setTierDialogOpen(true);
-                  }}>
-                    <Plus className="w-3.5 h-3.5" /> إضافة شريحة
-                  </Button>
-                )}
-              </div>
-
-              {calculateSupplierCommission(viewing.id).length === 0 ? (
-                <div className="text-xs text-ink-faint bg-surface-muted border border-line-soft rounded-lg p-3 text-center">
-                  لا توجد شرائح عمولة محددة لهذا المورد.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {calculateSupplierCommission(viewing.id).map(res => (
-                    <div key={res.tierId} className="bg-surface border border-line rounded-lg p-3 shadow-sm">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="text-xs font-semibold text-ink">
-                            شريحة: {formatCurrency(res.threshold, settings.currency)} في {res.periodDays} يوم
-                          </div>
-                          <div className="text-[11px] text-ink-faint mt-0.5">
-                            العمولة: {res.commissionType === "percentage" ? `${res.commissionValue}%` : formatCurrency(res.commissionValue, settings.currency)}
-                          </div>
-                        </div>
-                        {canManageCommissions && (
-                          <div className="flex gap-1">
-                            <button onClick={() => {
-                              const t = viewing.commissionTiers?.find(x => x.id === res.tierId);
-                              if (t) {
-                                setEditingTier(t);
-                                setTierForm({ ...t });
-                                setTierDialogOpen(true);
-                              }
-                            }} className="p-1 hover:bg-surface-muted rounded text-ink-faint hover:text-brand-600 transition-colors">
-                              <Pencil className="w-3 h-3" />
-                            </button>
-                            <button onClick={() => deleteCommissionTier(viewing.id, res.tierId)} className="p-1 hover:bg-surface-muted rounded text-ink-faint hover:text-red-600 dark:text-red-400 transition-colors">
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="mt-3 pt-2 border-t border-line-soft flex items-center justify-between">
-                        <div className="text-[11px]">
-                          <span className="text-ink-faint">المشتريات الحالية: </span>
-                          <span className="font-medium">{formatCurrency(res.totalPurchases, settings.currency)}</span>
-                        </div>
-                        <div className="text-xs">
-                          <span className="text-ink-faint">البونص: </span>
-                          <span className={`font-bold ${res.earned > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-ink-faint"}`}>
-                            {formatCurrency(res.earned, settings.currency)}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {res.totalPurchases < res.threshold && (
-                        <div className="mt-1.5 h-1.5 bg-surface-muted rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-brand-400" 
-                            style={{ width: `${Math.min(100, (res.totalPurchases / res.threshold) * 100)}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  
-                  <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-lg p-3 text-emerald-900 dark:text-emerald-300">
-                    <div className="text-[11px] font-medium opacity-75">إجمالي البونص المستحق حالياً</div>
-                    <div className="text-lg font-bold leading-tight mt-0.5">
-                      {formatCurrency(calculateSupplierCommission(viewing.id).reduce((s, r) => s + r.earned, 0), settings.currency)}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : null}
-      </Drawer>
-
-      <Dialog
-        open={tierDialogOpen}
-        onClose={() => setTierDialogOpen(false)}
-        title={editingTier ? "تعديل شريحة عمولة" : "إضافة شريحة عمولة"}
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setTierDialogOpen(false)}>إلغاء</Button>
-            <Button onClick={() => {
-              if (viewing) {
-                if (editingTier) updateCommissionTier(viewing.id, editingTier.id, tierForm);
-                else addCommissionTier(viewing.id, tierForm);
-                setTierDialogOpen(false);
-                toast.success("تم الحفظ بنجاح");
-              }
-            }}>حفظ</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <Field label="الحد الأدنى للمشتريات" required hint="المبلغ الذي يجب تجاوزه لاستحقاق العمولة">
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={tierForm.threshold || ""}
-              placeholder="مثلاً: 50000"
-              onChange={e => setTierForm({...tierForm, threshold: e.target.value === "" ? 0 : Number(e.target.value)})}
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="نوع العمولة">
-              <Select
-                value={tierForm.commissionType}
-                onChange={e => setTierForm({...tierForm, commissionType: e.target.value as CommissionType})}
-              >
-                <option value="percentage">نسبة مئوية (%)</option>
-                <option value="fixed">مبلغ ثابت</option>
-              </Select>
-            </Field>
-            <Field label="القيمة">
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={tierForm.commissionValue || ""}
-                placeholder={tierForm.commissionType === "percentage" ? "مثلاً: 2" : "مثلاً: 500"}
-                onChange={e => setTierForm({...tierForm, commissionValue: e.target.value === "" ? 0 : Number(e.target.value)})}
-              />
-            </Field>
-          </div>
-          <Field label="الفترة الزمنية (أيام)">
-            <Input
-              type="number"
-              min={1}
-              step={1}
-              value={tierForm.periodDays || ""}
-              placeholder="مثلاً: 30"
-              onChange={e => setTierForm({...tierForm, periodDays: e.target.value === "" ? 30 : Number(e.target.value)})}
-            />
-          </Field>
-        </div>
-      </Dialog>
+      <SupplierFormDialog
+        open={formOpen}
+        editing={editing}
+        onClose={() => setFormOpen(false)}
+      />
 
       <ConfirmDialog
         open={!!toDelete}
@@ -602,21 +453,67 @@ export function SuppliersPage() {
   );
 }
 
-function Info({
+function SegmentChip({
   label,
-  children,
-  className,
+  count,
+  active,
+  onClick,
+  tone = "brand",
 }: {
   label: string;
-  children: React.ReactNode;
-  className?: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  tone?: "brand" | "amber" | "green" | "slate";
 }) {
+  const activeColors: Record<typeof tone, string> = {
+    brand: "bg-brand-600 text-white border-brand-600",
+    amber: "bg-amber-500 text-white border-amber-500",
+    green: "bg-emerald-600 text-white border-emerald-600",
+    slate: "bg-slate-600 text-white border-slate-600",
+  };
   return (
-    <div
-      className={`bg-surface-muted border border-line-soft rounded-lg p-3 ${className ?? ""}`}
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        active ? activeColors[tone] : "border-line bg-surface text-ink-muted hover:bg-surface-muted hover:text-ink"
+      }`}
     >
-      <div className="text-[11px] text-ink-faint">{label}</div>
-      <div className="text-sm text-ink mt-1">{children}</div>
+      {label}
+      <span className={`rounded-full px-1.5 text-[10px] ${active ? "bg-white/25" : "bg-surface-muted text-ink-faint"}`}>{count}</span>
+    </button>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+  tone: "green" | "red" | "amber" | "blue" | "indigo";
+}) {
+  const colors: Record<typeof tone, string> = {
+    green: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    red: "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400",
+    amber: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    blue: "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400",
+    indigo: "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400",
+  };
+  return (
+    <div className="bg-surface border border-line rounded-xl p-4 flex items-center gap-3 shadow-card">
+      <div className={`w-11 h-11 rounded-lg grid place-items-center shrink-0 ${colors[tone]}`}>{icon}</div>
+      <div className="min-w-0">
+        <div className="text-xs text-ink-faint">{label}</div>
+        <div className="font-semibold text-ink text-lg truncate">{value}</div>
+        <div className="text-[11px] text-ink-faint truncate">{detail}</div>
+      </div>
     </div>
   );
 }

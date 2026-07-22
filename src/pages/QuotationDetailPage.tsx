@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowRight,
@@ -392,7 +392,7 @@ export function QuotationDetailPage() {
               <Input type="date" value={paymentDueDate} onChange={(e) => setPaymentDueDate(e.target.value)} />
             </Field>
           )}
-          <Field label="المبلغ المستلم">
+          <Field label="المبلغ المدفوع">
             <Input
               type="number"
               min={0}

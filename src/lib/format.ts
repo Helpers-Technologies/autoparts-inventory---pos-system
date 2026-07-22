@@ -39,6 +39,27 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   credit: "رصيد",
 };
 
+export function formatQualityGradeLabel(code?: string): string {
+  if (!code) return "";
+  switch (code.toLowerCase()) {
+    case "genuine":
+      return "أصلي (Genuine)";
+    case "oem":
+      return "أصلية (OEM)";
+    case "aftermarket-premium":
+      return "بديل ممتاز";
+    case "aftermarket-economy":
+      return "بديل اقتصادي";
+    case "used":
+      return "استيراد / مستعملة";
+    case "remanufactured":
+      return "مجددة";
+    default:
+      return code;
+  }
+}
+
+
 export function resolvePaymentLabel(paymentMethod: string, notes?: string): string {
   if (paymentMethod === "credit") return "رصيد";
   if (paymentMethod === "other" && notes === "رصيد دائن مستخدم") return "رصيد";

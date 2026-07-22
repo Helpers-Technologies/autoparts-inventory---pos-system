@@ -1,42 +1,38 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
-  ArrowRight,
   Plus,
   Minus,
   Trash2,
   Search,
   Scan,
-  Monitor,
   Printer,
   FileText,
   DollarSign,
   User,
   ShoppingBag,
   CarFront,
-  Building2,
   ShieldCheck,
 } from "lucide-react";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useReporting } from "../store/ReportingContext";
 import { useToast } from "../components/ui/Toast";
-import { useAuth } from "../store/AuthContext";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { CustomerFormDialog } from "../features/customers/CustomerFormDialog";
+import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleFormDialog";
 import { Button } from "../components/ui/Button";
-import { Input, Select } from "../components/ui/Input";
+import { Input } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { todayISO, uid } from "../lib/utils";
 import type { InvoiceLine, PaymentMethod, Product, SalesPaymentType, SalesPriceType } from "../types";
 import { formatCurrency } from "../lib/format";
 import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
 import { useFeatures } from "../lib/useFeatures";
-import { computeCreditPaymentView } from "../store/_pure";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
 import { printAppRoute } from "../lib/print";
 import { productVehicleFitmentStatus, useAutoPartsPro, vehicleDisplayName } from "../store/AutoPartsProContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
+import { computeCreditPaymentView } from "../store/_pure";
 
 interface LineDraft {
   id: string;
@@ -49,7 +45,6 @@ interface LineDraft {
 
 const DEFAULT_PRICE_TYPE: SalesPriceType = "wholesale";
 
-// Helper functions defined at top level to avoid declaration order issues
 function nextInvoiceNumber(existing: string[]): string {
   const nums = existing
     .map((x) => parseInt(x.replace(/\D/g, ""), 10))
@@ -81,7 +76,6 @@ function getProductPrice(product: Product, selectedPriceType: SalesPriceType = D
 
 export function POSPage() {
   const { products: allProducts, customers: allCustomers } = useCatalog();
-  const { currentUser } = useAuth();
   const { salesInvoices, addSalesInvoice, applyCustomerCredit } = useInvoicing();
   const { customerBalance } = useReporting();
   const pro = useAutoPartsPro();
@@ -91,21 +85,14 @@ export function POSPage() {
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const creditPaymentEnabled = isEnabled("creditPayment");
   const creditSalesEnabled = isEnabled("creditSales");
-  const navigate = useNavigate();
   const toast = useToast();
 
   const products = useMemo(() => allProducts.filter((p) => !p.archived), [allProducts]);
   const customers = useMemo(() => allCustomers.filter((c) => !c.archived), [allCustomers]);
 
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
+  const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
   const [pendingCustomerName, setPendingCustomerName] = useState("");
-
-  // Current date/time for ticket
-  const [time, setTime] = useState(new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Form State
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -134,6 +121,46 @@ export function POSPage() {
   const [selectedCategory, setSelectedCategory] = useState("الكل");
   const [openPriceMenuLineId, setOpenPriceMenuLineId] = useState<string | null>(null);
   const priceMenuRef = useRef<HTMLDivElement>(null);
+
+  // ── Resizable split between the cart panel (right, RTL) and the product grid (left) ──
+  const POS_CART_WIDTH_DEFAULT = 42;
+  const POS_CART_WIDTH_MIN = 28;
+  const POS_CART_WIDTH_MAX = 68;
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const [cartWidth, setCartWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem("pos-cart-width"));
+    return saved >= POS_CART_WIDTH_MIN && saved <= POS_CART_WIDTH_MAX ? saved : POS_CART_WIDTH_DEFAULT;
+  });
+
+  function startSplitResize(e: React.PointerEvent) {
+    e.preventDefault();
+    const container = splitContainerRef.current;
+    if (!container) return;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    let latest = cartWidth;
+    function onMove(ev: PointerEvent) {
+      const rect = container!.getBoundingClientRect();
+      // RTL: the cart panel sits on the right, so its width is measured from the right edge.
+      const pct = ((rect.right - ev.clientX) / rect.width) * 100;
+      latest = Math.min(POS_CART_WIDTH_MAX, Math.max(POS_CART_WIDTH_MIN, pct));
+      setCartWidth(latest);
+    }
+    function onUp() {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      localStorage.setItem("pos-cart-width", String(Math.round(latest)));
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  function resetSplit() {
+    setCartWidth(POS_CART_WIDTH_DEFAULT);
+    localStorage.setItem("pos-cart-width", String(POS_CART_WIDTH_DEFAULT));
+  }
 
   useEffect(() => {
     function onClickOutside(event: MouseEvent) {
@@ -394,7 +421,7 @@ export function POSPage() {
       return;
     }
     if (amountReceived < 0) {
-      toast.error("المبلغ المستلم غير صحيح");
+      toast.error("المبلغ المدفوع غير صحيح");
       return;
     }
     if ((paymentType === "account" || remainingDue > 0) && !creditSalesEnabled) {
@@ -491,14 +518,18 @@ export function POSPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden gap-4" dir="rtl">
-            {/* Main split grid */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Left column (Sells cart and Payment controls) - 5 cols */}
-        <div className="lg:col-span-5 flex flex-col min-h-0 bg-surface border border-line rounded-xl shadow-sm overflow-hidden">
+            {/* Main resizable split */}
+      <div
+        ref={splitContainerRef}
+        className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-2"
+        style={{ ["--pos-cart-w" as string]: `${cartWidth}%` } as React.CSSProperties}
+      >
+        {/* Cart & payment panel (right in RTL) — resizable width */}
+        <div className="w-full lg:w-[var(--pos-cart-w)] lg:shrink-0 flex flex-col min-h-0 bg-surface border border-line rounded-xl shadow-sm overflow-hidden">
           {/* Cart Header with Customer & Barcode */}
           <div className="p-4 border-b border-line bg-surface-muted/30 space-y-3 shrink-0">
             {/* Customer select */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <span className="text-xs font-semibold text-ink-muted shrink-0 flex items-center gap-1">
                 <User className="w-3.5 h-3.5" /> العميل:
               </span>
@@ -520,34 +551,66 @@ export function POSPage() {
                 }}
                 createLabel={`أضف عميل جديد: "${pendingCustomerName}"`}
               />
-            <CustomerFormDialog
-              open={isCustomerDialogOpen}
-              onClose={() => setIsCustomerDialogOpen(false)}
-              initialName={pendingCustomerName}
-              onCreated={(created) => {
-                setCustomerId(created.id);
-                setIsCustomerDialogOpen(false);
-              }}
-            />
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingCustomerName("");
+                  setIsCustomerDialogOpen(true);
+                }}
+                className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
+                title="إضافة عميل جديد"
+              >
+                <Plus className="w-4 h-4 text-brand-600" />
+              </button>
+              <CustomerFormDialog
+                open={isCustomerDialogOpen}
+                onClose={() => setIsCustomerDialogOpen(false)}
+                initialName={pendingCustomerName}
+                onCreated={(created) => {
+                  setCustomerId(created.id);
+                  setIsCustomerDialogOpen(false);
+                }}
+              />
             </div>
 
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div className="relative">
-                <CarFront className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-cyan-600" />
-                <Select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="pr-8 text-xs">
-                  <option value="">بدون تحديد سيارة</option>
-                  {customerVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels)}</option>)}
-                </Select>
-              </div>
-              <div className="relative">
-                <Building2 className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-indigo-600" />
-                <Select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="pr-8 text-xs">
-                  {pro.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-                </Select>
-              </div>
+            <div className="flex items-center gap-1">
+              <SearchableSelect
+                value={selectedVehicleId}
+                onChange={setSelectedVehicleId}
+                options={customerVehicles.map((vehicle) => {
+                  const make = vehicleCatalog.vehicleMakes.find((m) => m.id === vehicle.makeId);
+                  const label = vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels);
+                  return {
+                    value: vehicle.id,
+                    label,
+                    image: make?.logoPath || (make?.slug ? `/vehicle-logos/${make.slug}.png` : undefined),
+                    searchText: label,
+                  };
+                })}
+                placeholder="بدون تحديد سيارة"
+                searchPlaceholder="ابحث عن سيارة العميل..."
+                minChars={0}
+                className="flex-1 text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => setIsVehicleDialogOpen(true)}
+                className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
+                title="إضافة سيارة جديدة"
+              >
+                <Plus className="w-4 h-4 text-cyan-600" />
+              </button>
             </div>
+            <CustomerVehicleFormDialog
+              open={isVehicleDialogOpen}
+              onClose={() => setIsVehicleDialogOpen(false)}
+              initialCustomerId={customerId}
+              onCreated={(newVehicleId) => {
+                setSelectedVehicleId(newVehicleId);
+              }}
+            />
             {customerId && customerVehicles.length === 0 ? (
-              <button type="button" onClick={() => navigate("/customer-garage")} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-cyan-300 bg-cyan-50/60 px-3 py-2 text-xs font-semibold text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300">
+              <button type="button" onClick={() => setIsVehicleDialogOpen(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-cyan-300 bg-cyan-50/60 px-3 py-2 text-xs font-semibold text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300">
                 <CarFront className="h-4 w-4" /> سجل سيارة العميل لتفعيل منع أخطاء التوافق
               </button>
             ) : null}
@@ -610,7 +673,7 @@ export function POSPage() {
                                     current === line.id ? null : line.id
                                   )
                                 }
-                                className="flex h-10 w-full items-center justify-between rounded-full border border-line bg-white px-3 text-right text-sm text-ink shadow-sm transition hover:border-brand-400 hover:bg-surface focus:outline-none focus:ring-2 focus:ring-brand-100"
+                                className="flex h-10 w-full items-center justify-between rounded-full border border-line bg-surface px-3 text-right text-sm text-ink shadow-sm transition hover:border-brand-400 hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-brand-100"
                               >
                                 <span className="truncate text-right">
                                   {line.priceType === "retail" && product.retailPrice
@@ -620,7 +683,7 @@ export function POSPage() {
                               </button>
 
                               {openPriceMenuLineId === line.id && (
-                                <div className="absolute right-0 z-20 mt-2 w-full overflow-hidden rounded-2xl border border-line bg-white shadow-lg">
+                                <div className="absolute right-0 z-20 mt-2 w-full overflow-hidden rounded-2xl border border-line bg-surface shadow-lg">
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -710,7 +773,7 @@ export function POSPage() {
                     type="number"
                     value={discount}
                     onChange={(e) => setDiscount(Math.max(0, parseFloat(e.target.value) || 0))}
-                    className="w-20 text-left border border-line rounded-xl px-3 py-1.5 bg-white/90 text-ink text-sm font-semibold shadow-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-20 text-left border border-line rounded-xl px-3 py-1.5 bg-surface text-ink text-sm font-semibold shadow-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 {creditPaymentEnabled && creditAvailable > 0 && (
@@ -732,13 +795,13 @@ export function POSPage() {
                   <span>{formatCurrency(invoiceNet)}</span>
                 </div>
                 
-                <div className="flex justify-between items-center font-semibold text-emerald-700">
-                  <span>المستلم:</span>
+                <div className="flex justify-between items-center font-semibold text-emerald-700 dark:text-emerald-400">
+                  <span>المدفوع:</span>
                   <input
                     type="number"
                     value={amountReceived}
                     onChange={(e) => setAmountReceived(Math.max(0, parseFloat(e.target.value) || 0))}
-                    className="w-24 text-left border border-line rounded-xl px-3 py-1.5 bg-white/90 text-emerald-700 font-semibold shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-24 text-left border border-line rounded-xl px-3 py-1.5 bg-surface text-emerald-700 dark:text-emerald-400 font-semibold shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
 
@@ -770,15 +833,15 @@ export function POSPage() {
                   type="button"
                   onClick={() => {
                     setPaymentType("cash");
-                    setPaymentMethod("bank");
+                    setPaymentMethod("instapay");
                   }}
                   className={`flex-1 py-2 font-bold rounded-lg border text-center transition-all ${
-                    paymentType === "cash" && paymentMethod === "bank"
+                    paymentType === "cash" && paymentMethod === "instapay"
                       ? "bg-blue-600 text-white border-blue-600 shadow-md scale-[1.02]"
                       : "bg-surface text-ink-muted border-line hover:bg-surface-muted/50"
                   }`}
                 >
-                  بطاقة مدى/فيزا
+                  انستاباي
                 </button>
                 {creditSalesEnabled && (
                   <button
@@ -809,8 +872,21 @@ export function POSPage() {
           </div>
         </div>
 
-        {/* Right column (Product Grid Catalog) - 7 cols */}
-        <div className="lg:col-span-7 flex flex-col min-h-0 bg-surface border border-line rounded-xl shadow-sm overflow-hidden">
+        {/* Draggable divider — resize the two panels (desktop only) */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onPointerDown={startSplitResize}
+          onDoubleClick={resetSplit}
+          title="اسحب لتغيير عرض اللوحتين — دبل كليك لإعادة الضبط"
+          style={{ touchAction: "none" }}
+          className="hidden lg:flex shrink-0 w-3 items-center justify-center cursor-col-resize group"
+        >
+          <div className="h-16 w-1 rounded-full bg-line transition-colors group-hover:bg-brand-400 group-active:bg-brand-500" />
+        </div>
+
+        {/* Product grid catalog (left in RTL) — fills the remaining width */}
+        <div className="w-full lg:flex-1 lg:min-w-0 flex flex-col min-h-0 bg-surface border border-line rounded-xl shadow-sm overflow-hidden">
           {/* Search & Category Header */}
           <div className="p-4 border-b border-line bg-surface-muted/20 space-y-3 shrink-0">
             {/* Search Input */}
@@ -856,7 +932,7 @@ export function POSPage() {
                 لا توجد منتجات مطابقة للبحث
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
                 {filteredProducts.map((prod) => {
                   const availableStock = branchAvailableAsBaseUnits(prod);
                   const isOutOfStock = availableStock <= 0;

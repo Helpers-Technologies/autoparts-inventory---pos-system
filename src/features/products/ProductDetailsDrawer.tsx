@@ -7,7 +7,7 @@ import type { Product } from "../../types";
 import { useCatalog } from "../../store/CatalogContext";
 import { useInvoicing } from "../../store/InvoicingContext";
 import { useSettings } from "../../store/SettingsContext";
-import { formatCurrency, formatDate } from "../../lib/format";
+import { formatCurrency, formatDate, formatQualityGradeLabel } from "../../lib/format";
 import { formatStockMovementReference } from "../../lib/stockMovement";
 import { daysUntil } from "../../lib/utils";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -87,7 +87,7 @@ export function ProductDetailsDrawer({
             </Info>
           ) : null}
           <Info label="المورد">{supplier?.name ?? "—"}</Info>
-          {product.qualityGrade ? <Info label="الجودة">{product.qualityGrade}</Info> : null}
+          {product.qualityGrade ? <Info label="الجودة">{formatQualityGradeLabel(product.qualityGrade)}</Info> : null}
           {product.condition ? <Info label="الحالة">{product.condition === "new" ? "جديدة" : product.condition === "used" ? "استيراد / مستعملة" : "مجددة"}</Info> : null}
           {product.warrantyMonths ? <Info label="الضمان">{product.warrantyMonths} شهر</Info> : null}
           {barcodeEnabled && product.barcode ? (

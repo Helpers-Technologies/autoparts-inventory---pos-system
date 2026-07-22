@@ -190,7 +190,7 @@ export function VehicleCatalogPage() {
 
       <div className="rounded-xl border border-brand-200 bg-brand-50/70 dark:bg-brand-500/10 dark:border-brand-500/30 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <div><div className="text-sm font-semibold">{catalog.vehicleCatalogPreferences.includeAllMakes ? "النشاط يعرض كل ماركات السيارات" : `النشاط مخصص لـ ${catalog.specializedVehicleMakes.filter((make) => make.active).length} ماركة`}</div><div className="text-xs text-ink-muted mt-0.5">يُطبق الاختيار على الكتالوج ودليل قطع الغيار وربط المنتجات بالسيارات</div></div>
-        <div className="flex flex-wrap gap-1.5">{catalog.vehicleCatalogPreferences.selectedCountryCodes.map((code) => <Badge key={code} tone="blue">{vehicleCountryLabel(code)}</Badge>)}{catalog.vehicleCatalogPreferences.selectedMakeIds.length ? <Badge tone="indigo">+ {catalog.vehicleCatalogPreferences.selectedMakeIds.length} ماركة محددة</Badge> : null}</div>
+        <div className="flex flex-wrap gap-1.5">{catalog.vehicleCatalogPreferences.selectedCountryCodes.map((code: string) => <Badge key={code} tone="blue">{vehicleCountryLabel(code)}</Badge>)}{catalog.vehicleCatalogPreferences.selectedMakeIds.length ? <Badge tone="indigo">+ {catalog.vehicleCatalogPreferences.selectedMakeIds.length} ماركة محددة</Badge> : null}</div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,0.9fr)_minmax(520px,1.4fr)] gap-4 items-start">
@@ -285,10 +285,10 @@ export function VehicleCatalogPage() {
                                 <div><div className="font-medium">{generation.name}</div><div className="text-xs text-ink-muted" dir="ltr">{generation.yearFrom || "?"} — {generation.yearTo || "حتى الآن"}</div></div>
                                 <Button variant="ghost" size="sm" onClick={() => setEngineGenerationId(generation.id)}><Gauge className="w-4 h-4" />محرك</Button>
                               </div>
-                              {generation.bodyTypes?.length ? <div className="flex gap-1 flex-wrap">{generation.bodyTypes.map((type) => <Badge key={type} tone="slate">{type}</Badge>)}</div> : null}
+                              {generation.bodyTypes?.length ? <div className="flex gap-1 flex-wrap">{generation.bodyTypes.map((type: string) => <Badge key={type} tone="slate">{type}</Badge>)}</div> : null}
                               {engines.length ? (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                  {engines.map((engine) => <div key={engine.id} className="rounded-lg bg-surface-muted p-2 text-xs"><div className="font-medium">{engine.name} {engine.code ? `(${engine.code})` : ""}</div><div className="text-ink-muted">{engine.capacityCc ? `${engine.capacityCc} cc · ` : ""}{engine.fuelType ? FUEL_LABELS[engine.fuelType] : ""}{engine.powerHp ? ` · ${engine.powerHp} hp` : ""}</div></div>)}
+                                  {engines.map((engine) => <div key={engine.id} className="rounded-lg bg-surface-muted p-2 text-xs"><div className="font-medium">{engine.name} {engine.code ? `(${engine.code})` : ""}</div><div className="text-ink-muted">{engine.capacityCc ? `${engine.capacityCc} cc · ` : ""}{engine.fuelType ? FUEL_LABELS[engine.fuelType as keyof typeof FUEL_LABELS] : ""}{engine.powerHp ? ` · ${engine.powerHp} hp` : ""}</div></div>)}
                                 </div>
                               ) : <div className="text-xs text-ink-faint">لم تُضف محركات لهذا الجيل</div>}
                             </div>

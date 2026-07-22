@@ -19,6 +19,7 @@ import { formatCurrency } from "../lib/format";
 import { parseNumericInput } from "../lib/numberInput";
 import { aggregateSalesPriceType, resolveSalesLinePriceType } from "../lib/salesPrice";
 import { useFeatures } from "../lib/useFeatures";
+import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
 
 interface LineDraft {
   id: string;
@@ -485,19 +486,14 @@ export function SalesInvoiceEditPage() {
                   const exceeds = !!p && currentBaseQty > remainingBaseForLine;
                   return (
                     <TR key={l.id}>
-                      <TD>
-                        <Select
+                      <TD className="w-80">
+                        <SearchableProductSelect
+                          products={products}
                           value={l.productId}
-                          onChange={(e) => updateLine(l.id, { productId: e.target.value })}
-                          className="w-full"
-                        >
-                          <option value="">— اختر منتجاً —</option>
-                          {products.map((pr) => (
-                            <option key={pr.id} value={pr.id}>
-                              {pr.name}{pr.category ? ` (${pr.category})` : ""} — {pr.code}
-                            </option>
-                          ))}
-                        </Select>
+                          onChange={(pid) => updateLine(l.id, { productId: pid })}
+                          placeholder="— اختر منتجاً —"
+                          showStock
+                        />
                       </TD>
                       {multiSalePricesEnabled && (
                         <TD>

@@ -126,6 +126,14 @@ export interface Product {
   id: ID;
   code: string;
   name: string;
+  /** Optional part number for auto parts. */
+  partNumber?: string;
+  /** Optional brand / manufacturer for auto parts. */
+  partBrand?: string;
+  /** Optional shelf / rack location. */
+  rackLocation?: string;
+  /** Optional OEM part numbers list. */
+  oemNumbers?: string[];
   /** Optional scannable barcode (EAN/UPC/Code-128). Used by the POS scan input. */
   barcode?: string;
   category: string;
@@ -143,6 +151,13 @@ export interface Product {
   supplierId?: ID;
   notes?: string;
   archived?: boolean;
+  warrantyMonths?: number;
+  condition?: "new" | "used" | "refurbished" | "remanufactured";
+  qualityGrade?: string;
+  originCountry?: string;
+  reorderQuantity?: number;
+  manufacturer?: string;
+  position?: string;
   createdAt: string;
 }
 
@@ -150,6 +165,8 @@ export interface InvoiceLine {
   id: ID;
   productId: ID;
   productName: string;
+  partNumber?: string;
+  partBrand?: string;
   unit: string;
   quantity: number;
   price: number;
@@ -157,6 +174,7 @@ export interface InvoiceLine {
   /** Purchase cost per unit at time of sale — used for gross profit calculation. */
   costPrice?: number;
   expiryDate?: string;
+  warrantyMonths?: number;
   subtotal: number;
   isRetailUnit?: boolean;
 }
@@ -175,6 +193,7 @@ export interface PurchaseInvoice {
   status: PaymentStatus;
   notes?: string;
   paymentLog?: PaymentLogEntry[];
+  branchId?: ID;
   createdAt: string;
 }
 
@@ -201,6 +220,12 @@ export interface SalesInvoice {
   notes?: string;
   cancelled?: boolean;
   paymentLog?: PaymentLogEntry[];
+  customerVehicleId?: ID;
+  vehicleLabel?: string;
+  branchId?: ID;
+  branchName?: string;
+  priceTierId?: ID;
+  priceTierName?: string;
   createdByUserId?: ID;
   createdAt: string;
 }
@@ -306,6 +331,12 @@ export interface Quotation {
   notes?: string;
   status: QuotationStatus;
   convertedInvoiceId?: ID;
+  customerVehicleId?: ID;
+  vehicleLabel?: string;
+  branchId?: ID;
+  branchName?: string;
+  priceTierId?: ID;
+  priceTierName?: string;
   createdAt: string;
 }
 
@@ -484,4 +515,174 @@ export interface AuditLog {
   details?: string;
   /** Present on restorable deletions; cleared once the entry is restored. */
   snapshot?: AuditSnapshot;
+}
+
+export interface CustomerVehicle {
+  id: ID;
+  customerId: ID;
+  vin?: string;
+  plateNumber?: string;
+  makeId: ID;
+  modelId?: ID;
+  generationId?: ID;
+  engineId?: ID;
+  year?: number;
+  engineCode?: string;
+  color?: string;
+  mileageKm?: number;
+  notes?: string;
+  archived?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type WarrantyClaimStatus =
+  | "open"
+  | "inspecting"
+  | "supplier"
+  | "approved"
+  | "rejected"
+  | "replaced";
+
+export interface WarrantyClaim {
+  id: ID;
+  invoiceId: ID;
+  invoiceNumber: string;
+  invoiceLineId: ID;
+  customerId: ID;
+  customerName: string;
+  productId: ID;
+  productName: string;
+  supplierId?: ID;
+  complaint: string;
+  serialNumber?: string;
+  status: WarrantyClaimStatus;
+  openedAt: string;
+  updatedAt: string;
+}
+
+export interface Branch {
+  id: ID;
+  code: string;
+  name: string;
+  isMain: boolean;
+  active: boolean;
+  address?: string;
+  phone?: string;
+  createdAt: string;
+}
+
+export interface BranchStock {
+  branchId: ID;
+  productId: ID;
+  quantity: number;
+  updatedAt: string;
+}
+
+export type PriceTierBasis = "cost" | "wholesale" | "retail";
+
+export interface PriceTier {
+  id: ID;
+  name: string;
+  basis: PriceTierBasis;
+  adjustmentPct: number;
+  minMarginPct: number;
+  isDefault?: boolean;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface ProductFitment {
+  id: ID;
+  productId: ID;
+  makeId: ID;
+  modelId?: ID;
+  generationId?: ID;
+  engineId?: ID;
+  yearFrom?: number;
+  yearTo?: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface StockTransfer {
+  id: ID;
+  transferNumber: string;
+  fromBranchId: ID;
+  toBranchId: ID;
+  productId: ID;
+  productName: string;
+  quantity: number;
+  date: string;
+  status: "completed" | "pending" | string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface VehicleMake {
+  id: ID;
+  name: string;
+  nameAr?: string;
+  slug: string;
+  logoPath?: string;
+  priority?: number;
+  active: boolean;
+  source: string;
+  sourceUrl?: string;
+  countryCode?: string;
+  country?: string;
+  createdAt?: string;
+}
+
+export interface VehicleModel {
+  id: ID;
+  makeId: ID;
+  name: string;
+  nameAr?: string;
+  vehicleType?: string;
+  sourceId?: number;
+  active: boolean;
+  source: string;
+  createdAt?: string;
+}
+
+export interface VehicleGeneration {
+  id: ID;
+  modelId: ID;
+  name: string;
+  yearFrom?: number;
+  yearTo?: number;
+  bodyTypes?: string[];
+  active: boolean;
+  createdAt: string;
+}
+
+export interface VehicleEngine {
+  id: ID;
+  generationId: ID;
+  name: string;
+  code?: string;
+  capacityCc?: number;
+  fuelType?: "petrol" | "diesel" | "hybrid" | "electric" | "other";
+  powerHp?: number;
+  active: boolean;
+  createdAt: string;
+}
+
+export type PartAlternativeRelation = "equivalent" | "economy" | "premium" | "superseded";
+
+export interface ProductAlternative {
+  id: ID;
+  productId: ID;
+  alternativeProductId: ID;
+  relation: PartAlternativeRelation;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface VehicleCatalogPreferences {
+  includeAllMakes: boolean;
+  selectedCountryCodes: string[];
+  selectedMakeIds: ID[];
+  updatedAt?: string;
 }

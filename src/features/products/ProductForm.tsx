@@ -3,13 +3,14 @@ import { CarFront, Check, Plus, Trash2, Wand2, X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
 import { Field, Input, Select, Textarea } from "../../components/ui/Input";
+import { YearSelect } from "../../components/ui/YearSelect";
 import type { PartAlternativeRelation, Product, ProductAlternative } from "../../types";
 import { useCatalog } from "../../store/CatalogContext";
 import { useToast } from "../../components/ui/Toast";
 import { useFeatures } from "../../lib/useFeatures";
 import { BarcodeScanInput } from "./BarcodeScanInput";
 import { findProductByScan } from "../../lib/partSearch";
-import { vehicleCountryLabel } from "../../data/vehicleCountries";
+import { VEHICLE_COUNTRIES, normalizeVehicleCountryCode } from "../../data/vehicleCountries";
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { useVehicleCatalog } from "../../store/VehicleCatalogContext";
 import type { ProductFitment } from "../../types";
@@ -32,6 +33,42 @@ const AUTO_PART_CATEGORIES = [
   "زجاج ومرايات",
   "كاوتش وجنوط",
   "إكسسوارات",
+];
+
+const AUTO_PART_MANUFACTURERS = [
+  "Bosch",
+  "Denso",
+  "NGK",
+  "Mann-Filter",
+  "Mahle",
+  "Brembo",
+  "TRW",
+  "Sachs",
+  "Valeo",
+  "Luk",
+  "Febi Bilstein",
+  "SKF",
+  "Monroe",
+  "Hankook",
+  "Mobis",
+  "AISIN",
+  "GMB",
+  "555",
+  "Koyo",
+  "NKN",
+  "NTN",
+  "Lemförder",
+  "Gates",
+  "Bando",
+  "Mando",
+  "Sangsin",
+  "CTR",
+  "Denco",
+  "Depo",
+  "TYC",
+  "Buzooki",
+  "Hella",
+  "Osram",
 ];
 
 function generateEAN13(usedBarcodes: Set<string>): string {
@@ -147,6 +184,29 @@ export function ProductFormDialog({
   );
   const [addingUnit, setAddingUnit] = useState(false);
   const [newUnitInput, setNewUnitInput] = useState("");
+
+  const existingManufacturers = useMemo(
+    () => [...new Set(products.map((p) => p.manufacturer).filter((m): m is string => Boolean(m)))].sort(),
+    [products]
+  );
+  const [customManufacturers, setCustomManufacturers] = useState<string[]>([]);
+  const allManufacturers = useMemo(
+    () => [...new Set([...AUTO_PART_MANUFACTURERS, ...existingManufacturers, ...customManufacturers])].sort(),
+    [existingManufacturers, customManufacturers]
+  );
+  const [addingManufacturer, setAddingManufacturer] = useState(false);
+  const [newManufacturerInput, setNewManufacturerInput] = useState("");
+
+  const confirmNewManufacturer = () => {
+    const trimmed = newManufacturerInput.trim();
+    if (trimmed) {
+      setCustomManufacturers((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+      set("manufacturer", trimmed);
+      set("partBrand", trimmed);
+    }
+    setAddingManufacturer(false);
+    setNewManufacturerInput("");
+  };
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -264,6 +324,7 @@ export function ProductFormDialog({
     if (!form.code.trim()) e.code = "الكود مطلوب";
     if (!form.name.trim()) e.name = "اسم المنتج مطلوب";
     if (!form.partNumber?.trim()) e.partNumber = "رقم القطعة مطلوب";
+    if (!form.originCountry?.trim()) e.originCountry = "بلد المنشأ مطلوب";
     if (!form.category.trim()) e.category = "الفئة مطلوبة";
     if (form.purchasePrice < 0) e.purchasePrice = "يجب أن يكون موجباً";
     if (form.wholesalePrice < 0) e.wholesalePrice = "يجب أن يكون موجباً";
@@ -445,7 +506,12 @@ export function ProductFormDialog({
           />
         </Field>
 
-        <Field label="رقم القطعة (Part Number)" required error={errors.partNumber}>
+        <Field
+          label="رقم القطعة (Part Number)"
+          hint="رقم القطعة (Part Number) هو الكود أو الرقم الذي تضعه الشركة المصنعة للقطعة (مثل W 68/3 لشركة MANN أو 0242236571 لشركة Bosch) للتمييز الفني للقطعة وسهولة طلبها."
+          required
+          error={errors.partNumber}
+        >
           <Input
             value={form.partNumber ?? ""}
             onChange={(e) => set("partNumber", e.target.value || undefined)}
@@ -454,16 +520,69 @@ export function ProductFormDialog({
             dir="ltr"
           />
         </Field>
-        <Field label="ماركة القطعة">
-          <Input
-            value={form.partBrand ?? ""}
-            onChange={(e) => set("partBrand", e.target.value || undefined)}
-            placeholder="Bosch, MANN-FILTER, Mobis..."
-            dir="ltr"
-          />
+        <Field label="الشركة المصنّعة / الماركة">
+          <div className="flex gap-2">
+            <SearchableSelect
+              value={form.manufacturer ?? form.partBrand ?? ""}
+              onChange={(val) => {
+                set("manufacturer", val || undefined);
+                set("partBrand", val || undefined);
+              }}
+              options={allManufacturers.map((m) => ({
+                value: m,
+                label: m,
+                searchText: m,
+              }))}
+              placeholder="اختر أو ابحث عن الشركة..."
+              searchPlaceholder="ابحث عن اسم الشركة المصنعة..."
+              minChars={0}
+              onCreate={(newBrand) => {
+                setCustomManufacturers((prev) => [...prev, newBrand]);
+                set("manufacturer", newBrand);
+                set("partBrand", newBrand);
+              }}
+              createLabel="إضافة شركة مصنعة جديدة:"
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => { setAddingManufacturer(true); setNewManufacturerInput(""); }}
+              title="إضافة ماركة جديدة"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
+          {addingManufacturer && (
+            <div className="flex gap-1.5 mt-1.5">
+              <Input
+                autoFocus
+                value={newManufacturerInput}
+                onChange={(e) => setNewManufacturerInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); confirmNewManufacturer(); }
+                  if (e.key === "Escape") setAddingManufacturer(false);
+                }}
+                placeholder="اسم الماركة / الشركة الجديدة"
+                className="flex-1"
+              />
+              <Button type="button" size="icon" variant="outline" onClick={confirmNewManufacturer}>
+                <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
+              </Button>
+              <Button type="button" size="icon" variant="ghost" onClick={() => setAddingManufacturer(false)}>
+                <X className="w-4 h-4 text-red-500" />
+              </Button>
+            </div>
+          )}
         </Field>
 
-        <Field label="أرقام OEM" error={errors.oemNumbers} className="col-span-2">
+        <Field
+          label="أرقام OEM"
+          hint="أرقام OEM (Original Equipment Manufacturer) هي أرقام القطعة الأصلية المعتمدة من شركة السيارة الأم (مثل Toyota أو Hyundai). تُستخدم لتسهيل المطابقة والدعم عند البحث برقم شاسيه السيارة أو البدائل التجاريّة."
+          error={errors.oemNumbers}
+          className="col-span-2"
+        >
           <Textarea
             rows={2}
             value={(form.oemNumbers ?? []).join(", ")}
@@ -501,11 +620,19 @@ export function ProductFormDialog({
           </Field>
         ) : null}
 
-        <Field label="الشركة المصنّعة">
-          <Input value={form.manufacturer ?? ""} onChange={(e) => set("manufacturer", e.target.value || undefined)} />
-        </Field>
-        <Field label="بلد المنشأ">
-          <Input value={form.originCountry ?? ""} onChange={(e) => set("originCountry", e.target.value || undefined)} placeholder="ألمانيا، كوريا، اليابان..." />
+        <Field label="بلد المنشأ" required error={errors.originCountry}>
+          <SearchableSelect
+            value={normalizeVehicleCountryCode(form.originCountry) ?? form.originCountry ?? ""}
+            onChange={(val) => set("originCountry", val || undefined)}
+            options={VEHICLE_COUNTRIES.map((c) => ({
+              value: c.code,
+              label: `${c.flag}  ${c.nameAr} (${c.code})`,
+              searchText: `${c.nameAr} ${c.nameEn} ${c.code}`,
+            }))}
+            placeholder="اختر بلد المنشأ..."
+            searchPlaceholder="ابحث عن دولة المنشأ..."
+            minChars={0}
+          />
         </Field>
         <Field label="درجة الجودة">
           <Select value={form.qualityGrade ?? "aftermarket-premium"} onChange={(e) => set("qualityGrade", e.target.value as FormState["qualityGrade"])}>
@@ -522,11 +649,21 @@ export function ProductFormDialog({
             <option value="remanufactured">مجددة</option>
           </Select>
         </Field>
-        <Field label="مكان/اتجاه التركيب">
-          <Input value={form.position ?? ""} onChange={(e) => set("position", e.target.value || undefined)} placeholder="أمامي شمال، خلفي، داخلي..." />
-        </Field>
-        <Field label="الضمان بالشهور">
-          <Input type="number" min={0} value={form.warrantyMonths ?? ""} onChange={(e) => set("warrantyMonths", e.target.value ? Number(e.target.value) : undefined)} placeholder="0" />
+        <Field label="الضمان">
+          <Select
+            value={form.warrantyMonths === undefined || form.warrantyMonths === 0 ? "0" : String(form.warrantyMonths)}
+            onChange={(e) => set("warrantyMonths", e.target.value ? Number(e.target.value) : undefined)}
+          >
+            <option value="0">بدون ضمان</option>
+            <option value="1">شهر واحد</option>
+            <option value="3">3 شهور</option>
+            <option value="6">6 شهور</option>
+            <option value="12">سنة واحدة (12 شهر)</option>
+            <option value="18">سنة ونصف (18 شهر)</option>
+            <option value="24">سنتين (24 شهر)</option>
+            <option value="36">3 سنوات (36 شهر)</option>
+            <option value="60">5 سنوات (60 شهر)</option>
+          </Select>
         </Field>
 
         {/* الفئة + الوحدة */}
@@ -739,9 +876,13 @@ export function ProductFormDialog({
           </Select>
         </Field>
         {expiryTrackingEnabled ? (
-          <Field label="له تاريخ صلاحية؟">
-            <div className="flex items-center gap-3 h-9">
-              <label className="flex items-center gap-2 text-sm">
+          <Field
+            label="له تاريخ صلاحية؟"
+            required={form.hasExpiry}
+            error={form.hasExpiry ? errors.expiryDate : undefined}
+          >
+            <div className="flex items-center gap-3 min-h-[36px]">
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none whitespace-nowrap">
                 <input
                   type="radio"
                   name="hasExp"
@@ -750,7 +891,7 @@ export function ProductFormDialog({
                 />
                 نعم
               </label>
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none whitespace-nowrap">
                 <input
                   type="radio"
                   name="hasExp"
@@ -762,18 +903,15 @@ export function ProductFormDialog({
                 />
                 لا
               </label>
+              {form.hasExpiry && (
+                <Input
+                  type="date"
+                  value={form.expiryDate ?? ""}
+                  onChange={(e) => set("expiryDate", e.target.value || undefined)}
+                  className="flex-1 min-w-[140px]"
+                />
+              )}
             </div>
-          </Field>
-        ) : null}
-
-        {/* تاريخ الصلاحية - يظهر فقط لو اختار نعم */}
-        {expiryTrackingEnabled && form.hasExpiry ? (
-          <Field label="تاريخ الصلاحية" required error={errors.expiryDate} className="col-span-2">
-            <Input
-              type="date"
-              value={form.expiryDate ?? ""}
-              onChange={(e) => set("expiryDate", e.target.value || undefined)}
-            />
           </Field>
         ) : null}
 
@@ -817,8 +955,8 @@ export function ProductFormDialog({
             </Field>
             <Field label="الجيل"><Select value={fitmentGenerationId} onChange={(e) => { setFitmentGenerationId(e.target.value); setFitmentEngineId(""); }} disabled={!fitmentModelId}><option value="">كل الأجيال</option>{fitmentGenerations.map((generation) => <option key={generation.id} value={generation.id}>{generation.name}</option>)}</Select></Field>
             <Field label="المحرك"><Select value={fitmentEngineId} onChange={(e) => setFitmentEngineId(e.target.value)} disabled={!fitmentGenerationId}><option value="">كل المحركات</option>{fitmentEngines.map((engine) => <option key={engine.id} value={engine.id}>{engine.name}{engine.code ? ` — ${engine.code}` : ""}</option>)}</Select></Field>
-            <Field label="من سنة"><Input type="number" min={1900} max={2100} value={fitmentYearFrom} onChange={(e) => setFitmentYearFrom(e.target.value)} /></Field>
-            <Field label="إلى سنة"><Input type="number" min={1900} max={2100} value={fitmentYearTo} onChange={(e) => setFitmentYearTo(e.target.value)} /></Field>
+            <Field label="من سنة"><YearSelect value={fitmentYearFrom} onChange={(val) => setFitmentYearFrom(val)} placeholder="من سنة" /></Field>
+            <Field label="إلى سنة"><YearSelect value={fitmentYearTo} onChange={(val) => setFitmentYearTo(val)} placeholder="إلى سنة" /></Field>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={addFitmentDraft}><Plus className="w-4 h-4" />إضافة التوافق</Button>
           {fitments.length ? (

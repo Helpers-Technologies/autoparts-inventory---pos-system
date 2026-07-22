@@ -7,8 +7,6 @@ import {
   TrendingDown,
   Coins,
   UserRound,
-  Users,
-  UserRoundMinus,
   HandCoins,
   FileDown,
   MessageCircle,
@@ -310,11 +308,6 @@ export function ReportsPage() {
 
   const totalReceivables = useMemo(
     () => customers.reduce((sum, c) => sum + Math.max(0, customerBalance(c.id)), 0),
-    [customers, customerBalance]
-  );
-
-  const customerCredits = useMemo(
-    () => customers.reduce((sum, c) => sum + Math.max(0, -customerBalance(c.id)), 0),
     [customers, customerBalance]
   );
 

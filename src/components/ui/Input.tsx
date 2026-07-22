@@ -162,9 +162,12 @@ export function Field({
               type="button"
               title={hint}
               onClick={handleIconClick}
-              className="cursor-help text-ink-faint hover:text-ink transition-colors flex items-center p-0.5 focus:outline-none rounded hover:bg-surface-muted"
+              className="group relative cursor-help text-brand-500 hover:text-brand-400 transition-colors flex items-center p-0.5 focus:outline-none rounded"
             >
-              <Info className="w-3.5 h-3.5" />
+              <Info className="w-4 h-4" />
+              <span className="pointer-events-none absolute bottom-full mb-2 right-0 w-72 max-w-[calc(100vw-2rem)] p-3 rounded-xl border border-line bg-slate-900 dark:bg-slate-800 text-slate-100 text-xs shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 leading-relaxed text-right font-normal whitespace-normal">
+                {hint}
+              </span>
             </button>
           ) : null}
         </label>

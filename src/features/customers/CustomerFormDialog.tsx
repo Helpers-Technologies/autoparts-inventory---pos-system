@@ -1,19 +1,19 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
-import { Field, Input, Select, Textarea } from "../../components/ui/Input";
+import { Field, Input, Textarea } from "../../components/ui/Input";
 import type { Customer } from "../../types";
 import { useCatalog } from "../../store/CatalogContext";
 import { useToast } from "../../components/ui/Toast";
+import { isValidEgyptianMobile, normalizePhoneInput } from "../../lib/utils";
 
-type FormState = Pick<Customer, "code" | "name" | "phone" | "address" | "shippingDirection" | "notes">;
+type FormState = Pick<Customer, "code" | "name" | "phone" | "address" | "notes">;
 
 const EMPTY: FormState = {
   code: "",
   name: "",
   phone: "",
   address: "",
-  shippingDirection: undefined,
   notes: "",
 };
 
@@ -47,8 +47,8 @@ export function CustomerFormDialog({
       toast.error("الاسم مطلوب");
       return;
     }
-    if (form.phone && form.phone.trim().replace(/\D/g, "").length < 11) {
-      toast.error("رقم الهاتف غير صحيح", "يجب أن يحتوي على 11 رقماً على الأقل");
+    if (form.phone && !isValidEgyptianMobile(form.phone)) {
+      toast.error("رقم الهاتف غير صحيح", "رقم الموبايل يجب أن يتكون من 11 رقمًا ويبدأ بـ 01 (مثال: 01018194709)");
       return;
     }
     const created = addCustomer(form);
@@ -84,21 +84,19 @@ export function CustomerFormDialog({
         <Field label="اسم العميل" required>
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
-        <Field label="الهاتف">
-          <Input value={form.phone ?? ""} onChange={(e) => set("phone", e.target.value)} />
+        <Field label="الهاتف" hint="11 رقمًا ويبدأ بـ 01">
+          <Input
+            type="tel"
+            maxLength={11}
+            value={form.phone ?? ""}
+            onChange={(e) => set("phone", normalizePhoneInput(e.target.value))}
+            placeholder="01xxxxxxxxx (11 رقم)"
+            dir="ltr"
+            className="tracking-wider font-mono text-right"
+          />
         </Field>
         <Field label="العنوان">
           <Input value={form.address ?? ""} onChange={(e) => set("address", e.target.value)} />
-        </Field>
-        <Field label="اتجاه الشحن">
-          <Select
-            value={form.shippingDirection ?? ""}
-            onChange={(e) => set("shippingDirection", e.target.value as Customer["shippingDirection"] || undefined)}
-          >
-            <option value="">— غير محدد —</option>
-            <option value="qibli">قبلي</option>
-            <option value="bahri">بحري</option>
-          </Select>
         </Field>
         <Field label="ملاحظات" className="col-span-2">
           <Textarea rows={2} value={form.notes ?? ""} onChange={(e) => set("notes", e.target.value)} />

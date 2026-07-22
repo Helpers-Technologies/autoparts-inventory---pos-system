@@ -9,12 +9,15 @@ import {
   Minus,
   Search,
   Warehouse,
+  SlidersHorizontal,
+  RotateCcw,
+  Filter,
 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
-import { Input, Select, Field, Textarea } from "../components/ui/Input";
+import { Input, Field, Textarea } from "../components/ui/Input";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Dialog } from "../components/ui/Dialog";
@@ -24,13 +27,16 @@ import { useAuth } from "../store/AuthContext";
 import { useSettings } from "../store/SettingsContext";
 import { useToast } from "../components/ui/Toast";
 import { daysUntil } from "../lib/utils";
-import { formatDate } from "../lib/format";
+import { formatDate, formatQualityGradeLabel } from "../lib/format";
 import { formatStockMovementReference } from "../lib/stockMovement";
 import type { Product } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
 import { BarcodeScanInput } from "../features/products/BarcodeScanInput";
 import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
+import { VEHICLE_COUNTRIES } from "../data/vehicleCountries";
+import { useVehicleCatalog } from "../store/VehicleCatalogContext";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
 
 export function InventoryPage() {
   const { products, suppliers, adjustStock } = useCatalog();
@@ -38,6 +44,7 @@ export function InventoryPage() {
   const { currentUser } = useAuth();
   const { settings } = useSettings();
   const { isEnabled } = useFeatures();
+  const vehicleCatalog = useVehicleCatalog();
   const expiryTrackingEnabled = isEnabled("expiryTracking");
   const toast = useToast();
   const canAdjustStock = hasPermission(currentUser, "inventory", "adjust");
@@ -46,6 +53,14 @@ export function InventoryPage() {
   const [supplier, setSupplier] = useState("");
   const [qtyFilter, setQtyFilter] = useState<"all" | "available" | "low" | "zero">("all");
   const [expiryFilter, setExpiryFilter] = useState<"all" | "valid" | "soon" | "expired">("all");
+
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [brandFilter, setBrandFilter] = useState("");
+  const [originFilter, setOriginFilter] = useState("");
+  const [qualityFilter, setQualityFilter] = useState("");
+  const [makeFilter, setMakeFilter] = useState("");
+  const [rackFilter, setRackFilter] = useState("");
+  const [conditionFilter, setConditionFilter] = useState("");
 
   const [adjustTarget, setAdjustTarget] = useState<Product | null>(null);
   const [adjType, setAdjType] = useState<"in" | "out">("in");
@@ -57,6 +72,50 @@ export function InventoryPage() {
     () => Array.from(new Set(products.map((p) => p.category))),
     [products]
   );
+
+  const manufacturers = useMemo(
+    () => Array.from(new Set(products.map((p) => p.manufacturer || p.partBrand).filter((m): m is string => Boolean(m)))).sort(),
+    [products]
+  );
+
+  const qualityGrades = useMemo(
+    () => Array.from(new Set(products.map((p) => p.qualityGrade).filter((q): q is string => Boolean(q)))).sort(),
+    [products]
+  );
+
+  const rackLocations = useMemo(
+    () => Array.from(new Set(products.map((p) => p.rackLocation).filter((r): r is string => Boolean(r)))).sort(),
+    [products]
+  );
+
+  const activeAdvancedCount = useMemo(() => {
+    let count = 0;
+    if (brandFilter) count++;
+    if (originFilter) count++;
+    if (qualityFilter) count++;
+    if (makeFilter) count++;
+    if (rackFilter) count++;
+    if (conditionFilter) count++;
+    return count;
+  }, [brandFilter, originFilter, qualityFilter, makeFilter, rackFilter, conditionFilter]);
+
+  const hasAnyFilterActive = useMemo(() => {
+    return Boolean(q.trim() || category || supplier || qtyFilter !== "all" || expiryFilter !== "all" || activeAdvancedCount > 0);
+  }, [q, category, supplier, qtyFilter, expiryFilter, activeAdvancedCount]);
+
+  function resetAllFilters() {
+    setQ("");
+    setCategory("");
+    setSupplier("");
+    setQtyFilter("all");
+    setExpiryFilter("all");
+    setBrandFilter("");
+    setOriginFilter("");
+    setQualityFilter("");
+    setMakeFilter("");
+    setRackFilter("");
+    setConditionFilter("");
+  }
 
   const counts = useMemo(() => {
     const low = products.filter((p) => p.quantity <= p.minStock).length;
@@ -80,6 +139,29 @@ export function InventoryPage() {
     }
     if (category) list = list.filter((p) => p.category === category);
     if (supplier) list = list.filter((p) => p.supplierId === supplier);
+    if (brandFilter) {
+      list = list.filter((p) => (p.manufacturer || p.partBrand || "") === brandFilter);
+    }
+    if (originFilter) {
+      list = list.filter((p) => p.originCountry === originFilter);
+    }
+    if (qualityFilter) {
+      list = list.filter((p) => p.qualityGrade === qualityFilter);
+    }
+    if (conditionFilter) {
+      list = list.filter((p) => p.condition === conditionFilter);
+    }
+    if (rackFilter) {
+      list = list.filter((p) => p.rackLocation === rackFilter);
+    }
+    if (makeFilter) {
+      const matchingProductIds = new Set(
+        vehicleCatalog.productFitments
+          .filter((f) => f.makeId === makeFilter)
+          .map((f) => f.productId)
+      );
+      list = list.filter((p) => matchingProductIds.has(p.id));
+    }
     if (qtyFilter === "low") list = list.filter((p) => p.quantity > 0 && p.quantity <= p.minStock);
     if (qtyFilter === "zero") list = list.filter((p) => p.quantity === 0);
     if (qtyFilter === "available") list = list.filter((p) => p.quantity > p.minStock);
@@ -102,7 +184,10 @@ export function InventoryPage() {
         return du !== null && du > 14;
       });
     return list;
-  }, [products, q, category, supplier, qtyFilter, expiryFilter, expiryTrackingEnabled]);
+  }, [
+    products, q, category, supplier, brandFilter, originFilter, qualityFilter, conditionFilter,
+    rackFilter, makeFilter, vehicleCatalog.productFitments, qtyFilter, expiryFilter, expiryTrackingEnabled
+  ]);
 
   function submitAdjust() {
     if (!adjustTarget) return;
@@ -244,54 +329,188 @@ export function InventoryPage() {
           subtitle="كمية، وحدة، حد أدنى، حالة"
         />
         <CardBody className="space-y-3">
-          <div className="flex gap-2 items-center">
-            <div className="relative w-52">
-              <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
-              <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="بحث عن منتج..."
-                className="pe-9"
-              />
-            </div>
-            <Select value={category} onChange={(e) => setCategory(e.target.value)} className="w-36">
-              <option value="">كل الفئات</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
-            <Select value={supplier} onChange={(e) => setSupplier(e.target.value)} className="w-40">
-              <option value="">كل الموردين</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </Select>
-            <div className="inline-flex items-center gap-1 bg-surface-muted p-1 rounded-lg">
-                <span className="px-2 text-xs text-ink-faint select-none">الكمية:</span>
-                {([
-                  { key: "all", label: "الكل" },
-                  { key: "available", label: "متوفر" },
-                  { key: "low", label: "منخفض" },
-                  { key: "zero", label: "نفد" },
-                ] as const).map((b) => (
-                  <button
-                    key={b.key}
-                    onClick={() => setQtyFilter(b.key)}
-                    className={`px-3 h-8 text-xs rounded-md ${
-                      qtyFilter === b.key
-                        ? "bg-surface text-brand-700 shadow-sm"
-                        : "text-ink-muted"
-                    }`}
-                  >
-                    {b.label}
-                  </button>
-                ))}
+          <div className="flex flex-wrap gap-2 items-center justify-between">
+            <div className="flex flex-wrap gap-2 items-center flex-1">
+              <div className="relative w-52">
+                <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
+                <Input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="بحث عن منتج..."
+                  className="pe-9"
+                />
               </div>
-              {expiryTrackingEnabled && (
+              <SearchableSelect
+                value={category}
+                onChange={(val) => setCategory(val)}
+                options={categories.map((c) => ({ value: c, label: c, searchText: c }))}
+                placeholder="كل الفئات"
+                searchPlaceholder="ابحث عن فئة..."
+                className="w-44"
+              />
+              <SearchableSelect
+                value={supplier}
+                onChange={(val) => setSupplier(val)}
+                options={suppliers.map((s) => ({ value: s.id, label: s.name, searchText: s.name }))}
+                placeholder="كل الموردين"
+                searchPlaceholder="ابحث عن مورد..."
+                className="w-48"
+              />
+              <Button
+                type="button"
+                variant={showAdvanced || activeAdvancedCount > 0 ? "secondary" : "outline"}
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="flex items-center gap-1.5"
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                <span>فلاتر متقدمة</span>
+                {activeAdvancedCount > 0 && (
+                  <Badge tone="blue" className="ms-1 font-mono text-xs">
+                    {activeAdvancedCount}
+                  </Badge>
+                )}
+              </Button>
+            </div>
+
+            {hasAnyFilterActive && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={resetAllFilters}
+                className="text-red-500 hover:text-red-600 dark:text-red-400 flex items-center gap-1"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                مسح الفلاتر
+              </Button>
+            )}
+          </div>
+
+          {showAdvanced && (
+            <div className="bg-surface-subtle p-3.5 rounded-xl border border-line space-y-3 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="flex items-center justify-between text-xs font-medium text-ink-muted border-b border-line/60 pb-2">
+                <div className="flex items-center gap-1.5 text-brand-600 dark:text-brand-400 font-semibold">
+                  <Filter className="w-3.5 h-3.5" />
+                  خيارات الفلترة المتقدمة لقطع الغيار
+                </div>
+                {activeAdvancedCount > 0 && (
+                  <span className="text-brand-600 dark:text-brand-400">
+                    تم تفعيل {activeAdvancedCount} فلاتر إضافية
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-ink-muted mb-1">الشركة المصنّعة / الماركة</label>
+                  <SearchableSelect
+                    value={brandFilter}
+                    onChange={(val) => setBrandFilter(val)}
+                    options={manufacturers.map((m) => ({ value: m, label: m, searchText: m }))}
+                    placeholder="كل الماركات والشركات"
+                    searchPlaceholder="ابحث عن ماركة..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-ink-muted mb-1">بلد المنشأ</label>
+                  <SearchableSelect
+                    value={originFilter}
+                    onChange={(val) => setOriginFilter(val)}
+                    options={VEHICLE_COUNTRIES.map((c) => ({
+                      value: c.code,
+                      label: `${c.flag}  ${c.nameAr} (${c.code})`,
+                      searchText: `${c.nameAr} ${c.nameEn} ${c.code}`,
+                    }))}
+                    placeholder="كل بلاد المنشأ"
+                    searchPlaceholder="ابحث عن دولة..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-ink-muted mb-1">درجة الجودة</label>
+                  <SearchableSelect
+                    value={qualityFilter}
+                    onChange={(val) => setQualityFilter(val)}
+                    options={qualityGrades.map((qg) => ({
+                      value: qg,
+                      label: formatQualityGradeLabel(qg),
+                      searchText: `${formatQualityGradeLabel(qg)} ${qg}`,
+                    }))}
+                    placeholder="كل درجات الجودة"
+                    searchPlaceholder="ابحث عن درجة الجودة..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-ink-muted mb-1">توافق ماركة السيارة</label>
+                  <SearchableSelect
+                    value={makeFilter}
+                    onChange={(val) => setMakeFilter(val)}
+                    options={vehicleCatalog.vehicleMakes.map((mk) => ({
+                      value: mk.id,
+                      label: mk.name,
+                      searchText: mk.name,
+                    }))}
+                    placeholder="كل ماركات السيارات"
+                    searchPlaceholder="ابحث عن ماركة سيارة..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-ink-muted mb-1">موقع الرف / البِن</label>
+                  <SearchableSelect
+                    value={rackFilter}
+                    onChange={(val) => setRackFilter(val)}
+                    options={rackLocations.map((r) => ({ value: r, label: `رف: ${r}`, searchText: r }))}
+                    placeholder="كل الرفوف والمواقع"
+                    searchPlaceholder="ابحث عن موقع الرف..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-ink-muted mb-1">حالة القطعة</label>
+                  <SearchableSelect
+                    value={conditionFilter}
+                    onChange={(val) => setConditionFilter(val)}
+                    options={[
+                      { value: "new", label: "جديد (New)" },
+                      { value: "used", label: "مستعمل / استيراد (Used)" },
+                      { value: "refurbished", label: "معاد تجديده (Refurbished)" },
+                      { value: "remanufactured", label: "معاد تصنيعه (Remanufactured)" },
+                    ]}
+                    placeholder="كل الحالات"
+                    searchPlaceholder="ابحث عن حالة القطعة..."
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-3 items-center pt-1 border-t border-line/40">
+            <div className="inline-flex items-center gap-1 bg-surface-muted p-1 rounded-lg">
+              <span className="px-2 text-xs text-ink-faint select-none">الكمية:</span>
+              {([
+                { key: "all", label: "الكل" },
+                { key: "available", label: "متوفر" },
+                { key: "low", label: "منخفض" },
+                { key: "zero", label: "نفد" },
+              ] as const).map((b) => (
+                <button
+                  key={b.key}
+                  onClick={() => setQtyFilter(b.key)}
+                  className={`px-3 h-8 text-xs rounded-md transition-colors ${
+                    qtyFilter === b.key
+                      ? "bg-surface text-brand-700 dark:text-brand-300 font-medium shadow-sm"
+                      : "text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  {b.label}
+                </button>
+              ))}
+            </div>
+
+            {expiryTrackingEnabled && (
               <div className="inline-flex items-center gap-1 bg-surface-muted p-1 rounded-lg">
                 <span className="px-2 text-xs text-ink-faint select-none">الصلاحية:</span>
                 {([
@@ -303,17 +522,17 @@ export function InventoryPage() {
                   <button
                     key={b.key}
                     onClick={() => setExpiryFilter(b.key)}
-                    className={`px-3 h-8 text-xs rounded-md ${
+                    className={`px-3 h-8 text-xs rounded-md transition-colors ${
                       expiryFilter === b.key
-                        ? "bg-surface text-brand-700 shadow-sm"
-                        : "text-ink-muted"
+                        ? "bg-surface text-brand-700 dark:text-brand-300 font-medium shadow-sm"
+                        : "text-ink-muted hover:text-ink"
                     }`}
                   >
                     {b.label}
                   </button>
                 ))}
               </div>
-              )}
+            )}
           </div>
 
           {filtered.length === 0 ? (

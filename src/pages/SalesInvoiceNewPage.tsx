@@ -26,6 +26,7 @@ import { hasPermission } from "../lib/permissions";
 import { parseNumericInput } from "../lib/numberInput";
 import { findProductScanCandidates } from "../lib/partSearch";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
+import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
 
 interface LineDraft {
   id: string;
@@ -372,11 +373,11 @@ export function SalesInvoiceNewPage() {
       return;
     }
     if (amountReceived < 0) {
-      toast.error("المبلغ المستلم غير صحيح");
+      toast.error("المبلغ المدفوع غير صحيح");
       return;
     }
     if (paymentType === "cash" && totalEffective <= 0 && invoiceNet > 0) {
-      toast.error("أدخل المبلغ المستلم أو استخدم الرصيد الدائن");
+      toast.error("أدخل المبلغ المدفوع أو استخدم الرصيد الدائن");
       return;
     }
     // Cash with partial payment → auto-convert to account and require due date
@@ -818,16 +819,29 @@ export function SalesInvoiceNewPage() {
                 </span>
               </div>
             ) : null}
-            <Field label="المبلغ المستلم" required>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={amountReceived === 0 ? "" : amountReceived.toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                onFocus={(e) => e.currentTarget.select()}
-                onChange={(e) =>
-                  setAmountReceived(Math.max(0, parseNumericInput(e.target.value, amountReceived)))
-                }
-              />
+            <Field label="المبلغ المدفوع" required>
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={amountReceived === 0 ? "" : amountReceived}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) =>
+                    setAmountReceived(Math.max(0, parseNumericInput(e.target.value, amountReceived)))
+                  }
+                  className="text-right font-bold text-base flex-1"
+                  placeholder="0"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAmountReceived(invoiceNet)}
+                  className="shrink-0 text-xs"
+                >
+                  سداد بالكامل ({formatCurrency(invoiceNet, settings.currency)})
+                </Button>
+              </div>
             </Field>
             <Field label="ملاحظات">
               <Textarea
@@ -920,14 +934,13 @@ function ProductCombo({
   onChange: (id: string) => void;
 }) {
   return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)} className="w-full">
-      <option value="">— اختر منتجاً —</option>
-      {products.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.partNumber || p.code} — {p.name}{p.partBrand ? ` (${p.partBrand})` : ""}
-        </option>
-      ))}
-    </Select>
+    <SearchableProductSelect
+      products={products}
+      value={value}
+      onChange={onChange}
+      placeholder="— اختر منتجاً أو ابحث —"
+      showStock
+    />
   );
 }
 

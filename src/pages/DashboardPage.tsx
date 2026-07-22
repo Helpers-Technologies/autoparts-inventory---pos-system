@@ -503,7 +503,7 @@ export function DashboardPage() {
       <AutoPartsHero
         icon={CarFront}
         eyebrow=""
-        title={`مركز تشغيل ${settings.companyNameAr}`}
+        title={`مركز ${settings.companyNameAr}`}
         description="لوحة يومية لتشغيل محل قطع الغيار: توافق السيارات، مبيعات القطع، رصيد الفروع، الضمان وإعادة الطلب في مكان واحد."
 
         actions={

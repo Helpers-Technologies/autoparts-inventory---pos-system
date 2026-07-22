@@ -8,7 +8,6 @@ import {
   EyeOff,
   KeyRound,
   MessageCircle,
-  ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
