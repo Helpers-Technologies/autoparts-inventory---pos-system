@@ -65,7 +65,7 @@ export function SalesInvoiceEditPage() {
   const inv = salesInvoices.find((s) => s.id === id);
   const hasReturns = salesReturns.some((r) => r.originalInvoiceId === id);
   const invoicePriceType = inv?.priceType ?? DEFAULT_PRICE_TYPE;
-  const [globalPriceType, setGlobalPriceType] = useState<SalesPriceType>(invoicePriceType);
+  const [globalPriceType] = useState<SalesPriceType>(invoicePriceType);
 
   const [invoiceNumber] = useState(inv?.invoiceNumber ?? "");
   const [date, setDate] = useState(inv?.date ?? "");
@@ -206,21 +206,6 @@ export function SalesInvoiceEditPage() {
 
   function removeLine(lineId: string) {
     setLines((arr) => arr.filter((l) => l.id !== lineId));
-  }
-
-  function changeGlobalPriceType(nextPriceType: SalesPriceType) {
-    if (nextPriceType === globalPriceType) return;
-    setGlobalPriceType(nextPriceType);
-    setLines((arr) =>
-      arr.map((line) => {
-        const product = products.find((p) => p.id === line.productId);
-        return {
-          ...line,
-          priceType: nextPriceType,
-          price: product ? productPrice(product, nextPriceType) : line.price,
-        };
-      })
-    );
   }
 
   function submit() {
@@ -418,29 +403,6 @@ export function SalesInvoiceEditPage() {
           }
         />
         <CardBody>
-          {!multiSalePricesEnabled && (
-            <div className="mb-4 rounded-lg border border-line bg-surface-muted p-3">
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="text-xs font-medium text-ink-muted">نوع السعر</div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 md:w-[450px]">
-                  <PriceTypeOption
-                    label="جملة"
-                    hint="الفاتورة كلها بسعر الجملة"
-                    active={globalPriceType === "wholesale"}
-                    onClick={() => changeGlobalPriceType("wholesale")}
-                  />
-                  <PriceTypeOption
-                    label="تجزئة"
-                    hint="الفاتورة كلها بسعر التجزئة"
-                    active={globalPriceType === "retail"}
-                    onClick={() => changeGlobalPriceType("retail")}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
           {lines.length === 0 ? (
             <div className="text-center py-8 text-sm text-ink-faint">
               لا توجد بنود.
@@ -659,40 +621,3 @@ export function SalesInvoiceEditPage() {
   );
 }
 
-function PriceTypeOption({
-  label,
-  hint,
-  active,
-  onClick,
-}: {
-  label: string;
-  hint: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`h-14 rounded-lg border px-3 text-right transition-colors ${
-        active
-          ? "border-brand-600 bg-brand-50 text-brand-800 dark:bg-brand-500/20 dark:text-brand-300 shadow-sm"
-          : "border-line bg-surface text-ink-muted hover:border-brand-200 hover:bg-surface"
-      }`}
-    >
-      <span className="flex items-center justify-between gap-2">
-        <span>
-          <span className="block text-sm font-semibold">{label}</span>
-          <span className="block text-[11px] text-ink-faint mt-0.5">{hint}</span>
-        </span>
-        <span
-          className={`grid h-5 w-5 place-items-center rounded-full border ${
-            active ? "border-brand-600 bg-brand-600" : "border-line bg-surface"
-          }`}
-        >
-          {active ? <span className="h-2 w-2 rounded-full bg-surface" /> : null}
-        </span>
-      </span>
-    </button>
-  );
-}

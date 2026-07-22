@@ -330,21 +330,6 @@ export function SalesInvoiceNewPage() {
     setLines((arr) => arr.filter((l) => l.id !== id));
   }
 
-  function changeInvoicePriceType(nextPriceType: SalesPriceType) {
-    if (nextPriceType === invoicePriceType) return;
-    setInvoicePriceType(nextPriceType);
-    setLines((arr) =>
-      arr.map((line) => {
-        const product = products.find((p) => p.id === line.productId);
-        return {
-          ...line,
-          priceType: nextPriceType,
-          price: product ? productPrice(product, nextPriceType) : line.price,
-        };
-      })
-    );
-  }
-
   function submit() {
     if (!customerId) {
       toast.error("اختر العميل");
@@ -589,29 +574,6 @@ export function SalesInvoiceNewPage() {
           <div className="mb-4">
             <BarcodeScanInput onScan={handleScan} disabled={products.length === 0} />
           </div>
-          {!multiSalePricesEnabled && (
-            <div className="mb-4 rounded-lg border border-line bg-surface-muted p-3">
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="text-xs font-medium text-ink-muted">نوع السعر</div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 md:w-[450px]">
-                  <PriceTypeOption
-                    label="جملة"
-                    hint="الفاتورة كلها بسعر الجملة"
-                    active={invoicePriceType === "wholesale"}
-                    onClick={() => changeInvoicePriceType("wholesale")}
-                  />
-                  <PriceTypeOption
-                    label="تجزئة"
-                    hint="الفاتورة كلها بسعر التجزئة"
-                    active={invoicePriceType === "retail"}
-                    onClick={() => changeInvoicePriceType("retail")}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
           {lines.length === 0 ? (
             <div className="text-center py-8 text-sm text-ink-faint">
               لا توجد بنود — ابدأ بإضافة منتج.
@@ -765,10 +727,10 @@ export function SalesInvoiceNewPage() {
                     key={key}
                     type="button"
                     onClick={() => setPaymentMethod(key)}
-                    className={`px-3 h-8 rounded-lg border text-xs font-medium transition-colors ${
+                    className={`px-3.5 h-9 rounded-xl border text-xs font-semibold transition-all shadow-sm ${
                       paymentMethod === key
-                        ? "border-brand-600 bg-brand-50 text-brand-700"
-                        : "border-line bg-surface text-ink-muted hover:border-brand-300"
+                        ? "border-cyan-500 bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 ring-2 ring-cyan-500/20"
+                        : "border-line bg-surface text-ink-muted hover:border-cyan-500/50 hover:bg-surface-muted/40"
                     }`}
                   >
                     {label}
@@ -941,44 +903,6 @@ function ProductCombo({
       placeholder="— اختر منتجاً أو ابحث —"
       showStock
     />
-  );
-}
-
-function PriceTypeOption({
-  label,
-  hint,
-  active,
-  onClick,
-}: {
-  label: string;
-  hint: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`h-14 rounded-lg border px-3 text-right transition-colors ${
-        active
-          ? "border-brand-600 bg-brand-50 text-brand-800 dark:bg-brand-500/20 dark:text-brand-300 shadow-sm"
-          : "border-line bg-surface text-ink-muted hover:border-brand-200 hover:bg-surface"
-      }`}
-    >
-      <span className="flex items-center justify-between gap-2">
-        <span>
-          <span className="block text-sm font-semibold">{label}</span>
-          <span className="block text-[11px] text-ink-faint mt-0.5">{hint}</span>
-        </span>
-        <span
-          className={`grid h-5 w-5 place-items-center rounded-full border ${
-            active ? "border-brand-600 bg-brand-600" : "border-line bg-surface"
-          }`}
-        >
-          {active ? <span className="h-2 w-2 rounded-full bg-surface" /> : null}
-        </span>
-      </span>
-    </button>
   );
 }
 

@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, Ban, Eye, FileDown, HandCoins, MessageCircle, Pencil, Printer, Trash2 } from "lucide-react";
@@ -374,7 +374,7 @@ export function SalesInvoiceDetailPage() {
 
       {inv.paymentLog && inv.paymentLog.length > 0 ? (
         <Card>
-          <CardHeader title="سجل سداد الدفعات" />
+          <CardHeader title="سجل الدفع" />
           <CardBody>
             <Table>
               <THead>
@@ -390,7 +390,6 @@ export function SalesInvoiceDetailPage() {
                 {inv.paymentLog.map((entry, idx) => (
                   <TR key={entry.id}>
                     <TD>{idx + 1}</TD>
-                    <TD>{formatDate(entry.date)}</TD>
                     <TD>{resolvePaymentLabel(entry.paymentMethod, entry.notes)}</TD>
                     <TD className="text-end font-semibold text-emerald-700 dark:text-emerald-400">{formatCurrency(entry.amount, settings.currency)}</TD>
                     <TD className="text-xs text-ink-muted">{entry.notes && entry.notes !== "رصيد دائن مستخدم" ? entry.notes : "—"}</TD>

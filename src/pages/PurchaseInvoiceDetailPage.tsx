@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, Eye, FileDown, HandCoins, MessageCircle, Pencil, Printer, Trash2 } from "lucide-react";
@@ -66,7 +66,6 @@ export function PurchaseInvoiceDetailPage() {
 
   const supplier = suppliers.find((s) => s.id === inv.supplierId);
   const linkedReturns = purchaseReturns.filter((r) => r.originalInvoiceId === inv.id);
-  // inv.total holds the NET (after returns). Reconstruct the original order total.
   const returnsTotal = linkedReturns.reduce((sum, r) => sum + r.total, 0);
   const originalTotal = inv.total + returnsTotal;
   const canCreateReturn = canAddReturn && inv.lines.some((line) => line.quantity > 0);
@@ -251,7 +250,7 @@ export function PurchaseInvoiceDetailPage() {
 
       {inv.paymentLog && inv.paymentLog.length > 0 ? (
         <Card>
-          <CardHeader title="سجل سداد الدفعات" />
+          <CardHeader title="سجل الدفع" />
           <CardBody>
             <Table>
               <THead>
