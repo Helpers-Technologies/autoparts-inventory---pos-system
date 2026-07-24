@@ -224,6 +224,14 @@ export interface Product {
   unit: string;
   retailUnit?: string;
   purchasePrice: number;
+  /**
+   * Moving weighted-average unit cost, maintained from the real per-unit
+   * cost recorded on purchase-invoice lines (as opposed to purchasePrice,
+   * which is a user-editable standard/list cost used for pricing floors).
+   * Falls back to purchasePrice wherever unset (new/legacy products before
+   * their first purchase invoice under this scheme).
+   */
+  avgCost?: number;
   wholesalePrice: number;
   retailPrice: number;
   piecesPerUnit?: number;

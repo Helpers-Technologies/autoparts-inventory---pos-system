@@ -136,7 +136,8 @@ export function ReportsPage() {
     const origLine =
       orig?.lines.find((l) => l.id === rl.sourceLineId) ??
       orig?.lines.find((l) => l.productId === rl.productId);
-    return origLine?.costPrice ?? products.find((x) => x.id === rl.productId)?.purchasePrice ?? 0;
+    const prod = products.find((x) => x.id === rl.productId);
+    return origLine?.costPrice ?? prod?.avgCost ?? prod?.purchasePrice ?? 0;
   };
 
   const returnsTotalInRange = salesReturnsInRange.reduce((a, r) => a + r.total, 0);
@@ -179,7 +180,8 @@ export function ReportsPage() {
     let p = 0;
     salesInRange.forEach((inv) => {
       inv.lines.forEach((l) => {
-        const cost = l.costPrice ?? products.find((x) => x.id === l.productId)?.purchasePrice ?? 0;
+        const costProd = products.find((x) => x.id === l.productId);
+        const cost = l.costPrice ?? costProd?.avgCost ?? costProd?.purchasePrice ?? 0;
         p += (l.price - cost) * l.quantity;
       });
       p -= inv.discount ?? 0;
@@ -202,7 +204,8 @@ export function ReportsPage() {
       entry.sales += s.total;
       let invProfit = -(s.discount ?? 0);
       s.lines.forEach((l) => {
-        const cost = l.costPrice ?? products.find((x) => x.id === l.productId)?.purchasePrice ?? 0;
+        const costProd = products.find((x) => x.id === l.productId);
+        const cost = l.costPrice ?? costProd?.avgCost ?? costProd?.purchasePrice ?? 0;
         invProfit += (l.price - cost) * l.quantity;
       });
       entry.profit += invProfit;
@@ -400,7 +403,7 @@ export function ReportsPage() {
       inv.lines.forEach((l) => {
         const product = products.find((x) => x.id === l.productId);
         const e = map.get(l.productId) ?? { name: l.productName, partNumber: l.partNumber || product?.partNumber || product?.code, partBrand: l.partBrand || product?.partBrand, qty: 0, revenue: 0, grossProfit: 0 };
-        const cost = l.costPrice ?? product?.purchasePrice ?? 0;
+        const cost = l.costPrice ?? product?.avgCost ?? product?.purchasePrice ?? 0;
         e.qty += l.quantity;
         e.revenue += l.subtotal;
         e.grossProfit += (l.price - cost) * l.quantity;
@@ -777,7 +780,7 @@ export function ReportsPage() {
 
         <TabsContent value="stock">
           {products.length > 0 && (() => {
-            const totalPurchase = products.reduce((s, p) => s + p.quantity * p.purchasePrice, 0);
+            const totalPurchase = products.reduce((s, p) => s + p.quantity * (p.avgCost ?? p.purchasePrice), 0);
             const totalWholesale = products.reduce((s, p) => s + p.quantity * p.wholesalePrice, 0);
             const totalRetail = products.reduce((s, p) => s + p.quantity * p.retailPrice, 0);
             const profitIfWholesale = totalWholesale - totalPurchase;
@@ -841,7 +844,7 @@ export function ReportsPage() {
                       <TD className={`text-end font-mono ${p.quantity <= 0 ? "text-rose-700 dark:text-rose-400 font-bold" : p.quantity <= p.minStock ? "text-amber-700 dark:text-amber-400" : ""}`}>
                         {p.quantity} {p.unit}
                       </TD>
-                      <TD className="text-end">{formatCurrency(p.quantity * p.purchasePrice, settings.currency)}</TD>
+                      <TD className="text-end">{formatCurrency(p.quantity * (p.avgCost ?? p.purchasePrice), settings.currency)}</TD>
                       <TD className="text-end">{formatCurrency(p.quantity * p.wholesalePrice, settings.currency)}</TD>
                       <TD className="text-end">{formatCurrency(p.quantity * p.retailPrice, settings.currency)}</TD>
                     </TR>
@@ -1986,7 +1989,7 @@ function ReportContent({
             <div className="grid grid-cols-4 gap-3 mb-6">
               <KpiCard
                 label="قيمة المخزون (شراء)"
-                value={formatCurrency(products.reduce((a: number, p: Product) => a + p.quantity * p.purchasePrice, 0), cur)}
+                value={formatCurrency(products.reduce((a: number, p: Product) => a + p.quantity * (p.avgCost ?? p.purchasePrice), 0), cur)}
 
               />
               <KpiCard
@@ -2014,7 +2017,7 @@ function ReportContent({
                 p.name,
                 [p.partBrand, p.originCountry, p.rackLocation ? `RACK ${p.rackLocation}` : undefined].filter(Boolean).join(" · ") || p.category || "—",
                 `${p.quantity} ${p.unit || ""}`.trim(),
-                formatCurrency(p.quantity * p.purchasePrice, cur),
+                formatCurrency(p.quantity * (p.avgCost ?? p.purchasePrice), cur),
                 formatCurrency(p.quantity * p.wholesalePrice, cur),
                 formatCurrency(p.quantity * p.retailPrice, cur),
               ])}
@@ -2022,7 +2025,7 @@ function ReportContent({
                 "", "",
                 `${products.length} رقم قطعة`,
                 "",
-                formatCurrency(products.reduce((a: number, p: Product) => a + p.quantity * p.purchasePrice, 0), cur),
+                formatCurrency(products.reduce((a: number, p: Product) => a + p.quantity * (p.avgCost ?? p.purchasePrice), 0), cur),
                 formatCurrency(products.reduce((a: number, p: Product) => a + p.quantity * p.wholesalePrice, 0), cur),
                 formatCurrency(products.reduce((a: number, p: Product) => a + p.quantity * p.retailPrice, 0), cur),
               ]}

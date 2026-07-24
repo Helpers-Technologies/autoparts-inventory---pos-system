@@ -1,7 +1,7 @@
 {
   "name": "autoparts-inventory-system",
   "private": true,
-  "version": "1.0.0",
+  "version": "6.0.2",
   "description": "Protected desktop auto parts inventory and sales management system",
   "author": "Helpers Technologies",
   "type": "module",

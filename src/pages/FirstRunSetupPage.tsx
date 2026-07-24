@@ -395,7 +395,7 @@ export function FirstRunSetupPage() {
           </ol>
         </div>
 
-        <div className="relative flex items-center justify-between text-[11px] text-slate-500"><span>Helpers Technologies © 2026</span><span>نظام قطع الغيار · v1.0.0</span></div>
+        <div className="relative flex items-center justify-between text-[11px] text-slate-500"><span>Helpers Technologies © 2026</span><span>نظام قطع الغيار · v{__APP_VERSION__}</span></div>
       </div>
 
       {/* Right form panel — one step at a time */}

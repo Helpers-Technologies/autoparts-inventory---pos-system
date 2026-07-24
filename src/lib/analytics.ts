@@ -33,10 +33,11 @@ export interface ProductSalesAgg {
   margin: number;
 }
 
-/** Current on-hand stock value at purchase price (loose pieces pro-rated). */
+/** Current on-hand stock value at (weighted-average, falling back to purchase) cost — loose pieces pro-rated. */
 export function productStockValue(p: Product): number {
-  const piecePrice = p.piecesPerUnit ? p.purchasePrice / p.piecesPerUnit : 0;
-  return p.quantity * p.purchasePrice + (p.looseQuantity ?? 0) * piecePrice;
+  const cost = p.avgCost ?? p.purchasePrice;
+  const piecePrice = p.piecesPerUnit ? cost / p.piecesPerUnit : 0;
+  return p.quantity * cost + (p.looseQuantity ?? 0) * piecePrice;
 }
 
 /** On-hand units, loose pieces converted to fractional cartons. */

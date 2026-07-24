@@ -20,9 +20,10 @@
 //
 // Configured via package.json -> build.win.signtoolOptions.sign.
 
-const { existsSync } = require("node:fs");
+const { existsSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { createHash } = require("node:crypto");
 const { flipFuses, FuseVersion, FuseV1Options } = require("@electron/fuses");
 
 const CERT_SHA1 = "E950B2D3C22831B0EDE52E0F69D7C0C422BCBE02";
@@ -60,6 +61,22 @@ exports.default = async function sign(configuration) {
       resetAdHocDarwinSignature: false,
     });
     console.log(`[sign-win] disabled asar-integrity fuse on ${MAIN_EXE_NAME}`);
+
+    // Compensating control for the disabled fuse above: write a sibling hash
+    // of app.asar that electron/main.cjs verifies at startup (see
+    // verifyAsarIntegrityOrExit). Weaker than the real fuse — it only catches
+    // accidental corruption / naive tampering, not a motivated attacker who
+    // also patches the check out of a modified archive — but it's better than
+    // nothing while the upstream electron-builder/Electron bug is unfixed.
+    const resourcesDir = path.join(path.dirname(file), "resources");
+    const asarPath = path.join(resourcesDir, "app.asar");
+    if (existsSync(asarPath)) {
+      const hash = createHash("sha256").update(readFileSync(asarPath)).digest("hex");
+      writeFileSync(path.join(resourcesDir, "asar-integrity.sha256"), `${hash}\n`, "utf8");
+      console.log(`[sign-win] wrote asar-integrity.sha256 (${hash.slice(0, 12)}...)`);
+    } else {
+      console.warn(`[sign-win] app.asar not found at ${asarPath} — skipping integrity hash`);
+    }
   }
 
   const signtool = findSigntool();

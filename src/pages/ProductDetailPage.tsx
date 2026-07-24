@@ -82,12 +82,13 @@ export function ProductDetailPage() {
   const supplier = product ? suppliers.find((s) => s.id === product.supplierId) : undefined;
 
   // Per-piece cost so mixed carton/loose stock values correctly.
-  const perPieceCost = product ? (product.piecesPerUnit ? product.purchasePrice / product.piecesPerUnit : product.purchasePrice) : 0;
+  const productCost = product ? (product.avgCost ?? product.purchasePrice) : 0;
+  const perPieceCost = product ? (product.piecesPerUnit ? productCost / product.piecesPerUnit : productCost) : 0;
   const baseUnits = product ? (product.piecesPerUnit ? product.quantity * product.piecesPerUnit + (product.looseQuantity ?? 0) : product.quantity) : 0;
   const stockValue = baseUnits * perPieceCost;
 
-  const unitProfit = product ? product.wholesalePrice - product.purchasePrice : 0;
-  const marginPct = product && product.purchasePrice > 0 ? (unitProfit / product.purchasePrice) * 100 : 0;
+  const unitProfit = product ? product.wholesalePrice - productCost : 0;
+  const marginPct = product && productCost > 0 ? (unitProfit / productCost) * 100 : 0;
 
   const sales = useMemo(() => {
     let revenue = 0;
@@ -101,7 +102,7 @@ export function ProductDetailPage() {
           if (l.productId !== product.id) continue;
           revenue += l.subtotal;
           units += l.quantity;
-          profit += l.subtotal - (l.costPrice ?? product.purchasePrice) * l.quantity;
+          profit += l.subtotal - (l.costPrice ?? product.avgCost ?? product.purchasePrice) * l.quantity;
           invoiceIds.add(inv.id);
         }
       }
@@ -350,7 +351,7 @@ export function ProductDetailPage() {
                     <TD className="text-end">
                       <Badge tone={quantity <= 0 ? "red" : quantity <= product.minStock ? "amber" : "green"}>{quantity} {product.unit}</Badge>
                     </TD>
-                    <TD className="text-end font-mono">{formatCurrency(quantity * product.purchasePrice, settings.currency)}</TD>
+                    <TD className="text-end font-mono">{formatCurrency(quantity * (product.avgCost ?? product.purchasePrice), settings.currency)}</TD>
                   </TR>
                 ))}
               </TBody>

@@ -346,20 +346,24 @@ export function DashboardPage() {
     let grossProfitMonth = 0;
     for (const invoice of monthlyInvoices) {
       grossProfitMonth -= invoice.discount ?? 0;
-      for (const line of invoice.lines) grossProfitMonth += line.subtotal - (line.costPrice ?? productById.get(line.productId)?.purchasePrice ?? 0) * line.quantity;
+      for (const line of invoice.lines) {
+        const lineProd = productById.get(line.productId);
+        grossProfitMonth += line.subtotal - (line.costPrice ?? lineProd?.avgCost ?? lineProd?.purchasePrice ?? 0) * line.quantity;
+      }
     }
     for (const item of salesReturns.filter((entry) => entry.date >= monthStart && !invoiceById.get(entry.originalInvoiceId)?.cancelled)) {
       const original = invoiceById.get(item.originalInvoiceId);
       for (const line of item.lines) {
         const originalLine = original?.lines.find((entry) => entry.id === line.sourceLineId) ?? original?.lines.find((entry) => entry.productId === line.productId);
-        grossProfitMonth -= line.subtotal - (originalLine?.costPrice ?? productById.get(line.productId)?.purchasePrice ?? 0) * line.quantity;
+        const retProd = productById.get(line.productId);
+        grossProfitMonth -= line.subtotal - (originalLine?.costPrice ?? retProd?.avgCost ?? retProd?.purchasePrice ?? 0) * line.quantity;
       }
     }
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
     const cutoff = localISODate(ninetyDaysAgo);
     const soldRecently = new Set(validSales.filter((invoice) => invoice.date >= cutoff).flatMap((invoice) => invoice.lines.map((line) => line.productId)));
-    const deadStockValue = activeProducts.filter((product) => product.quantity > 0 && !soldRecently.has(product.id)).reduce((sum, product) => sum + product.quantity * product.purchasePrice, 0);
+    const deadStockValue = activeProducts.filter((product) => product.quantity > 0 && !soldRecently.has(product.id)).reduce((sum, product) => sum + product.quantity * (product.avgCost ?? product.purchasePrice), 0);
     const openWarrantyClaims = pro.warrantyClaims.filter((claim) => !["rejected", "replaced"].includes(claim.status)).length;
 
     const receivables = customers.reduce((sum, customer) => sum + Math.max(0, customerBalance(customer.id)), 0);
@@ -413,9 +417,9 @@ export function DashboardPage() {
     const cutoff = localISODate(cutoffDate);
     const soldRecently = new Set(salesInvoices.filter((invoice) => !invoice.cancelled && invoice.date >= cutoff).flatMap((invoice) => invoice.lines.map((line) => line.productId)));
     return activeProducts.filter((product) => product.quantity > 0 && !soldRecently.has(product.id))
-      .sort((a, b) => b.quantity * b.purchasePrice - a.quantity * a.purchasePrice)
+      .sort((a, b) => b.quantity * (b.avgCost ?? b.purchasePrice) - a.quantity * (a.avgCost ?? a.purchasePrice))
       .slice(0, 5)
-      .map((product) => ({ name: product.name, qty: product.quantity * product.purchasePrice }));
+      .map((product) => ({ name: product.name, qty: product.quantity * (product.avgCost ?? product.purchasePrice) }));
   }, [activeProducts, salesInvoices]);
 
   const topSellingProducts = useMemo(() => {

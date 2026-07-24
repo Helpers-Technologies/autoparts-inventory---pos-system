@@ -24,7 +24,7 @@ labels: bug
 
 ## Environment
 
-- App version: <!-- e.g. 1.0.1 — shown in Settings → About -->
+- App version: <!-- e.g. 6.0.2 — shown in Settings → About -->
 - Windows version: <!-- e.g. Windows 11 22H2 -->
 
 ## Screenshots / recordings

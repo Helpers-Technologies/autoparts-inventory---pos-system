@@ -535,7 +535,7 @@ export function LoginPage() {
           <div className="flex items-center gap-3">
             <a href="https://helpers-tech.com/" target="_blank" rel="noreferrer" className="transition-colors hover:text-cyan-300">helpers-tech.com</a>
             <span>·</span>
-            <span>نظام قطع الغيار · v1.0.0</span>
+            <span>نظام قطع الغيار · v{__APP_VERSION__}</span>
           </div>
         </footer>
       </div>

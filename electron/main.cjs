@@ -53,6 +53,44 @@ const MAX_PASSWORD_LENGTH = 256;
 // E2E harness launches it. This closes the license-bypass via `HW_E2E=1`.
 const HW_E2E = process.env.HW_E2E === "1" && !app.isPackaged;
 
+// ── ASAR integrity self-check (compensating control) ─────────────────────
+// enableEmbeddedAsarIntegrityValidation is off at build time (see
+// scripts/sign-win.cjs) to work around an electron-builder v26 + Electron 39
+// bug that otherwise crashes the app at launch. This is a best-effort
+// stand-in, not equivalent assurance: it catches accidental corruption and
+// naive tampering of app.asar, but NOT a motivated attacker, since this
+// check itself runs from inside the archive it verifies — a rebuilt app.asar
+// can simply omit the check. Re-enable the real fuse once the upstream bug
+// is fixed instead of relying on this long-term.
+(function verifyAsarIntegrityOrExit() {
+  if (!app.isPackaged) return; // no app.asar in dev/E2E runs
+  const asarPath = path.join(process.resourcesPath, "app.asar");
+  const hashPath = path.join(process.resourcesPath, "asar-integrity.sha256");
+  if (!fs.existsSync(asarPath) || !fs.existsSync(hashPath)) return; // older/other build without this — skip rather than false-positive
+  let expected;
+  try {
+    expected = fs.readFileSync(hashPath, "utf8").trim().toLowerCase();
+  } catch {
+    return;
+  }
+  if (!/^[a-f0-9]{64}$/.test(expected)) return;
+  let actual;
+  try {
+    actual = crypto.createHash("sha256").update(fs.readFileSync(asarPath)).digest("hex");
+  } catch {
+    return; // couldn't read it — fail open rather than block launch on a transient FS error
+  }
+  if (actual !== expected) {
+    dialog.showErrorBox(
+      "فشل التحقق من سلامة التطبيق",
+      "ملفات التطبيق الأساسية تم تعديلها أو تلفها. أعد تثبيت البرنامج من مصدر رسمي.\n\n" +
+        "App integrity check failed — app.asar does not match its expected hash. Reinstall from an official source."
+    );
+    app.exit(1);
+    process.exit(1);
+  }
+})();
+
 // ── Storage security: pure predicates and redaction helpers ─────────────
 const {
   STORE_PREFIX,
@@ -297,8 +335,81 @@ function getMachineMaterial() {
   }
 }
 
+function getSmbiosUuid() {
+  if (process.platform !== "win32") return "";
+  try {
+    const out = childProcess.execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID"],
+      { encoding: "utf8", timeout: 5000, windowsHide: true }
+    );
+    return out.trim();
+  } catch {
+    return "";
+  }
+}
+
+function getPrimaryDiskSerial() {
+  if (process.platform !== "win32") return "";
+  try {
+    const out = childProcess.execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-CimInstance -ClassName Win32_DiskDrive | Sort-Object Index | Select-Object -First 1).SerialNumber",
+      ],
+      { encoding: "utf8", timeout: 5000, windowsHide: true }
+    );
+    return out.trim();
+  } catch {
+    return "";
+  }
+}
+
+function getPrimaryMacAddress() {
+  try {
+    const macs = [];
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const info of list || []) {
+        if (info.mac && info.mac !== "00:00:00:00:00:00" && !info.internal) macs.push(info.mac.toLowerCase());
+      }
+    }
+    macs.sort(); // deterministic regardless of adapter enumeration order
+    return macs[0] || "";
+  } catch {
+    return "";
+  }
+}
+
+// Anti-clone hardware fingerprint used ONLY for license binding
+// (getMachineCode/getMachineHash) — deliberately NOT used for getDbKey or the
+// MFA-secret derivations below, which stay on the MachineGuid-only
+// getMachineMaterial() so a fingerprint change here never orphans an existing
+// encrypted database or MFA enrollment. MachineGuid alone is a single
+// registry value that a raw disk-image clone reproduces verbatim; combining
+// it with the SMBIOS system UUID, primary disk serial, and a MAC address
+// (none of which live in the cloned filesystem image alone — SMBIOS/disk
+// serial come from the physical hardware) means a clone landing on different
+// physical hardware gets a different license fingerprint. This does not stop
+// a byte-identical clone of BOTH the disk and the underlying VM/hardware
+// (e.g. a VM snapshot restored on the same host), and it is still local
+// offline logic — it raises the bar on the common "image one machine, deploy
+// to N POS terminals" cloning path, it does not add real seat counting
+// (which needs server-side enforcement, out of scope here).
+// MUST stay in sync with the identical derivation in
+// autoparts-license-studio/scripts/license-studio.cjs and generate-license.cjs.
+let _licenseFingerprintCache = null;
+function getLicenseFingerprintMaterial() {
+  if (_licenseFingerprintCache) return _licenseFingerprintCache;
+  const parts = [getMachineMaterial(), getSmbiosUuid(), getPrimaryDiskSerial(), getPrimaryMacAddress()];
+  _licenseFingerprintCache = parts.filter(Boolean).join("|");
+  return _licenseFingerprintCache;
+}
+
 function getMachineCode() {
-  const digest = sha256(`${APP_SALT}:machine:${getMachineMaterial()}`).toUpperCase();
+  const digest = sha256(`${APP_SALT}:machine:${getLicenseFingerprintMaterial()}`).toUpperCase();
   const groups = digest.slice(0, 32).match(/.{1,4}/g) || [];
   return `APW-${groups.join("-")}`;
 }
@@ -2876,6 +2987,13 @@ function registerIpc() {
     if (!entries || typeof entries !== "object") return false;
     try {
       let usersWereUpdated = false;
+      // Keys skipped by policy (e.g. a non-owner session's routine flush
+      // skipping the `users` key) are NOT failures — the transaction still
+      // commits every key the caller was authorized to write. Only a genuine
+      // per-key write error (bad payload, constraint violation) should make
+      // the caller's await see this as a failed, undurable batch — that's
+      // what importBackup relies on to report an honest restore result.
+      let writeErrors = 0;
       const tx = openDatabase().transaction(() => {
         for (const [key, value] of Object.entries(entries)) {
           if (!isRendererStorageKey(key) || !canMutateRendererStorage(event, key)) continue;
@@ -2886,12 +3004,14 @@ function registerIpc() {
               new Date().toISOString()
             );
             if (String(key) === `${STORE_PREFIX}users`) usersWereUpdated = true;
-          } catch { /* skip invalid individual keys */ }
+          } catch {
+            writeErrors++;
+          }
         }
       });
       tx();
       if (usersWereUpdated) cleanupMfaForMissingUsers();
-      return true;
+      return writeErrors === 0;
     } catch {
       return false;
     }

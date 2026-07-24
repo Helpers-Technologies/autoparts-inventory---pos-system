@@ -1083,7 +1083,10 @@ export function SettingsPage() {
                 autoComplete="new-password"
               />
               <Button
-                onClick={() => exportBackup(backupPassphrase.trim() || undefined)}
+                onClick={async () => {
+                  const ok = await exportBackup(backupPassphrase.trim() || undefined);
+                  if (!ok) toast.error("فشل تشفير النسخة الاحتياطية — لم يتم إنشاء أي ملف");
+                }}
                 variant="outline"
                 className="w-full justify-start"
               >

@@ -211,6 +211,32 @@ export function adjustStockCartonDelta(
   return delta + Math.floor(newLoose / piecesPerUnit);
 }
 
+/**
+ * Recompute a product's moving weighted-average cost after removing a value
+ * contribution (an edited/deleted purchase-invoice line, or a purchase
+ * return) and/or adding a new one (a new/edited purchase-invoice line).
+ * Quantities are always in the product's base unit — purchase lines never
+ * carry loose/piece units (see PurchaseInvoiceNewPage), so no carton/piece
+ * conversion is needed here. Clamped so rounding drift can never push the
+ * running value negative, and the last known cost is kept once stock hits
+ * zero rather than collapsing to 0.
+ */
+export function applyWeightedAverageCostDelta(args: {
+  currentQty: number;
+  currentAvgCost: number;
+  removeQty?: number;
+  removeValue?: number;
+  addQty?: number;
+  addValue?: number;
+}): number {
+  const { currentQty, currentAvgCost, removeQty = 0, removeValue = 0, addQty = 0, addValue = 0 } = args;
+  const afterRemoveQty = Math.max(0, currentQty - removeQty);
+  const afterRemoveValue = Math.max(0, currentQty * currentAvgCost - removeValue);
+  const finalQty = afterRemoveQty + addQty;
+  const finalValue = afterRemoveValue + addValue;
+  return finalQty > 0 ? finalValue / finalQty : currentAvgCost;
+}
+
 export function applyPieceDeduction(p: Product, pieces: number): Partial<Product> {
   const ppu = p.piecesPerUnit!;
   const loose = p.looseQuantity ?? 0;

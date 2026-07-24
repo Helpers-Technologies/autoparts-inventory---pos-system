@@ -73,6 +73,7 @@ import {
   recomputePurchaseInvoiceAfterEdit,
   adjustStockCartonDelta,
   computeShiftSummary,
+  applyWeightedAverageCostDelta,
 } from "./_pure";
 import { SettingsContext } from "./SettingsContext";
 import { AuditLogContext } from "./AuditLogContext";
@@ -279,7 +280,7 @@ interface AppActions {
   // Backup & Import
   // `passphrase` (optional) protects a MANUAL export with a user secret (v2
   // envelope). Omit it for the app-key path used by silent folder backups.
-  exportBackup: (passphrase?: string) => Promise<void>;
+  exportBackup: (passphrase?: string) => Promise<boolean>;
   importBackup: (file: File, passphrase?: string) => Promise<boolean>;
   backupToPath: (dirOverride?: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
   exportToExcel: (dataType: "products" | "customers" | "suppliers" | "sales" | "purchases" | "stock" | "supplierDues" | "customerDues" | "commissions") => void;
@@ -684,6 +685,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
     stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users,
     salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
+    offlineEmployees, offlineTransactions,
   });
   // True while state has changed but the 2s-debounced flush hasn't run yet —
   // lets the shutdown handler skip its synchronous full-state write when
@@ -694,9 +696,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
       stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users,
       salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
+      offlineEmployees, offlineTransactions,
     };
     unflushedChangesRef.current = true;
-  }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts]);
+  }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts, offlineEmployees, offlineTransactions]);
+
+  // Durable flush of the canonical persisted keys, built from liveStateRef so
+  // it always reflects the latest state without needing to be re-created on
+  // every keystroke. Used on quit/close to close the 2s debounce window —
+  // without this, a sale committed just before a graceful window close is
+  // lost because win.destroy() kills the pending debounce timer outright.
+  const flushPendingWritesNow = useCallback(async (): Promise<boolean> => {
+    if (isDesktop && !auth.isAuthenticated) return true;
+    const s = liveStateRef.current;
+    const ok = await lsSetBatchAwait({
+      autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
+      ...s,
+    });
+    unflushedChangesRef.current = false;
+    return ok;
+  }, [isDesktop, auth.isAuthenticated]);
 
   // --- Auto Backup Logic (timer-based — never blocks on state changes) ---
   useEffect(() => {
@@ -738,29 +757,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer);
   }, [advancedSecurityEnabled, settings.autoBackupEnabled, isDesktop]); // isDesktop is constant at runtime; effectively re-schedules only when the user toggles the setting
 
-  // Session backup — uses liveStateRef so the handler always reads current
-  // state without needing to re-register on every state change.
+  // Covers renderer reload/navigation (not the Electron quit path — that's
+  // handled by onRunCloseBackup's flushPendingWritesNow, since destroy()
+  // never fires beforeunload). Uses liveStateRef so the handler always reads
+  // current state without needing to re-register on every state change.
   useEffect(() => {
     const handleBeforeUnload = () => {
       // Everything already flushed by the debounced batch write — skip the
-      // synchronous full-state serialization so shutdown stays instant.
+      // redundant write so shutdown stays instant.
       if (!unflushedChangesRef.current) return;
+      if (isDesktop && !auth.isAuthenticated) return;
       try {
-        const s = liveStateRef.current;
-        const safeUsers = redactUserPasswordHashes(s.users);
-        const data = {
-          version: "1.0",
-          timestamp: new Date().toISOString(),
-          state: { ...s, users: safeUsers },
-        };
-        lsSet("inventory_last_session_backup", data);
+        lsSetBatch({
+          autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
+          ...liveStateRef.current,
+        });
       } catch {
         // Ignore serialization errors during shutdown
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, []);
+  }, [isDesktop, auth.isAuthenticated]);
 
   const currentUser = useMemo(() => {
     if (!auth.isAuthenticated) return null;
@@ -1459,14 +1477,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPurchaseInvoices((list) => [full, ...list]);
     logAudit("invoice_purchase_created", `${full.invoiceNumber} — ${full.supplierName}`, `الإجمالي: ${full.total}`);
 
-    // stock increments
+    // stock increments — also rolls the real per-unit cost on each purchase
+    // line (l.price) into the product's moving weighted-average cost, so
+    // profit reports reflect what inventory actually cost rather than a
+    // static, manually-edited purchasePrice that drifts once suppliers
+    // change prices.
     setProducts((list) =>
       list.map((p) => {
         const matchingLines = inv.lines.filter((l) => l.productId === p.id);
         if (matchingLines.length === 0) return p;
         const totalQty = matchingLines.reduce((sum, l) => sum + l.quantity, 0);
+        const addedValue = matchingLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
         const lastExpiry = matchingLines.filter((l) => l.expiryDate).pop()?.expiryDate;
-        const patch: Partial<Product> = { quantity: p.quantity + totalQty };
+        const patch: Partial<Product> = {
+          quantity: p.quantity + totalQty,
+          avgCost: applyWeightedAverageCostDelta({
+            currentQty: p.quantity,
+            currentAvgCost: p.avgCost ?? p.purchasePrice,
+            addQty: totalQty,
+            addValue: addedValue,
+          }),
+        };
         if (lastExpiry && p.hasExpiry) patch.expiryDate = lastExpiry;
         return { ...p, ...patch };
       })
@@ -1505,18 +1536,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const inv = purchaseInvoices.find((i) => i.id === id);
     if (!inv) return;
 
-    // Reverse old stock, apply new stock in one pass
+    // Reverse old stock/cost contribution, apply the new one in one pass —
+    // mirrors the same weighted-average blend addPurchaseInvoice uses, just
+    // unwinding the old lines first.
     setProducts((list) =>
       list.map((p) => {
-        const oldQty = inv.lines.filter((l) => l.productId === p.id).reduce((sum, l) => sum + l.quantity, 0);
-        const newQty = patch.lines.filter((l) => l.productId === p.id).reduce((sum, l) => sum + l.quantity, 0);
-        let qty = p.quantity;
-        if (oldQty > 0) qty = Math.max(0, qty - oldQty);
-        if (newQty > 0) qty = qty + newQty;
-        const lastNewExpiry = patch.lines.filter((l) => l.productId === p.id && l.expiryDate).pop()?.expiryDate;
+        const oldLines = inv.lines.filter((l) => l.productId === p.id);
+        const newLines = patch.lines.filter((l) => l.productId === p.id);
+        if (oldLines.length === 0 && newLines.length === 0) return p;
+        const oldQty = oldLines.reduce((sum, l) => sum + l.quantity, 0);
+        const newQty = newLines.reduce((sum, l) => sum + l.quantity, 0);
+        const oldValue = oldLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+        const newValue = newLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+        const qty = Math.max(0, p.quantity - oldQty) + newQty;
+        const avgCost = applyWeightedAverageCostDelta({
+          currentQty: p.quantity,
+          currentAvgCost: p.avgCost ?? p.purchasePrice,
+          removeQty: oldQty,
+          removeValue: oldValue,
+          addQty: newQty,
+          addValue: newValue,
+        });
+        const lastNewExpiry = newLines.filter((l) => l.expiryDate).pop()?.expiryDate;
         const expiryDate = lastNewExpiry && p.hasExpiry ? lastNewExpiry : p.expiryDate;
-        return qty !== p.quantity || expiryDate !== p.expiryDate
-          ? { ...p, quantity: qty, expiryDate }
+        return qty !== p.quantity || avgCost !== p.avgCost || expiryDate !== p.expiryDate
+          ? { ...p, quantity: qty, avgCost, expiryDate }
           : p;
       })
     );
@@ -1618,12 +1662,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!inv) return false;
     // FIX-06: Block deleting purchase invoices that have returns (mirrors sales logic)
     if (purchaseReturns.some((r) => r.originalInvoiceId === id)) return false;
-    // revert stock
+    // revert stock and its weighted-average cost contribution
     setProducts((list) =>
       list.map((p) => {
-        const totalQty = inv.lines.filter((x) => x.productId === p.id).reduce((sum, l) => sum + l.quantity, 0);
-        if (totalQty === 0) return p;
-        return { ...p, quantity: Math.max(0, p.quantity - totalQty) };
+        const matchingLines = inv.lines.filter((x) => x.productId === p.id);
+        if (matchingLines.length === 0) return p;
+        const totalQty = matchingLines.reduce((sum, l) => sum + l.quantity, 0);
+        const totalValue = matchingLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+        return {
+          ...p,
+          quantity: Math.max(0, p.quantity - totalQty),
+          avgCost: applyWeightedAverageCostDelta({
+            currentQty: p.quantity,
+            currentAvgCost: p.avgCost ?? p.purchasePrice,
+            removeQty: totalQty,
+            removeValue: totalValue,
+          }),
+        };
       })
     );
     setPurchaseInvoices((list) => list.filter((i) => i.id !== id));
@@ -1659,7 +1714,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       if (l.costPrice !== undefined) return lineWithPriceType;
       const prod = products.find((p) => p.id === l.productId);
-      return prod ? { ...lineWithPriceType, costPrice: prod.purchasePrice } : lineWithPriceType;
+      return prod ? { ...lineWithPriceType, costPrice: prod.avgCost ?? prod.purchasePrice } : lineWithPriceType;
     });
     const invoiceCashierId = inv.createdByUserId ?? currentUser?.id;
     const currentShift = shifts.find(
@@ -2243,12 +2298,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPurchaseReturns((l) => [full, ...l]);
     logAudit("return_purchase_created", `${num} — ${r.supplierName}`, `الإجمالي: ${r.total}`);
 
-    // Update stock (decrease)
+    // Update stock (decrease) and unwind its weighted-average cost
+    // contribution — r.lines[].price is copied straight from the original
+    // purchase invoice line (see PurchaseReturnDialog), so it's the exact
+    // unit cost that was originally blended in.
     setProducts((list) =>
       list.map((p) => {
-        const totalQty = r.lines.filter((x) => x.productId === p.id).reduce((sum, l) => sum + l.quantity, 0);
-        if (totalQty === 0) return p;
-        return { ...p, quantity: Math.max(0, p.quantity - totalQty) };
+        const matchingLines = r.lines.filter((x) => x.productId === p.id);
+        if (matchingLines.length === 0) return p;
+        const totalQty = matchingLines.reduce((sum, l) => sum + l.quantity, 0);
+        const totalValue = matchingLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+        return {
+          ...p,
+          quantity: Math.max(0, p.quantity - totalQty),
+          avgCost: applyWeightedAverageCostDelta({
+            currentQty: p.quantity,
+            currentAvgCost: p.avgCost ?? p.purchasePrice,
+            removeQty: totalQty,
+            removeValue: totalValue,
+          }),
+        };
       })
     );
 
@@ -2758,6 +2827,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
         autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
         stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users: safeUsers, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
+        offlineEmployees, offlineTransactions,
         vehicleCatalogSchemaVersion: lsGet<number>("vehicleCatalogSchemaVersion", 1),
         vehicleCatalogPreferences: lsGet("vehicleCatalogPreferences", {
           includeAllMakes: true,
@@ -2780,23 +2850,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
         marketingContactLog: lsGet("marketingContactLog", []),
       }
     };
-  }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts]);
+  }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts, offlineEmployees, offlineTransactions]);
 
   const exportBackup: AppActions["exportBackup"] = useCallback(async (passphrase?: string) => {
     logAudit("backup_created", "تصدير نسخة احتياطية يدوية", "صيغة hwbak");
     const content = JSON.stringify(buildBackupData(), null, 2);
+    const canEncrypt = Boolean(window.desktopAPI?.backup?.encryptContent);
     let fileContent = content;
-    if (window.desktopAPI?.backup?.encryptContent) {
-      const result = await window.desktopAPI.backup.encryptContent(content, passphrase);
-      if (result.ok && result.encrypted) fileContent = result.encrypted;
+    let fileName = `backup_${todayISO()}.hwbak`;
+    if (canEncrypt) {
+      const result = await window.desktopAPI!.backup!.encryptContent!(content, passphrase);
+      if (!result.ok || !result.encrypted) {
+        // Never fall through to plaintext under a name that implies
+        // encryption — abort instead of silently shipping an unencrypted
+        // file full of customer/financial data as "backup_....hwbak".
+        return false;
+      }
+      fileContent = result.encrypted;
+    } else {
+      // No desktop backup bridge (web/dev mode) — export honestly as plain
+      // JSON instead of using the .hwbak extension for unencrypted content.
+      fileName = `backup_${todayISO()}.json`;
     }
     const blob = new Blob([fileContent], { type: "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `backup_${todayISO()}.hwbak`;
+    link.download = fileName;
     link.click();
     URL.revokeObjectURL(url);
+    return true;
   }, [buildBackupData]);
 
   // Write a full backup to the configured folder (local / external / network).
@@ -2847,17 +2930,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!isDesktop || !appApi?.onRunCloseBackup) return;
     const off = appApi.onRunCloseBackup(async () => {
       try {
+        // Durably flush any state still sitting in the 2s debounce window
+        // first — win.destroy() below skips that pending timer entirely, so
+        // without this the most recent sale/payment is lost even on a clean
+        // shutdown, not just on a crash.
+        await flushPendingWritesNow();
         if (advancedSecurityEnabled && settings.backupOnClose && settings.backupPath?.trim() && currentUser?.role === "owner") {
           await backupToPath();
         }
       } catch {
-        /* never block the quit on a backup failure */
+        /* never block the quit on a flush/backup failure */
       } finally {
         appApi.closeBackupDone();
       }
     });
     return off;
-  }, [isDesktop, advancedSecurityEnabled, settings.backupOnClose, settings.backupPath, currentUser, backupToPath]);
+  }, [isDesktop, advancedSecurityEnabled, settings.backupOnClose, settings.backupPath, currentUser, backupToPath, flushPendingWritesNow]);
 
   const importBackup: AppActions["importBackup"] = useCallback(async (file, passphrase?: string) => {
     try {
@@ -2994,7 +3082,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       batchFlush.nextCustomerCode = _ncc;
       // Await durable persistence so the caller can hard-reload without racing
       // the write (this is what eliminates the post-restore white screen).
-      await lsSetBatchAwait(batchFlush);
+      // The React setters above already updated in-memory state regardless,
+      // but if the durable write itself failed, the imminent reload would
+      // read stale/empty data back off disk — so surface that as failure
+      // instead of reporting a restore that didn't actually stick.
+      const persisted = await lsSetBatchAwait(batchFlush);
+      if (!persisted) return false;
       window.dispatchEvent(new Event("autoparts:vehicle-catalog-restored"));
       window.dispatchEvent(new Event("autoparts:pro-data-restored"));
       logAudit("backup_restored", "استعادة نسخة احتياطية", file.name);
@@ -3030,7 +3123,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       rows = purchaseInvoices.map(p => [p.invoiceNumber, p.date, p.supplierName, p.total, p.status]);
     } else if (type === "stock") {
       headers = ["الكود", "المنتج", "الكمية", "قيمة المخزون"];
-      rows = products.map(p => [p.code, p.name, p.quantity, p.quantity * p.purchasePrice]);
+      rows = products.map(p => [p.code, p.name, p.quantity, p.quantity * (p.avgCost ?? p.purchasePrice)]);
     } else if (type === "supplierDues") {
       headers = ["رقم الفاتورة", "التاريخ", "المورد", "الهاتف", "الإجمالي", "المدفوع", "المتبقي", "الحالة", "عمر الفاتورة بالأيام"];
       rows = purchaseInvoices

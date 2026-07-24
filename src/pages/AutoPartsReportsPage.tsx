@@ -60,7 +60,7 @@ export function AutoPartsReportsPage() {
   const activeProducts = products.filter((product) => !product.archived);
   const fittedProductIds = new Set(vehicleCatalog.productFitments.map((fitment) => fitment.productId));
   const inventoryValue = activeProducts.reduce(
-    (sum, product) => sum + product.quantity * product.purchasePrice,
+    (sum, product) => sum + product.quantity * (product.avgCost ?? product.purchasePrice),
     0,
   );
   const lowStock = activeProducts.filter((product) => product.quantity <= product.minStock);
@@ -77,7 +77,8 @@ export function AutoPartsReportsPage() {
       const netLineRevenue = line.subtotal - discountShare;
       row.quantity += line.quantity;
       row.revenue += netLineRevenue;
-      row.profit += netLineRevenue - (line.costPrice ?? productById.get(line.productId)?.purchasePrice ?? 0) * line.quantity;
+      const rowProd = productById.get(line.productId);
+      row.profit += netLineRevenue - (line.costPrice ?? rowProd?.avgCost ?? rowProd?.purchasePrice ?? 0) * line.quantity;
       row.lastDate = row.lastDate > invoice.date ? row.lastDate : invoice.date;
       salesByProduct.set(line.productId, row);
     }
@@ -89,7 +90,8 @@ export function AutoPartsReportsPage() {
     const originalLine = original?.lines.find((entry) => entry.id === line.sourceLineId)
       ?? original?.lines.find((entry) => entry.productId === line.productId);
     const row = salesByProduct.get(line.productId) ?? { quantity: 0, revenue: 0, profit: 0, lastDate: "" };
-    const cost = originalLine?.costPrice ?? productById.get(line.productId)?.purchasePrice ?? 0;
+    const returnProd = productById.get(line.productId);
+    const cost = originalLine?.costPrice ?? returnProd?.avgCost ?? returnProd?.purchasePrice ?? 0;
     row.quantity -= line.quantity;
     row.revenue -= line.subtotal;
     row.profit -= line.subtotal - cost * line.quantity;
@@ -103,7 +105,7 @@ export function AutoPartsReportsPage() {
   const ninetyDaysAgo = (() => { const date = new Date(); date.setDate(date.getDate() - 90); return localISODate(date); })();
   const deadStock = activeProducts
     .filter((product) => product.quantity > 0 && (!lastSaleByProduct.get(product.id) || lastSaleByProduct.get(product.id)! < ninetyDaysAgo))
-    .sort((a, b) => b.quantity * b.purchasePrice - a.quantity * a.purchasePrice);
+    .sort((a, b) => b.quantity * (b.avgCost ?? b.purchasePrice) - a.quantity * (a.avgCost ?? a.purchasePrice));
   const fastMovers = [...salesByProduct.entries()]
     .map(([productId, row]) => ({ product: productById.get(productId), ...row, returned: returnedByProduct.get(productId) ?? 0 }))
     .filter((row) => row.product && row.quantity > 0)
@@ -182,7 +184,7 @@ export function AutoPartsReportsPage() {
       const row = map.get(brand) ?? { count: 0, quantity: 0, value: 0 };
       row.count += 1;
       row.quantity += product.quantity;
-      row.value += product.quantity * product.purchasePrice;
+      row.value += product.quantity * (product.avgCost ?? product.purchasePrice);
       map.set(brand, row);
     }
     return [...map.entries()]
@@ -312,7 +314,7 @@ export function AutoPartsReportsPage() {
                       </div>
                       <div className="text-left">
                         <Badge tone="amber">{product.quantity} وحدة</Badge>
-                        <div className="mt-1 text-xs font-semibold">{formatCurrency(product.quantity * product.purchasePrice, settings.currency)}</div>
+                        <div className="mt-1 text-xs font-semibold">{formatCurrency(product.quantity * (product.avgCost ?? product.purchasePrice), settings.currency)}</div>
                       </div>
                     </div>
                   ))}
@@ -546,7 +548,7 @@ export function AutoPartsReportsPage() {
           open={true}
           onClose={() => setReportModal(null)}
           title="كشف المخزون الراكد (أصناف لم تتحرك خلال 90 يومًا)"
-          subtitle={`إجمالي ${deadStock.length} صنف بقيمة تكلفة ${formatCurrency(deadStock.reduce((s, p) => s + p.quantity * p.purchasePrice, 0), settings.currency)}`}
+          subtitle={`إجمالي ${deadStock.length} صنف بقيمة تكلفة ${formatCurrency(deadStock.reduce((s, p) => s + p.quantity * (p.avgCost ?? p.purchasePrice), 0), settings.currency)}`}
           width="2xl"
         >
           <div className="overflow-x-auto max-h-[65vh] p-1">
@@ -557,7 +559,7 @@ export function AutoPartsReportsPage() {
                   <TH>رقم القطعة / الكود</TH>
                   <TH>اسم الصنف</TH>
                   <TH className="text-end">الكمية الراكدة</TH>
-                  <TH className="text-end">سعر الشراء</TH>
+                  <TH className="text-end">تكلفة الوحدة</TH>
                   <TH className="text-end">إجمالي القيمة</TH>
                 </TR>
               </THead>
@@ -568,8 +570,8 @@ export function AutoPartsReportsPage() {
                     <TD className="font-mono text-xs" dir="ltr">{p.partNumber || p.code}</TD>
                     <TD className="font-semibold text-ink text-sm">{p.name}</TD>
                     <TD className="text-end"><Badge tone="amber">{p.quantity} وحدة</Badge></TD>
-                    <TD className="text-end font-mono text-xs">{formatCurrency(p.purchasePrice, settings.currency)}</TD>
-                    <TD className="text-end font-mono font-bold text-ink text-sm">{formatCurrency(p.quantity * p.purchasePrice, settings.currency)}</TD>
+                    <TD className="text-end font-mono text-xs">{formatCurrency(p.avgCost ?? p.purchasePrice, settings.currency)}</TD>
+                    <TD className="text-end font-mono font-bold text-ink text-sm">{formatCurrency(p.quantity * (p.avgCost ?? p.purchasePrice), settings.currency)}</TD>
                   </TR>
                 ))}
               </TBody>
@@ -811,16 +813,16 @@ function PrintableReportView({
     
     if (target === "stagnant") {
       fileName = "تقرير_المخزون_الراكد";
-      headers = ["م", "رقم القطعة/الكود", "اسم الصنف", "الكمية", "سعر الشراء", "إجمالي القيمة التقديرية"];
+      headers = ["م", "رقم القطعة/الكود", "اسم الصنف", "الكمية", "تكلفة الوحدة", "إجمالي القيمة التقديرية"];
       rows = deadStock.map((p, idx) => [
         idx + 1,
         p.partNumber || p.code,
         p.name,
         p.quantity,
-        p.purchasePrice,
-        p.quantity * p.purchasePrice
+        p.avgCost ?? p.purchasePrice,
+        p.quantity * (p.avgCost ?? p.purchasePrice)
       ]);
-      const totalVal = deadStock.reduce((s, p) => s + p.quantity * p.purchasePrice, 0);
+      const totalVal = deadStock.reduce((s, p) => s + p.quantity * (p.avgCost ?? p.purchasePrice), 0);
       const totalQty = deadStock.reduce((s, p) => s + p.quantity, 0);
       rows.push(["", "الإجمالي", "", totalQty, "", totalVal]);
     } else if (target === "returns") {
@@ -937,7 +939,7 @@ function PrintableReportView({
                 {target === "reorder" && <th className="py-2.5 px-3">الماركة</th>}
                 {target === "reorder" && <th className="py-2.5 px-3">الموقع</th>}
                 {target === "stagnant" && <th className="py-2.5 px-3 text-end">الكمية الراكدة</th>}
-                {target === "stagnant" && <th className="py-2.5 px-3 text-end">سعر الشراء</th>}
+                {target === "stagnant" && <th className="py-2.5 px-3 text-end">تكلفة الوحدة</th>}
                 {target === "stagnant" && <th className="py-2.5 px-3 text-end">إجمالي التكلفة</th>}
                 {target === "returns" && <th className="py-2.5 px-3 text-end">الكمية المرتجعة</th>}
                 {target === "reorder" && <th className="py-2.5 px-3 text-end">المخزون الحالي</th>}
@@ -952,8 +954,8 @@ function PrintableReportView({
                   <td className="py-3 px-3 font-mono text-xs" dir="ltr">{p.partNumber || p.code}</td>
                   <td className="py-3 px-3 font-medium text-ink">{p.name}</td>
                   <td className="py-3 px-3 text-end font-semibold">{p.quantity}</td>
-                  <td className="py-3 px-3 text-end font-mono">{formatCurrency(p.purchasePrice, currency)}</td>
-                  <td className="py-3 px-3 text-end font-semibold font-mono">{formatCurrency(p.quantity * p.purchasePrice, currency)}</td>
+                  <td className="py-3 px-3 text-end font-mono">{formatCurrency(p.avgCost ?? p.purchasePrice, currency)}</td>
+                  <td className="py-3 px-3 text-end font-semibold font-mono">{formatCurrency(p.quantity * (p.avgCost ?? p.purchasePrice), currency)}</td>
                 </tr>
               ))}
 
@@ -996,7 +998,7 @@ function PrintableReportView({
             <div>
               <span className="text-ink-muted">إجمالي التكلفة الراكدة: </span>
               <strong className="text-rose-700 font-mono">
-                {formatCurrency(deadStock.reduce((s, p) => s + p.quantity * p.purchasePrice, 0), currency)}
+                {formatCurrency(deadStock.reduce((s, p) => s + p.quantity * (p.avgCost ?? p.purchasePrice), 0), currency)}
               </strong>
             </div>
           </div>
