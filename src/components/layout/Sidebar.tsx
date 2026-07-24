@@ -33,6 +33,8 @@ import {
   Building2,
   BadgeDollarSign,
   Sparkles,
+  Megaphone,
+  Clock,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { lsGet, lsSet } from "../../lib/storage";
@@ -68,7 +70,8 @@ const GROUPS: NavGroup[] = [
     id: "invoices",
     label: "البيع وخدمة السيارة",
     items: [
-      { to: "/pos", label: "نقطة البيع (POS)", icon: Monitor, permission: "salesInvoices", feature: "pos" },
+      { to: "/pos", label: "نقطة البيع (POS)", icon: Monitor, permission: "pos", feature: "pos" },
+      { to: "/shifts", label: "ورديات الكاشير", icon: Clock, permission: "pos" },
       { to: "/sales", label: "فواتير المبيعات", icon: Receipt, permission: "salesInvoices", feature: "salesInvoices" },
       { to: "/customer-garage", label: "سيارات العملاء", icon: CarFront, permission: "customers" },
       { to: "/quotations", label: "عروض الأسعار", icon: FileText, permission: "salesInvoices", feature: "quotations" },
@@ -104,6 +107,7 @@ const GROUPS: NavGroup[] = [
     label: "العملاء والموردون",
     items: [
       { to: "/customers", label: "العملاء", icon: Users, permission: "customers", feature: "customers" },
+      { to: "/marketing", label: "مركز التسويق والنمو", icon: Megaphone, ownerOnly: true, feature: "marketingHub" },
       { to: "/suppliers", label: "الموردين", icon: Factory, permission: "suppliers", feature: "suppliers" },
       { to: "/drivers", label: "السائقين", icon: Truck, permission: "drivers", feature: "drivers" },
     ],
@@ -126,7 +130,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { to: "/users", label: "المستخدمين", icon: Users, ownerOnly: true },
       { to: "/audit-log", label: "سجل النشاط", icon: Shield, ownerOnly: true, feature: "activityLog" },
-      { to: "/import", label: "استيراد البيانات", icon: Upload, feature: "dataImport" },
+      { to: "/import", label: "استيراد البيانات", icon: Upload, permission: "products", feature: "dataImport" },
       { to: "/settings", label: "الإعدادات", icon: Settings, ownerOnly: true },
     ],
   },

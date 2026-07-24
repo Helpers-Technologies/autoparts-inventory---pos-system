@@ -385,3 +385,96 @@ export function settlePurchaseInvoiceReturn(
     overpayment: overpayment > 0 ? overpayment : undefined,
   };
 }
+
+
+
+export function computeShiftSummary(args: {
+  shift: import("../types").CashierShift;
+  salesInvoices: SalesInvoice[];
+  cashEntries: CashEntry[];
+  salesReturns: SalesReturn[];
+}): import("../types").CashierShift {
+  const { shift, salesInvoices, cashEntries, salesReturns } = args;
+
+  const start = shift.openedAt;
+  const end = shift.closedAt || new Date().toISOString();
+
+  // Find sales invoices for this shift
+  const shiftInvoices = salesInvoices.filter((inv) => {
+    if (inv.cancelled) return false;
+    if (inv.shiftId) return inv.shiftId === shift.id;
+    // Fallback matching by cashier ID and date range
+    if (inv.createdByUserId !== shift.cashierId) return false;
+    return inv.createdAt >= start && inv.createdAt <= end;
+  });
+
+  const salesInvoiceIds = shiftInvoices.map((inv) => inv.id);
+  const invoiceIdSet = new Set(salesInvoiceIds);
+  const shiftReturnIds = new Set(
+    salesReturns
+      .filter((ret) => invoiceIdSet.has(ret.originalInvoiceId) && ret.createdAt >= start && ret.createdAt <= end)
+      .map((ret) => ret.id),
+  );
+  const totalSalesAmount = shiftInvoices.reduce((sum, inv) => sum + inv.total, 0);
+  const totalCreditSales = shiftInvoices.reduce(
+    (sum, inv) => sum + (inv.paymentType === "account" ? inv.remaining : 0),
+    0,
+  );
+
+  const shiftEntries = cashEntries.filter((entry) => {
+    if (entry.shiftId) return entry.shiftId === shift.id;
+    // دعم السجلات القديمة قبل إضافة shiftId دون خلط ورديات الكاشير الأخرى.
+    return Boolean(
+      entry.referenceId &&
+      (invoiceIdSet.has(entry.referenceId) || shiftReturnIds.has(entry.referenceId)),
+    );
+  });
+  const isPhysicalCash = (entry: CashEntry) => !entry.paymentMethod || entry.paymentMethod === "cash";
+  const isSalesRefund = (entry: CashEntry) =>
+    entry.amount < 0 &&
+    entry.type === "adjustment" &&
+    Boolean(
+      (entry.referenceId && (invoiceIdSet.has(entry.referenceId) || shiftReturnIds.has(entry.referenceId))) ||
+      /مبيعات|فاتورة مبيعات/.test(entry.description),
+    );
+
+  // تحصيلات المبيعات النقدية منفصلة عن أي عهدة/إضافة أخرى لتبقى قراءة التقرير واضحة.
+  const totalCashSales = shiftEntries
+    .filter((entry) => isPhysicalCash(entry) && entry.type === "sales-receipt" && entry.amount > 0)
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalCashAdditions = shiftEntries
+    .filter((entry) => isPhysicalCash(entry) && entry.type !== "sales-receipt" && entry.amount > 0)
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalVisaSales = shiftEntries
+    .filter((entry) => !isPhysicalCash(entry) && entry.paymentMethod !== "credit" && entry.amount > 0)
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalRefunds = shiftEntries
+    .filter((entry) => isPhysicalCash(entry) && isSalesRefund(entry))
+    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  const totalExpenses = shiftEntries
+    .filter((entry) => isPhysicalCash(entry) && entry.amount < 0 && !isSalesRefund(entry))
+    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+
+  const expectedCash = Math.round(
+    (shift.openingCash + totalCashSales + totalCashAdditions - totalRefunds - totalExpenses) * 100,
+  ) / 100;
+  const difference =
+    typeof shift.closingCashActual === "number"
+      ? Math.round((shift.closingCashActual - expectedCash) * 100) / 100
+      : undefined;
+
+  return {
+    ...shift,
+    totalSalesCount: shiftInvoices.length,
+    totalSalesAmount: Math.round(totalSalesAmount * 100) / 100,
+    totalCashAdditions: Math.round(totalCashAdditions * 100) / 100,
+    totalCashSales: Math.round(totalCashSales * 100) / 100,
+    totalVisaSales: Math.round(totalVisaSales * 100) / 100,
+    totalCreditSales: Math.round(totalCreditSales * 100) / 100,
+    totalRefunds: Math.round(totalRefunds * 100) / 100,
+    totalExpenses: Math.round(totalExpenses * 100) / 100,
+    expectedCash,
+    difference,
+    salesInvoiceIds,
+  };
+}

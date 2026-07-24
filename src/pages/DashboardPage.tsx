@@ -33,7 +33,8 @@ type CardId =
   | "totalProducts" | "totalStock" | "lowStock" | "expiringSoon"
   | "todaySales" | "todayPurchases" | "monthlySales" | "monthlyPurchases"
   | "receivables" | "payables" | "cashBalance" | "accountInvoices"
-  | "overdueCount" | "totalCustomers" | "totalSuppliers" | "netProfitToday";
+  | "overdueCount" | "totalCustomers" | "totalSuppliers" | "netProfitToday"
+  | "posShift";
 
 type SectionId =
   | "trendChart" | "stockChart" | "topSellingChart"
@@ -44,6 +45,7 @@ type SectionsConfig = Record<SectionId, boolean>;
 
 /* ─── Defaults ─── */
 const DEFAULT_CARDS: CardConfig[] = [
+  { id: "posShift",         visible: true },
   { id: "totalProducts",    visible: true },
   { id: "totalStock",       visible: true },
   { id: "lowStock",         visible: true },
@@ -68,6 +70,7 @@ const DEFAULT_SECTIONS: SectionsConfig = {
 };
 
 const CARD_LABELS: Record<CardId, string> = {
+  posShift:         "وردية الكاشير النشطة",
   totalProducts:    "أرقام قطع نشطة",
   totalStock:       "رصيد موزع على الفروع",
   lowStock:         "قطع تحتاج إعادة طلب",
@@ -172,10 +175,12 @@ function StatCard({
 
 /* ─── Customize Dialog ─── */
 function CustomizeDialog({
-  open, onClose, cards, sections, onToggleCard, onToggleSection, onMove, onReset,
+  open, onClose, cards, sections, cardAllowed, sectionAllowed, onToggleCard, onToggleSection, onMove, onReset,
 }: {
   open: boolean; onClose: () => void;
   cards: CardConfig[]; sections: SectionsConfig;
+  cardAllowed: Record<CardId, boolean>;
+  sectionAllowed: Record<SectionId, boolean>;
   onToggleCard: (id: CardId) => void;
   onToggleSection: (id: SectionId) => void;
   onMove: (from: number, to: number) => void;
@@ -184,6 +189,9 @@ function CustomizeDialog({
   const [tab, setTab] = useState<"cards" | "sections">("cards");
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
+
+  const allowedCards = cards.filter((c) => cardAllowed[c.id]);
+  const allowedSections = (Object.keys(DEFAULT_SECTIONS) as SectionId[]).filter((id) => sectionAllowed[id]);
 
   function handleDrop(toIdx: number) {
     if (dragIdx !== null && dragIdx !== toIdx) onMove(dragIdx, toIdx);
@@ -225,7 +233,7 @@ function CustomizeDialog({
       {tab === "cards" && (
         <div className="space-y-1.5 py-2 max-h-[60vh] overflow-y-auto">
           <p className="text-xs text-ink-faint mb-2">اسحب الكرت لتغيير ترتيبه</p>
-          {cards.map((c, idx) => (
+          {allowedCards.map((c, idx) => (
             <div
               key={c.id}
               draggable
@@ -260,7 +268,7 @@ function CustomizeDialog({
 
       {tab === "sections" && (
         <div className="space-y-2">
-          {(Object.keys(DEFAULT_SECTIONS) as SectionId[]).map((id) => (
+          {allowedSections.map((id) => (
             <div key={id} className="flex items-center justify-between p-3 rounded-lg border border-line bg-surface">
               <span className="text-sm text-ink-muted">{SECTION_LABELS[id]}</span>
               <button
@@ -282,7 +290,7 @@ function CustomizeDialog({
 /* ─── Main Page ─── */
 export function DashboardPage() {
   const { products, customers, suppliers } = useCatalog();
-  const { purchaseInvoices, salesInvoices, salesReturns, currentCashBalance } = useInvoicing();
+  const { purchaseInvoices, salesInvoices, salesReturns, currentCashBalance, activeShift } = useInvoicing();
   const { customerBalance, supplierBalance } = useReporting();
   const { currentUser } = useAuth();
   const { settings } = useSettings();
@@ -308,6 +316,7 @@ export function DashboardPage() {
   const canViewReturns   = hasPermission(currentUser, "returns");
   const canViewCashbox   = hasPermission(currentUser, "cashbox");
   const canAddProduct    = hasPermission(currentUser, "products", "add");
+  const canViewPOS       = hasPermission(currentUser, "pos");
 
   // ── Stats ──
   const stats = useMemo(() => {
@@ -443,6 +452,7 @@ export function DashboardPage() {
 
   // ── Card permission map ──
   const cardAllowed: Record<CardId, boolean> = {
+    posShift:         canViewPOS,
     totalProducts:    canViewProducts,
     totalStock:       canViewInventory,
     lowStock:         canViewAlerts,
@@ -461,9 +471,20 @@ export function DashboardPage() {
     netProfitToday:   canViewSales,
   };
 
+  const sectionAllowed: Record<SectionId, boolean> = {
+    trendChart:      canViewSales || canViewPurchases,
+    stockChart:      canViewInventory,
+    topSellingChart: canViewSales,
+    recentActivity:  canViewSales || canViewPurchases,
+    lowStockPanel:   canViewInventory || canViewAlerts,
+    overduePanel:    canViewSales && creditSalesEnabled,
+    quickActions:    canAddSales || canAddPurchases || canAddProduct || canAddCustomer || canViewProducts || canViewCustomers || canViewReturns || canViewInventory || canViewPOS,
+  };
+
   function renderCard(id: CardId) {
     const cur = settings.currency;
     switch (id) {
+      case "posShift":         return <StatCard key={id} title="وردية الكاشير (POS)" value={activeShift ? `#${activeShift.shiftNumber} — مفتوحة` : "الوردية مغلقة"} icon={<Clock className="w-5 h-5" />} tone={activeShift ? "green" : "amber"} delta={activeShift ? `الكاشير: ${activeShift.cashierName}` : "اضغط لفتح الوردية من POS"} />;
       case "totalProducts":    return <StatCard key={id} title="أرقام قطع نشطة" value={formatNumber(stats.totalProducts)} icon={<Package className="w-5 h-5" />} tone="blue" />;
       case "totalStock":       return <StatCard key={id} title="كمية القطع في الفروع" value={formatNumber(stats.totalStockUnits)} icon={<Warehouse className="w-5 h-5" />} tone="indigo" delta={`${stats.activeBranches} فرع نشط`} />;
       case "lowStock":         return <StatCard key={id} title="قطع تحتاج إعادة طلب" value={formatNumber(stats.lowStock)} icon={<AlertTriangle className="w-5 h-5" />} tone="amber" />;
@@ -485,16 +506,13 @@ export function DashboardPage() {
   }
 
   const visibleCards = cards.filter((c) => c.visible && cardAllowed[c.id]);
-  const showTrend = sections.trendChart && (canViewSales || canViewPurchases);
-  const showStock = sections.stockChart && canViewInventory;
-  const showTopSelling = sections.topSellingChart && canViewSales;
-  const showRecent = sections.recentActivity && (canViewSales || canViewPurchases);
-  const showLowStock = sections.lowStockPanel && (canViewInventory || canViewAlerts);
-  const showOverdue = sections.overduePanel && canViewSales && creditSalesEnabled && overdueInvoices.length > 0;
-  const showQuickActions = sections.quickActions && (
-    canAddSales || canAddPurchases || canAddProduct || canAddCustomer
-    || canViewProducts || canViewCustomers || canViewReturns || canViewInventory
-  );
+  const showTrend = sections.trendChart && sectionAllowed.trendChart;
+  const showStock = sections.stockChart && sectionAllowed.stockChart;
+  const showTopSelling = sections.topSellingChart && sectionAllowed.topSellingChart;
+  const showRecent = sections.recentActivity && sectionAllowed.recentActivity;
+  const showLowStock = sections.lowStockPanel && sectionAllowed.lowStockPanel;
+  const showOverdue = sections.overduePanel && sectionAllowed.overduePanel && overdueInvoices.length > 0;
+  const showQuickActions = sections.quickActions && sectionAllowed.quickActions;
 
   const trendTitle = canViewSales && canViewPurchases ? "بيع وتوريد قطع الغيار — آخر 14 يوم" : canViewSales ? "مبيعات قطع الغيار — آخر 14 يوم" : "توريد قطع الغيار — آخر 14 يوم";
 
@@ -727,6 +745,8 @@ export function DashboardPage() {
         onClose={() => setCustomizeOpen(false)}
         cards={cards}
         sections={sections}
+        cardAllowed={cardAllowed}
+        sectionAllowed={sectionAllowed}
         onToggleCard={toggleCard}
         onToggleSection={toggleSection}
         onMove={moveCard}

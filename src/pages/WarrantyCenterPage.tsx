@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, PackageCheck, Search, ShieldAlert, ShieldCheck, Truck, XCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, Info, PackageCheck, Search, ShieldAlert, ShieldCheck, Truck, XCircle } from "lucide-react";
 import { AutoPartsHero } from "../components/AutoPartsHero";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -52,6 +52,7 @@ export function WarrantyCenterPage() {
   const [claimRow, setClaimRow] = useState<CoverageRow | null>(null);
   const [complaint, setComplaint] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
+  const [showSerialInfo, setShowSerialInfo] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
 
   const coverage = useMemo<CoverageRow[]>(() => salesInvoices
@@ -197,8 +198,65 @@ export function WarrantyCenterPage() {
         </Card>
       )}
 
-      <Dialog open={Boolean(claimRow)} onClose={() => setClaimRow(null)} title="فتح طلب ضمان" subtitle={claimRow ? `${claimRow.productName} — ${claimRow.invoiceNumber}` : undefined} width="md" footer={<><Button variant="outline" onClick={() => setClaimRow(null)}>إلغاء</Button><Button onClick={submitClaim}><Truck className="h-4 w-4" /> تسجيل الطلب</Button></>}>
-        <div className="space-y-4"><Field label="السيريال / رقم التشغيلة"><Input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} dir="ltr" placeholder="اختياري" /></Field><Field label="وصف العطل" required><Textarea value={complaint} onChange={(event) => setComplaint(event.target.value)} placeholder="صف العطل وحالة القطعة ونتيجة الفحص الأولي..." /></Field>{claimRow?.supplierId ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">سيتم ربط الطلب بالمورد المسجل على المنتج.</div> : null}</div>
+      <Dialog
+        open={Boolean(claimRow)}
+        onClose={() => { setClaimRow(null); setShowSerialInfo(false); }}
+        title="فتح طلب ضمان"
+        subtitle={claimRow ? `${claimRow.productName} — ${claimRow.invoiceNumber}` : undefined}
+        width="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setClaimRow(null); setShowSerialInfo(false); }}>إلغاء</Button>
+            <Button onClick={submitClaim}><Truck className="h-4 w-4" /> تسجيل الطلب</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field
+            label={
+              <div className="flex items-center gap-1.5">
+                <span>السيريال / رقم التشغيلة</span>
+                <button
+                  type="button"
+                  onClick={() => setShowSerialInfo(!showSerialInfo)}
+                  title="ما هو السيريال؟ اضغط للتوضيح"
+                  className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-200 dark:hover:bg-cyan-500/30 transition-colors text-[11px] font-bold"
+                >
+                  i
+                </button>
+              </div>
+            }
+          >
+            <Input
+              value={serialNumber}
+              onChange={(event) => setSerialNumber(event.target.value)}
+              dir="ltr"
+              placeholder="اختياري (مثل: S/N أو Batch No)"
+            />
+          </Field>
+          {showSerialInfo && (
+            <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs text-cyan-900 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-200 space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-cyan-800 dark:text-cyan-300">
+                <Info className="h-4 w-4 shrink-0 text-cyan-600 dark:text-cyan-400" />
+                ما هو السيريال / رقم التشغيلة؟
+              </div>
+              <p className="leading-relaxed">
+                هو الرقم التسلسلي المميز <strong>(S/N)</strong> أو رقم دفعة التصنيع <strong>(Batch/Lot No)</strong> المطبوع من المصنع على العبوة الخارجية أو المحفور على جسم القطعة نفسها (مثل: الكمبروسر، الحساسات، الدينامو).
+              </p>
+              <p className="leading-relaxed text-cyan-800/80 dark:text-cyan-300/80">
+                يساعدك في مطابقة القطعة مع المورد والتأكد من هويتها عند الاستبدال. الحقل <strong>اختياري</strong> ويمكن تركه فارغاً إذا لم يوجد رقم على القطعة.
+              </p>
+            </div>
+          )}
+          <Field label="وصف العطل" required>
+            <Textarea value={complaint} onChange={(event) => setComplaint(event.target.value)} placeholder="صف العطل وحالة القطعة ونتيجة الفحص الأولي..." />
+          </Field>
+          {claimRow?.supplierId ? (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">
+              سيتم ربط الطلب بالمورد المسجل على المنتج.
+            </div>
+          ) : null}
+        </div>
       </Dialog>
     </div>
   );

@@ -1,4 +1,16 @@
-import type { AppUser, LicenseStatus, LoginResult } from "./index";
+import type {
+  AppUser,
+  BranchActivationResult,
+  BranchCreationResult,
+  BranchLicenseStatus,
+  LicenseStatus,
+  LoginResult,
+  MfaActionError,
+  MfaPolicy,
+  MfaPolicyMode,
+  MfaStatus,
+  MfaUserStatus,
+} from "./index";
 
 export {};
 
@@ -21,6 +33,15 @@ declare global {
         onRevoked: (cb: () => void) => () => void;
         onRestored: (cb: () => void) => () => void;
       };
+      branchLicensing: {
+        getStatus: () => Promise<BranchLicenseStatus>;
+        activate: (serial: string) => Promise<BranchActivationResult>;
+        createBranch: (input: {
+          name: string;
+          address?: string;
+          phone?: string;
+        }) => Promise<BranchCreationResult>;
+      };
       setup: {
         createOwner: (
           username: string,
@@ -34,6 +55,38 @@ declare global {
           username: string,
           password: string
         ) => Promise<LoginResult & { user?: AppUser }>;
+        getSession: () => Promise<{
+          ok: boolean;
+          user?: AppUser;
+          error?: "not_authenticated";
+        }>;
+        verifySecondFactor: (
+          challengeId: string,
+          code: string
+        ) => Promise<LoginResult & {
+          user?: AppUser;
+          usedMethod?: "totp" | "recovery_code";
+          recoveryCodesRemaining?: number;
+        }>;
+        beginAccountRecovery: (recoveryCode: string) => Promise<{
+          ok: boolean;
+          challengeId?: string;
+          expiresAt?: string;
+          username?: string;
+          error?: "invalid_recovery_code" | "rate_limited";
+          remainSeconds?: number;
+        }>;
+        completeAccountRecovery: (
+          challengeId: string,
+          newPassword: string,
+          resetMfa: boolean
+        ) => Promise<{
+          ok: boolean;
+          username?: string;
+          mfaReset?: boolean;
+          requiresMfaEnrollment?: boolean;
+          error?: "invalid_input" | "challenge_expired" | "invalid_challenge" | "user_missing";
+        }>;
         logout: () => Promise<{ ok: boolean }>;
         hashPassword: (password: string) => Promise<string>;
         changePassword: (
@@ -66,11 +119,67 @@ declare global {
             | "invalid_support_code"
             | "machine_mismatch"
             | "support_code_expired"
+            | "support_code_already_used"
             | "owner_missing"
             | "invalid_input"
+            | "username_taken"
             | "rate_limited";
           remainSeconds?: number;
         }>;
+      };
+      mfa: {
+        getOwnStatus: () => Promise<({ ok: true } & MfaStatus) | { ok: false; error: MfaActionError }>;
+        beginEnrollment: (password: string) => Promise<{
+          ok: boolean;
+          challengeId?: string;
+          expiresAt?: string;
+          manualKey?: string;
+          otpauthUri?: string;
+          error?: MfaActionError;
+        }>;
+        confirmEnrollment: (challengeId: string, code: string) => Promise<{
+          ok: boolean;
+          recoveryCodes?: string[];
+          recoveryCodesRemaining?: number;
+          user?: AppUser;
+          loginCompleted?: boolean;
+          error?: MfaActionError;
+          attemptsRemaining?: number;
+        }>;
+        disableOwn: (password: string, verificationCode: string) => Promise<{
+          ok: boolean;
+          error?: MfaActionError;
+        }>;
+        regenerateRecoveryCodes: (
+          password: string,
+          verificationCode: string
+        ) => Promise<{
+          ok: boolean;
+          recoveryCodes?: string[];
+          recoveryCodesRemaining?: number;
+          error?: MfaActionError;
+        }>;
+        getPolicy: () => Promise<{
+          ok: boolean;
+          policy?: MfaPolicy;
+          error?: MfaActionError;
+        }>;
+        updatePolicy: (mode: MfaPolicyMode) => Promise<{
+          ok: boolean;
+          policy?: MfaPolicy;
+          error?: MfaActionError;
+          missingUsers?: Array<Pick<AppUser, "id" | "name" | "username">>;
+        }>;
+        listUserStatuses: () => Promise<{
+          ok: boolean;
+          users?: MfaUserStatus[];
+          error?: MfaActionError;
+        }>;
+        resetUser: (
+          userId: string,
+          ownerPassword: string,
+          verificationCode: string
+        ) => Promise<{ ok: boolean; error?: MfaActionError }>;
       };
       print: {
         route: (route: string) => Promise<{ ok: boolean; error?: string }>;

@@ -5,6 +5,7 @@ import { ActivationPage } from "./pages/ActivationPage";
 import { FirstRunSetupPage } from "./pages/FirstRunSetupPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProductsPage } from "./pages/ProductsPage";
+import { ProductDetailPage } from "./pages/ProductDetailPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { SuppliersPage } from "./pages/SuppliersPage";
 import { SupplierDetailPage } from "./pages/SupplierDetailPage";
@@ -56,6 +57,8 @@ import { WarrantyCenterPage } from "./pages/WarrantyCenterPage";
 import { PurchasingAssistantPage } from "./pages/PurchasingAssistantPage";
 import { BranchesPage } from "./pages/BranchesPage";
 import { PricingRulesPage } from "./pages/PricingRulesPage";
+import { MarketingPage } from "./pages/MarketingPage";
+import { ShiftsPage } from "./pages/ShiftsPage";
 
 export default function App() {
   const { auth, isDesktop, licenseStatus, ownerExists, ownerCheckPending } = useAuth();
@@ -104,6 +107,14 @@ export default function App() {
         element={
           <ProtectedShell permission="products" feature="products">
             <ProductsPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
+        path="/products/:id"
+        element={
+          <ProtectedShell permission="products" feature="products">
+            <ProductDetailPage />
           </ProtectedShell>
         }
       />
@@ -212,6 +223,14 @@ export default function App() {
         }
       />
       <Route
+        path="/marketing"
+        element={
+          <ProtectedShell ownerOnly feature="marketingHub">
+            <MarketingPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
         path="/purchases"
         element={
           <ProtectedShell permission="purchaseInvoices" feature="purchaseInvoices">
@@ -246,8 +265,16 @@ export default function App() {
       <Route
         path="/pos"
         element={
-          <ProtectedShell permission="salesInvoices" permissionAction="add" feature="pos">
+          <ProtectedShell permission="pos" feature="pos">
             <POSPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
+        path="/shifts"
+        element={
+          <ProtectedShell permission="pos">
+            <ShiftsPage />
           </ProtectedShell>
         }
       />

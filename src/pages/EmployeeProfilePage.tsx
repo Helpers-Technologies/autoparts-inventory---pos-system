@@ -1,12 +1,10 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   UserRound,
-  Target,
   DollarSign,
   TrendingUp,
   Calendar,
   FileText,
-  Percent,
   KeyRound,
   Save,
 } from "lucide-react";
@@ -24,12 +22,16 @@ import { useSettings } from "../store/SettingsContext";
 import { formatCurrency, formatDate } from "../lib/format";
 import { useToast } from "../components/ui/Toast";
 import type { AppUser, CashEntry, SalesInvoice } from "../types";
+import { TwoFactorSecurityPanel } from "../components/security/TwoFactorSecurityPanel";
+import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
+import { useFeatures } from "../lib/useFeatures";
 
 export function EmployeeProfilePage() {
   const { currentUser, updateCurrentUserProfile } = useAuth();
   const { users } = useUsers();
   const { salesInvoices, cashEntries } = useInvoicing();
   const { settings } = useSettings();
+  const { isAllowed } = useFeatures();
   const toast = useToast();
   const [selectedMonth, setSelectedMonth] = useState(() => monthValue(new Date()));
   const [profileName, setProfileName] = useState("");
@@ -74,7 +76,6 @@ export function EmployeeProfilePage() {
       }
     });
 
-    // لكل سنة فيها بيانات (أو السنة الحالية)، أضف كل شهورها الـ 12
     const years = new Set(Array.from(values).map((v) => v.slice(0, 4)));
     years.forEach((year) => {
       for (let m = 1; m <= 12; m++) {
@@ -88,7 +89,7 @@ export function EmployeeProfilePage() {
   const stats = useMemo(
     () =>
       employee
-        ? calculateMonthCommissionStats({
+        ? calculateMonthCollectionStats({
             employee,
             invoices: employeeInvoices,
             cashEntries,
@@ -97,11 +98,6 @@ export function EmployeeProfilePage() {
         : null,
     [cashEntries, employee, employeeInvoices, selectedMonth]
   );
-
-  const hasTarget = Boolean(stats && stats.target > 0);
-  const targetDelta = stats ? Math.abs(stats.commissionableSales - stats.target) : 0;
-  const progress =
-    stats && hasTarget ? Math.min(100, (stats.commissionableSales / stats.target) * 100) : 0;
 
   async function handleProfileSave() {
     const nextErrors: Record<string, string> = {};
@@ -174,7 +170,7 @@ export function EmployeeProfilePage() {
     <>
       <PageHeader
         title="ملفي الشخصي"
-        description="عرض معلوماتك الشخصية والراتب والعمولات والتقارير"
+        description="عرض معلوماتك الشخصية والراتب والتقارير"
       />
 
       {/* Personal Info Card */}
@@ -193,10 +189,6 @@ export function EmployeeProfilePage() {
             <InfoRow label="اسم الدخول" value={employee.username} icon={<UserRound />} />
             <InfoRow label="تاريخ الإنشاء" value={new Date(employee.createdAt).toLocaleDateString("ar-EG")} icon={<Calendar />} />
             <InfoRow label="الراتب الشهري" value={formatCurrency(employee.monthlySalary ?? 0, settings.currency)} icon={<DollarSign />} />
-            <InfoRow label="نسبة العمولة" value={`${employee.salesCommissionPct ?? 0}%`} icon={<Percent />} />
-            {hasTarget && (
-              <InfoRow label="تارجت الربع" value={formatCurrency(stats.target, settings.currency)} icon={<Target />} />
-            )}
           </div>
         </CardBody>
       </Card>
@@ -254,12 +246,23 @@ export function EmployeeProfilePage() {
         </CardBody>
       </Card>
 
+      <div className="mb-4">
+        {isAllowed("twoFactorAuth") ? (
+          <TwoFactorSecurityPanel currentUser={employee} isOwner={false} />
+        ) : (
+          <PaidFeatureNotice
+            title="المصادقة الثنائية والأكواد الاحتياطية"
+            description="هذه إضافة مدفوعة. تواصل مع مالك النظام أو المطوّر لتفعيلها ضمن الباقة أو كإضافة مستقلة."
+          />
+        )}
+      </div>
+
       {/* Month Selection */}
       <Card className="mb-4">
         <CardBody>
           <Field
             label="الشهر"
-            hint="الإحصائيات الشهرية تعرض بيانات الشهر المحدد. العمولة الربع سنوية تُحسب على تحصيلات الربع الكامل المقابل."
+            hint="الإحصائيات الشهرية تعرض بيانات التحصيل والراتب للشهر المحدد."
           >
             <Select
               value={selectedMonth}
@@ -276,75 +279,26 @@ export function EmployeeProfilePage() {
         </CardBody>
       </Card>
 
-      {/* Quarterly Stats Card */}
+      {/* Monthly Stats Card */}
       <Card className="mb-4">
         <CardHeader
           title={
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-brand-600" />
-              <span>إحصائيات الربع المحدد</span>
+              <span>إحصائيات الشهر المحدد</span>
             </div>
           }
         />
         <CardBody className="space-y-4">
-          <div className="rounded-lg border border-blue-100 dark:border-blue-500/20 bg-blue-50 dark:bg-blue-500/10 px-3 py-2 text-xs text-blue-700 dark:text-blue-400">
-            العمولة الربع سنوية تُحسب على الفلوس المحصلة فقط. البيع الآجل لا يدخل في العمولة إلا عند تحصيله.
-          </div>
-
-          {hasTarget && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-ink-faint">
-                <span>نسبة تحقيق التارجت الشهري من التحصيل المحتسب</span>
-                <span>{Math.round(progress)}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-surface-muted overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${stats.achieved ? "bg-emerald-500" : "bg-amber-500"}`}
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
-          )}
-
           <div className="divide-y divide-line-soft border-y border-line-soft">
             <StatsRow
-              label="التحصيل المحتسب للعمولة (الشهر)"
-              value={formatCurrency(stats.commissionableSales, settings.currency)}
-              icon={<Target />}
-            />
-            {hasTarget && (
-              <>
-                <StatsRow
-                  label="التارجت الشهري"
-                  value={formatCurrency(stats.target, settings.currency)}
-                  icon={<Target />}
-                  suffix={
-                    <Badge tone={stats.achieved ? "green" : "amber"}>
-                      {stats.achieved ? "محقق" : "غير محقق"}
-                    </Badge>
-                  }
-                />
-                <StatsRow
-                  label={stats.achieved ? "زيادة عن التارجت" : "ناقص على التارجت"}
-                  value={formatCurrency(targetDelta, settings.currency)}
-                  icon={<Target />}
-                  tone={stats.achieved ? "green" : "amber"}
-                />
-              </>
-            )}
-            <StatsRow
-              label="الراتب الشهري"
-              value={formatCurrency(stats.salary, settings.currency)}
+              label="إجمالي التحصيل للشهر"
+              value={formatCurrency(stats.totalCollected, settings.currency)}
               icon={<DollarSign />}
             />
             <StatsRow
-              label={`العمولة الربع سنوية (${employee.salesCommissionPct ?? 0}%)`}
-              value={formatCurrency(stats.commissionEarned, settings.currency)}
-              icon={<Percent />}
-            />
-            <StatsRow
-              label="الإجمالي المستحق"
-              value={formatCurrency(stats.totalEarnings, settings.currency)}
+              label="الراتب الشهري"
+              value={formatCurrency(stats.salary, settings.currency)}
               icon={<DollarSign />}
               tone="green"
               strong
@@ -353,13 +307,13 @@ export function EmployeeProfilePage() {
         </CardBody>
       </Card>
 
-      {/* Commission Collections Card */}
+      {/* Collections Card */}
       <Card>
         <CardHeader
           title={
             <div className="flex items-center gap-2">
               <FileText className="w-5 h-5 text-brand-600" />
-              <span>تحصيلات الشهر المحتسبة للعمولة</span>
+              <span>تحصيلات الشهر</span>
             </div>
           }
         />
@@ -367,8 +321,8 @@ export function EmployeeProfilePage() {
           {stats.collectionRows.length === 0 ? (
             <EmptyState
               icon={<FileText className="w-5 h-5" />}
-              title="لا توجد تحصيلات محتسبة"
-              description="لا توجد فلوس محصلة داخل هذا الربع لفواتير هذا الموظف"
+              title="لا توجد تحصيلات"
+              description="لا توجد مبالغ محصلة في هذا الشهر لفواتير هذا الموظف"
             />
           ) : (
             <Table>
@@ -379,8 +333,7 @@ export function EmployeeProfilePage() {
                   <TH>تاريخ التحصيل</TH>
                   <TH>العميل</TH>
                   <TH>نوع البيع</TH>
-                  <TH className="text-end">المبلغ المحتسب</TH>
-                  <TH className="text-end">مبلغ العمولة</TH>
+                  <TH className="text-end">المبلغ المحصل</TH>
                   <TH>حالة الفاتورة الآن</TH>
                 </TR>
               </THead>
@@ -399,9 +352,6 @@ export function EmployeeProfilePage() {
                     <TD className="text-end font-semibold text-emerald-700 dark:text-emerald-400">
                       {formatCurrency(row.amount, settings.currency)}
                     </TD>
-                    <TD className="text-end font-semibold text-brand-700">
-                      {formatCurrency(row.amount * (employee.salesCommissionPct ?? 0) / 100, settings.currency)}
-                    </TD>
                     <TD>
                       <Badge tone={row.status === "paid" ? "green" : row.status === "partial" ? "amber" : "red"}>
                         {row.status === "paid" ? "مدفوع" : row.status === "partial" ? "مدفوع جزئياً" : "غير مدفوع"}
@@ -418,7 +368,7 @@ export function EmployeeProfilePage() {
   );
 }
 
-type CommissionCollectionRow = {
+type CollectionRow = {
   id: string;
   invoiceNumber: string;
   invoiceDate: string;
@@ -429,17 +379,7 @@ type CommissionCollectionRow = {
   amount: number;
 };
 
-type QuarterCommissionStats = {
-  commissionableSales: number;
-  target: number;
-  achieved: boolean;
-  commissionEarned: number;
-  salary: number;
-  totalEarnings: number;
-  collectionRows: CommissionCollectionRow[];
-};
-
-function calculateMonthCommissionStats({
+function calculateMonthCollectionStats({
   employee,
   invoices,
   cashEntries,
@@ -449,12 +389,9 @@ function calculateMonthCommissionStats({
   invoices: SalesInvoice[];
   cashEntries: CashEntry[];
   month: string;
-}): QuarterCommissionStats {
+}) {
   const mRange = monthRange(month);
-  const qRange = quarterRangeForMonth(month);
-
-  const displayRows: CommissionCollectionRow[] = [];
-  let quarterlyCommissionable = 0;
+  const displayRows: CollectionRow[] = [];
 
   invoices
     .filter((invoice) => !invoice.cancelled)
@@ -484,20 +421,13 @@ function calculateMonthCommissionStats({
               ]
             : [];
 
-      let remainingCommissionable = invoice.total;
+      let remaining = invoice.total;
 
       entries.forEach((entry) => {
-        if (remainingCommissionable <= 0) return;
-
-        const amount = Math.min(entry.amount, remainingCommissionable);
-        remainingCommissionable -= amount;
-
+        if (remaining <= 0) return;
+        const amount = Math.min(entry.amount, remaining);
+        remaining -= amount;
         if (amount <= 0) return;
-
-        if (dateInRange(entry.date, qRange.start, qRange.end)) {
-          quarterlyCommissionable += amount;
-        }
-
         if (!dateInRange(entry.date, mRange.start, mRange.end)) return;
 
         displayRows.push({
@@ -515,19 +445,12 @@ function calculateMonthCommissionStats({
 
   displayRows.sort((a, b) => b.collectionDate.localeCompare(a.collectionDate) || a.invoiceNumber.localeCompare(b.invoiceNumber));
 
-  const commissionableSales = displayRows.reduce((sum, row) => sum + row.amount, 0);
-  const target = employee.monthlySalesTarget ?? 0;
-  const commissionPct = employee.salesCommissionPct ?? 0;
-  const commissionEarned = (quarterlyCommissionable * commissionPct) / 100;
+  const totalCollected = displayRows.reduce((sum, row) => sum + row.amount, 0);
   const salary = employee.monthlySalary ?? 0;
 
   return {
-    commissionableSales,
-    target,
-    achieved: target > 0 && commissionableSales >= target,
-    commissionEarned,
+    totalCollected,
     salary,
-    totalEarnings: salary + commissionEarned,
     collectionRows: displayRows,
   };
 }
@@ -553,16 +476,6 @@ function monthRange(value: string): { start: string; end: string } {
   return {
     start: toDateOnly(new Date(year, month, 1)),
     end: toDateOnly(new Date(year, month + 1, 0)),
-  };
-}
-
-function quarterRangeForMonth(monthStr: string): { start: string; end: string } {
-  const date = new Date(monthStr + "-01");
-  const year = date.getFullYear();
-  const quarterStart = Math.floor(date.getMonth() / 3) * 3;
-  return {
-    start: toDateOnly(new Date(year, quarterStart, 1)),
-    end: toDateOnly(new Date(year, quarterStart + 3, 0)),
   };
 }
 

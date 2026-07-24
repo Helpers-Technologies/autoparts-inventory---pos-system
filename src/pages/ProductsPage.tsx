@@ -1,6 +1,6 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { Pencil, Plus, Trash2, Eye, Package, Search, Archive, ArchiveRestore, ArrowUpNarrowWide, ArrowDownNarrowWide } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Pencil, Plus, Trash2, Eye, Package, Search, Archive, ArchiveRestore, ArrowUpNarrowWide, ArrowDownNarrowWide, ScanLine } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -17,7 +17,6 @@ import { useToast } from "../components/ui/Toast";
 import { formatCurrency } from "../lib/format";
 import { daysUntil } from "../lib/utils";
 import { ProductFormDialog } from "../features/products/ProductForm";
-import { ProductDetailsDrawer } from "../features/products/ProductDetailsDrawer";
 import type { Product } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
@@ -34,6 +33,7 @@ export function ProductsPage() {
   const expiryTrackingEnabled = isEnabled("expiryTracking");
   const toast = useToast();
   const loc = useLocation();
+  const navigate = useNavigate();
   const canAddProduct = hasPermission(currentUser, "products", "add");
   const canEditProduct = hasPermission(currentUser, "products", "edit");
   const canDeleteProduct = hasPermission(currentUser, "products", "delete");
@@ -45,11 +45,47 @@ export function ProductsPage() {
   const [sort, setSort] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [viewing, setViewing] = useState<Product | null>(null);
   const [toDelete, setToDelete] = useState<Product | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+
+  // USB Barcode Scanner listener
+  useEffect(() => {
+    let buffer = "";
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const isInput = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
+      if (isInput && active !== searchInputRef.current) {
+        return;
+      }
+
+      const currentTime = Date.now();
+      if (currentTime - lastKeyTime > 80) {
+        buffer = "";
+      }
+      lastKeyTime = currentTime;
+
+      if (e.key === "Enter") {
+        if (buffer.length >= 3) {
+          const scannedCode = buffer.trim();
+          setQ(scannedCode);
+          toast.success("تم مسح الباركود", `الرمز: ${scannedCode}`);
+          searchInputRef.current?.focus();
+          e.preventDefault();
+        }
+        buffer = "";
+      } else if (e.key.length === 1) {
+        buffer += e.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toast]);
 
   useEffect(() => {
     if (!multiSalePricesEnabled && sort === "retailPrice") setSort("wholesalePrice");
@@ -72,8 +108,6 @@ export function ProductsPage() {
     // حالة الكمية: قارب على النفاذ (أقل من أو يساوي الحد الأدنى لكن غير صفر) / نفذ (صفر)
     if (stockFilter === "low")
       list = list.filter((p) => p.quantity > 0 && p.quantity <= p.minStock);
-    if (stockFilter === "out") list = list.filter((p) => p.quantity <= 0);
-
     // حالة الصلاحية: قارب الانتهاء (خلال 14 يوم) / منتهي
     if (expiryTrackingEnabled && expiryFilter === "expiring")
       list = list.filter((p) => {
@@ -148,11 +182,12 @@ export function ProductsPage() {
           ) : undefined}
         />
         <CardBody className="space-y-3">
-          <div className="flex gap-2 items-end">
-            <Field label="بحث" className="w-52">
+          <div className="flex gap-2 items-end flex-wrap">
+            <Field label="بحث" className="w-56">
               <div className="relative">
-                <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
+                <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint pointer-events-none" />
                 <Input
+                  ref={searchInputRef}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Part No. / OEM / باركود / اسم"
@@ -160,6 +195,19 @@ export function ProductsPage() {
                 />
               </div>
             </Field>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 gap-1.5 self-end shrink-0 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/40 bg-cyan-50/50 dark:bg-cyan-500/10 hover:bg-cyan-100 dark:hover:bg-cyan-500/20"
+              title="مسح باركود بالاسكانر"
+              onClick={() => {
+                searchInputRef.current?.focus();
+                toast.info("جاهز لقراءة الباركود (الاسكانر)", "وجّه الاسكانر على عبوة المنتج أو اكتب الباركود مباشرة في حقل البحث");
+              }}
+            >
+              <ScanLine className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+              سكان بالباركود
+            </Button>
             <Field label="الفئة" className="w-36">
               <Select value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value="">كل الفئات</option>
@@ -324,7 +372,7 @@ export function ProductsPage() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            onClick={() => setViewing(p)}
+                            onClick={() => navigate(`/products/${p.id}`)}
                             title="عرض"
                           >
                             <Eye className="w-4 h-4" />
@@ -409,10 +457,6 @@ export function ProductsPage() {
         open={formOpen}
         onClose={() => setFormOpen(false)}
         editing={editing}
-      />
-      <ProductDetailsDrawer
-        product={viewing}
-        onClose={() => setViewing(null)}
       />
       <ConfirmDialog
         open={!!toDelete}

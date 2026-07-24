@@ -179,7 +179,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        <main className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">{children}</main>
+        <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-5 space-y-5">{children}</main>
 
         {showFooter && (
         <footer className="no-print shrink-0 py-6 px-5 border-t border-line bg-surface">

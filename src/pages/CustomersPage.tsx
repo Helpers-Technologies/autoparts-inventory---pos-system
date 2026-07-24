@@ -85,6 +85,7 @@ export function CustomersPage() {
     name: "",
     phone: "",
     address: "",
+    marketingConsent: "unknown",
     notes: "",
   });
 
@@ -178,7 +179,7 @@ export function CustomersPage() {
 
   function openNew() {
     setEditing(null);
-    setForm({ code: `CUS-${String(nextCustomerCode).padStart(4, "0")}`, name: "", phone: "", address: "", notes: "" });
+    setForm({ code: `CUS-${String(nextCustomerCode).padStart(4, "0")}`, name: "", phone: "", address: "", marketingConsent: "unknown", notes: "" });
     setOpen(true);
   }
   function openEdit(c: Customer) {
@@ -188,6 +189,7 @@ export function CustomersPage() {
       name: c.name,
       phone: c.phone ?? "",
       address: c.address ?? "",
+      marketingConsent: c.marketingConsent ?? "unknown",
       notes: c.notes ?? "",
     });
     setOpen(true);
@@ -520,6 +522,20 @@ export function CustomersPage() {
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </Field>
+          <Field
+            label="الموافقة على التواصل التسويقي"
+            hint="سجّل اختيار العميل قبل إضافته لأي عروض أو حملات. العملاء الرافضون يُستبعدون تلقائيًا."
+            className="col-span-2"
+          >
+            <Select
+              value={form.marketingConsent ?? "unknown"}
+              onChange={(e) => setForm({ ...form, marketingConsent: e.target.value as Customer["marketingConsent"] })}
+            >
+              <option value="unknown">لم تُسجّل الموافقة بعد</option>
+              <option value="opted_in">موافق على استقبال العروض</option>
+              <option value="opted_out">لا يرغب في رسائل تسويقية</option>
+            </Select>
+          </Field>
           <Field label="ملاحظات" className="col-span-2">
             <Textarea
               rows={2}
@@ -616,4 +632,3 @@ function StatCard({
     </div>
   );
 }
-

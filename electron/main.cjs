@@ -69,10 +69,21 @@ const {
   recordFailedSupportAttempt,
   clearAttempts,
 } = require("./rate-limit.cjs");
+const {
+  generateTotpSecret,
+  buildOtpAuthUri,
+  verifyTotp,
+  generateRecoveryCodes,
+  normalizeRecoveryCode,
+  recoveryCodeDigest,
+} = require("./mfa.cjs");
 
 // Derived keys used only inside main.cjs
 const LICENSE_TOKEN_KEY = "__license_token";
 const LICENSE_LAST_SEEN_KEY = "__license_last_seen_at";
+const BRANCH_ACTIVATIONS_KEY = "__branch_license_activations";
+const BRANCH_LEGACY_SLOTS_KEY = "__branch_license_legacy_slots";
+const BRANCHES_STORAGE_KEY = `${STORE_PREFIX}branches`;
 const AUTH_STATE_KEY = `${STORE_PREFIX}auth`;
 
 // ── SECURITY: Login brute-force protection ──────────────────────────────
@@ -88,8 +99,16 @@ const LOGIN_LOCK_RETENTION_MS = 24 * 60 * 60 * 1000; // prune stale keys after 2
 const SUPPORT_MAX_ATTEMPTS = 5;
 const SUPPORT_LOCKOUT_MS = 10 * 60 * 1000;
 const supportAttempts = new Map(); // key: sender id → { count, lockedUntil }
+const MFA_MAX_ATTEMPTS = 5;
+const MFA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const MFA_RECOVERY_LOCKOUT_MS = 10 * 60 * 1000;
+const MFA_POLICY_MODES = new Set(["disabled", "optional", "required_owner", "required_all"]);
+const mfaChallenges = new Map(); // challenge id → password-verified login/enrollment state
+const recoveryAttempts = new Map(); // sender id → recovery-code throttle
 
 let db = null;
+let walCheckpointInterval = null; // handle for the periodic WAL flush timer
+let isQuitting = false; // set once shutdown starts so late IPC never re-touches the DB
 const printDocumentNames = new Map();
 const rendererSessions = new Map(); // key: webContents id → { userId, role }
 
@@ -98,12 +117,12 @@ function isSmokeTestRun() {
 }
 
 function exitForSmokeTest() {
+  isQuitting = true;
   try {
-    db?.close();
+    closeDatabase();
   } catch {
     // Ignore shutdown cleanup errors in smoke mode.
   } finally {
-    db = null;
     app.exit(0);
   }
 }
@@ -162,6 +181,21 @@ const supportSchema = z.object({
   issuedAt: z.string().min(1),
   expiresAt: z.string().min(1),
   signature: z.string().min(32),
+});
+
+const branchActivationSchema = z.object({
+  activationId: z.string().min(1),
+  purpose: z.literal("add_branch"),
+  machineHash: z.string().length(64),
+  slots: z.literal(1),
+  issuedAt: z.string().min(1),
+  signature: z.string().min(32),
+});
+
+const branchCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  address: z.string().trim().max(240).optional(),
+  phone: z.string().trim().max(40).optional(),
 });
 
 function sha256(value) {
@@ -336,16 +370,85 @@ function openDatabase() {
   db.prepare(
     "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
   ).run();
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS user_mfa (
+      user_id TEXT PRIMARY KEY,
+      secret_encrypted TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      enrolled_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_counter INTEGER
+    )`
+  ).run();
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+      user_id TEXT NOT NULL,
+      code_digest TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      consumed_at TEXT,
+      PRIMARY KEY (user_id, code_digest)
+    )`
+  ).run();
+  db.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_mfa_recovery_digest ON mfa_recovery_codes(code_digest, consumed_at)"
+  ).run();
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS auth_security_policy (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      mode TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`
+  ).run();
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS mfa_attempt_locks (
+      user_id TEXT PRIMARY KEY,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    )`
+  ).run();
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS consumed_support_codes (
+      support_id TEXT PRIMARY KEY,
+      consumed_at TEXT NOT NULL
+    )`
+  ).run();
+  db.prepare(
+    "INSERT OR IGNORE INTO auth_security_policy (id, mode, updated_at) VALUES (1, 'optional', ?)"
+  ).run(new Date().toISOString());
   db.prepare("DELETE FROM kv_store WHERE key = ?").run(AUTH_STATE_KEY);
 
   // Flush the WAL file periodically so it never grows unboundedly.
   // A large WAL file makes every read slower over time — this is a key cause
   // of the renderer freezing after hours of use.
-  setInterval(() => {
+  // Clear any prior timer first so repeated open/close cycles don't leak timers.
+  if (walCheckpointInterval) clearInterval(walCheckpointInterval);
+  walCheckpointInterval = setInterval(() => {
     try { db?.pragma("wal_checkpoint(PASSIVE)"); } catch { /* ignore */ }
   }, 10 * 60 * 1000); // every 10 minutes
 
   return db;
+}
+
+// Tear down the DB cleanly: stop the WAL timer, drop cached prepared statements
+// (they hold a reference to the connection and become "not open" after close),
+// then close and null the handle. Resetting the statement cache is what prevents
+// a late synchronous IPC call (e.g. storage:get during shutdown) from touching a
+// stale statement and throwing "The database connection is not open".
+function closeDatabase() {
+  if (walCheckpointInterval) {
+    clearInterval(walCheckpointInterval);
+    walCheckpointInterval = null;
+  }
+  _stmtGet = null;
+  _stmtSet = null;
+  _stmtRemove = null;
+  _stmtClearPrefix = null;
+  try {
+    db?.close();
+  } finally {
+    db = null;
+  }
 }
 
 // Cached prepared statements — created once after DB is first opened.
@@ -418,6 +521,451 @@ function getUsers() {
 
 function setUsers(users) {
   writeJsonKey(`${STORE_PREFIX}users`, users);
+}
+
+function getMfaEncryptionKey() {
+  return Buffer.from(sha256(`${APP_SALT}:mfa-secret:${getMachineMaterial()}`), "hex");
+}
+
+function getMfaRecoveryPepper() {
+  return Buffer.from(sha256(`${APP_SALT}:mfa-recovery:${getMachineMaterial()}`), "hex");
+}
+
+function encryptMfaSecret(secret) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", getMfaEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(String(secret), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ["v1", iv.toString("base64url"), tag.toString("base64url"), ciphertext.toString("base64url")].join(".");
+}
+
+function decryptMfaSecret(envelope) {
+  const [version, ivPart, tagPart, ciphertextPart] = String(envelope || "").split(".");
+  if (version !== "v1" || !ivPart || !tagPart || !ciphertextPart) {
+    throw new Error("invalid_mfa_secret");
+  }
+  const decipher = crypto.createDecipheriv(
+    "aes-256-gcm",
+    getMfaEncryptionKey(),
+    Buffer.from(ivPart, "base64url")
+  );
+  decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextPart, "base64url")),
+    decipher.final(),
+  ]).toString("utf8");
+}
+
+function getMfaPolicyMode() {
+  const row = openDatabase().prepare("SELECT mode FROM auth_security_policy WHERE id = 1").get();
+  return MFA_POLICY_MODES.has(row?.mode) ? row.mode : "optional";
+}
+
+function getMfaPolicy() {
+  return { mode: getEffectiveMfaPolicyMode() };
+}
+
+// MFA is a paid add-on. This check lives in the main process so changing the
+// renderer/UI cannot enable it without a signed license feature entitlement.
+function isMfaFeatureLicensed() {
+  if (HW_E2E) return true;
+  const status = getLicenseStatus();
+  const features = status?.license?.features;
+  return status?.state === "active" && Array.isArray(features) &&
+    (features.includes("twoFactorAuth") || features.includes("*"));
+}
+
+function getEffectiveMfaPolicyMode() {
+  return isMfaFeatureLicensed() ? getMfaPolicyMode() : "disabled";
+}
+
+function getMfaRecord(userId) {
+  return openDatabase()
+    .prepare(
+      "SELECT user_id, secret_encrypted, enabled, enrolled_at, updated_at, last_used_counter FROM user_mfa WHERE user_id = ?"
+    )
+    .get(String(userId || ""));
+}
+
+function isMfaRequiredForUser(user, mode = getEffectiveMfaPolicyMode()) {
+  if (!user || mode === "disabled" || mode === "optional") return false;
+  return mode === "required_all" || (mode === "required_owner" && user.role === "owner");
+}
+
+function countRecoveryCodes(userId) {
+  const row = openDatabase()
+    .prepare(
+      "SELECT COUNT(*) AS count FROM mfa_recovery_codes WHERE user_id = ? AND consumed_at IS NULL"
+    )
+    .get(String(userId || ""));
+  return Number(row?.count || 0);
+}
+
+function checkMfaVerificationLock(userId) {
+  const row = openDatabase()
+    .prepare("SELECT failed_attempts, locked_until FROM mfa_attempt_locks WHERE user_id = ?")
+    .get(String(userId || ""));
+  if (!row) return null;
+  const now = Date.now();
+  if (Number(row.locked_until) > now) {
+    return {
+      ok: false,
+      error: "rate_limited",
+      remainSeconds: Math.ceil((Number(row.locked_until) - now) / 1000),
+      attemptsRemaining: 0,
+    };
+  }
+  if (Number(row.locked_until) > 0) {
+    openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(userId);
+  }
+  return null;
+}
+
+function recordFailedMfaVerification(userId) {
+  const limited = checkMfaVerificationLock(userId);
+  if (limited) return limited;
+  const now = Date.now();
+  const row = openDatabase()
+    .prepare("SELECT failed_attempts FROM mfa_attempt_locks WHERE user_id = ?")
+    .get(userId);
+  const failedAttempts = Number(row?.failed_attempts || 0) + 1;
+  const lockedUntil = failedAttempts >= MFA_MAX_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : 0;
+  openDatabase()
+    .prepare(
+      `INSERT INTO mfa_attempt_locks (user_id, failed_attempts, locked_until, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         failed_attempts = excluded.failed_attempts,
+         locked_until = excluded.locked_until,
+         updated_at = excluded.updated_at`
+    )
+    .run(userId, lockedUntil ? 0 : failedAttempts, lockedUntil, new Date(now).toISOString());
+  if (lockedUntil) {
+    return {
+      ok: false,
+      error: "rate_limited",
+      remainSeconds: Math.ceil(LOGIN_LOCKOUT_MS / 1000),
+      attemptsRemaining: 0,
+    };
+  }
+  return {
+    ok: false,
+    error: "invalid_code",
+    attemptsRemaining: MFA_MAX_ATTEMPTS - failedAttempts,
+  };
+}
+
+function clearMfaVerificationAttempts(userId) {
+  openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(userId);
+}
+
+function getMfaStatusForUser(user) {
+  const mode = getEffectiveMfaPolicyMode();
+  const record = user ? getMfaRecord(user.id) : null;
+  return {
+    enabled: Boolean(record?.enabled),
+    required: isMfaRequiredForUser(user, mode),
+    available: mode !== "disabled",
+    recoveryCodesRemaining: record?.enabled ? countRecoveryCodes(user.id) : 0,
+    policy: { mode },
+  };
+}
+
+function getMfaIssuer() {
+  const settings = readJsonKey(`${STORE_PREFIX}settings`, {});
+  const candidate = String(settings?.companyNameAr || settings?.companyName || "AutoParts Inventory")
+    .replace(/:/g, "-")
+    .trim()
+    .slice(0, 80);
+  return candidate || "AutoParts Inventory";
+}
+
+function pruneMfaChallenges(now = Date.now()) {
+  for (const [challengeId, challenge] of mfaChallenges.entries()) {
+    if (!challenge || challenge.expiresAt <= now) mfaChallenges.delete(challengeId);
+  }
+}
+
+function createMfaChallenge(event, user, type, extra = {}) {
+  pruneMfaChallenges();
+  for (const [existingId, existing] of mfaChallenges.entries()) {
+    if (existing?.senderId === event.sender.id && existing?.type === type) {
+      mfaChallenges.delete(existingId);
+    }
+  }
+  const challengeId = crypto.randomBytes(32).toString("base64url");
+  const challenge = {
+    id: challengeId,
+    senderId: event.sender.id,
+    userId: user.id,
+    type,
+    attempts: 0,
+    expiresAt: Date.now() + MFA_CHALLENGE_TTL_MS,
+    ...extra,
+  };
+  mfaChallenges.set(challengeId, challenge);
+  return challenge;
+}
+
+function getMfaChallenge(event, challengeId, allowedTypes) {
+  const cleanId = String(challengeId || "").trim();
+  const challenge = mfaChallenges.get(cleanId);
+  if (!challenge) return { error: "challenge_expired" };
+  if (challenge.expiresAt <= Date.now()) {
+    mfaChallenges.delete(cleanId);
+    return { error: "challenge_expired" };
+  }
+  if (challenge.senderId !== event.sender.id) return { error: "invalid_challenge" };
+  if (allowedTypes && !allowedTypes.includes(challenge.type)) return { error: "invalid_challenge" };
+  return { challenge };
+}
+
+function recordFailedMfaChallenge(challenge) {
+  challenge.attempts += 1;
+  if (challenge.attempts >= MFA_MAX_ATTEMPTS) {
+    mfaChallenges.delete(challenge.id);
+    return { ok: false, error: "rate_limited", remainSeconds: 60, attemptsRemaining: 0 };
+  }
+  return {
+    ok: false,
+    error: "invalid_code",
+    attemptsRemaining: MFA_MAX_ATTEMPTS - challenge.attempts,
+  };
+}
+
+function revokeUserChallenges(userId) {
+  for (const [challengeId, challenge] of mfaChallenges.entries()) {
+    if (challenge?.userId === userId) mfaChallenges.delete(challengeId);
+  }
+}
+
+function revokeSenderChallenges(senderId) {
+  for (const [challengeId, challenge] of mfaChallenges.entries()) {
+    if (challenge?.senderId === senderId) mfaChallenges.delete(challengeId);
+  }
+}
+
+function revokeUserSessions(userId) {
+  for (const [senderId, sessionInfo] of rendererSessions.entries()) {
+    if (sessionInfo?.userId === userId) rendererSessions.delete(senderId);
+  }
+}
+
+function deleteMfaForUser(userId) {
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return;
+  const tx = openDatabase().transaction(() => {
+    openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(cleanUserId);
+    openDatabase().prepare("DELETE FROM user_mfa WHERE user_id = ?").run(cleanUserId);
+    openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(cleanUserId);
+  });
+  tx();
+  revokeUserChallenges(cleanUserId);
+}
+
+function cleanupMfaForMissingUsers() {
+  const validUserIds = new Set(getUsers().map((user) => user.id));
+  const rows = openDatabase()
+    .prepare(
+      "SELECT user_id FROM user_mfa UNION SELECT user_id FROM mfa_recovery_codes UNION SELECT user_id FROM mfa_attempt_locks"
+    )
+    .all();
+  for (const row of rows) {
+    if (row?.user_id && !validUserIds.has(row.user_id)) deleteMfaForUser(row.user_id);
+  }
+}
+
+function replaceRecoveryCodes(userId) {
+  const codes = generateRecoveryCodes(10);
+  const now = new Date().toISOString();
+  const pepper = getMfaRecoveryPepper();
+  const insert = openDatabase().prepare(
+    "INSERT INTO mfa_recovery_codes (user_id, code_digest, created_at, consumed_at) VALUES (?, ?, ?, NULL)"
+  );
+  const tx = openDatabase().transaction(() => {
+    openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(userId);
+    for (const code of codes) insert.run(userId, recoveryCodeDigest(code, pepper), now);
+  });
+  tx();
+  return codes;
+}
+
+function storeMfaEnrollment(userId, secret, lastUsedCounter) {
+  const now = new Date().toISOString();
+  const codes = generateRecoveryCodes(10);
+  const pepper = getMfaRecoveryPepper();
+  const upsertMfa = openDatabase().prepare(
+    `INSERT INTO user_mfa
+      (user_id, secret_encrypted, enabled, enrolled_at, updated_at, last_used_counter)
+     VALUES (?, ?, 1, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+      secret_encrypted = excluded.secret_encrypted,
+      enabled = 1,
+      enrolled_at = excluded.enrolled_at,
+      updated_at = excluded.updated_at,
+      last_used_counter = excluded.last_used_counter`
+  );
+  const insertCode = openDatabase().prepare(
+    "INSERT INTO mfa_recovery_codes (user_id, code_digest, created_at, consumed_at) VALUES (?, ?, ?, NULL)"
+  );
+  const tx = openDatabase().transaction(() => {
+    upsertMfa.run(userId, encryptMfaSecret(secret), now, now, lastUsedCounter);
+    openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(userId);
+    for (const code of codes) insertCode.run(userId, recoveryCodeDigest(code, pepper), now);
+  });
+  tx();
+  return codes;
+}
+
+function tryNormalizeRecoveryCode(code) {
+  try {
+    return normalizeRecoveryCode(code);
+  } catch {
+    return null;
+  }
+}
+
+function consumeRecoveryCodeForUser(userId, code) {
+  const normalized = tryNormalizeRecoveryCode(code);
+  if (!normalized) return false;
+  const digest = recoveryCodeDigest(normalized, getMfaRecoveryPepper());
+  const result = openDatabase()
+    .prepare(
+      `UPDATE mfa_recovery_codes
+       SET consumed_at = ?
+       WHERE user_id = ? AND code_digest = ? AND consumed_at IS NULL`
+    )
+    .run(new Date().toISOString(), userId, digest);
+  return result.changes === 1;
+}
+
+function findAndConsumeRecoveryCode(code) {
+  const normalized = tryNormalizeRecoveryCode(code);
+  if (!normalized) return null;
+  const digest = recoveryCodeDigest(normalized, getMfaRecoveryPepper());
+  const tx = openDatabase().transaction(() => {
+    const row = openDatabase()
+      .prepare(
+        "SELECT user_id FROM mfa_recovery_codes WHERE code_digest = ? AND consumed_at IS NULL"
+      )
+      .get(digest);
+    if (!row?.user_id || !getUsers().some((user) => user.id === row.user_id)) return null;
+    const update = openDatabase()
+      .prepare(
+        "UPDATE mfa_recovery_codes SET consumed_at = ? WHERE code_digest = ? AND consumed_at IS NULL"
+      )
+      .run(new Date().toISOString(), digest);
+    return update.changes === 1 ? row.user_id : null;
+  });
+  return tx();
+}
+
+function verifyMfaProofForUser(user, code) {
+  const record = getMfaRecord(user?.id);
+  if (!record?.enabled) return { ok: false, error: "not_enabled" };
+  const limited = checkMfaVerificationLock(user.id);
+  if (limited) return limited;
+  const cleanCode = String(code || "").replace(/\s+/g, "").trim();
+
+  if (/^\d{6}$/.test(cleanCode)) {
+    try {
+      const secret = decryptMfaSecret(record.secret_encrypted);
+      const accepted = verifyTotp(cleanCode, secret, { window: 1 });
+      if (!accepted) return recordFailedMfaVerification(user.id);
+      const updated = openDatabase()
+        .prepare(
+          `UPDATE user_mfa
+           SET last_used_counter = ?, updated_at = ?
+           WHERE user_id = ?
+             AND enabled = 1
+             AND (last_used_counter IS NULL OR last_used_counter < ?)`
+        )
+        .run(accepted.counter, new Date().toISOString(), user.id, accepted.counter);
+      if (updated.changes !== 1) {
+        const failed = recordFailedMfaVerification(user.id);
+        return failed.error === "rate_limited" ? failed : { ...failed, error: "code_reused" };
+      }
+      clearMfaVerificationAttempts(user.id);
+      return { ok: true, method: "totp" };
+    } catch {
+      return recordFailedMfaVerification(user.id);
+    }
+  }
+
+  if (consumeRecoveryCodeForUser(user.id, cleanCode)) {
+    clearMfaVerificationAttempts(user.id);
+    return { ok: true, method: "recovery_code" };
+  }
+  return recordFailedMfaVerification(user.id);
+}
+
+function createEnrollmentChallenge(event, user, type) {
+  const secret = generateTotpSecret();
+  const challenge = createMfaChallenge(event, user, type, { secret });
+  return {
+    challengeId: challenge.id,
+    expiresAt: new Date(challenge.expiresAt).toISOString(),
+    manualKey: secret,
+    otpauthUri: buildOtpAuthUri({
+      secret,
+      accountName: String(user.username || user.name || user.id).replace(/:/g, "-"),
+      issuer: getMfaIssuer(),
+    }),
+  };
+}
+
+function buildMfaLoginResult(event, user) {
+  const mode = getEffectiveMfaPolicyMode();
+  const record = getMfaRecord(user.id);
+  if (mode !== "disabled" && (record?.enabled || isMfaRequiredForUser(user, mode))) {
+    const limited = checkMfaVerificationLock(user.id);
+    if (limited) return limited;
+  }
+  if (mode !== "disabled" && record?.enabled) {
+    const challenge = createMfaChallenge(event, user, "login_factor");
+    return {
+      ok: false,
+      error: "second_factor_required",
+      requiresSecondFactor: true,
+      challengeId: challenge.id,
+      expiresAt: new Date(challenge.expiresAt).toISOString(),
+      methods: ["totp", "recovery_code"],
+    };
+  }
+  if (isMfaRequiredForUser(user, mode)) {
+    return {
+      ok: false,
+      error: "mfa_enrollment_required",
+      requiresMfaEnrollment: true,
+      ...createEnrollmentChallenge(event, user, "login_enrollment"),
+    };
+  }
+  return null;
+}
+
+function updateMfaPolicy(mode) {
+  if (!isMfaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+  const cleanMode = String(mode || "").trim();
+  if (!MFA_POLICY_MODES.has(cleanMode)) return { ok: false, error: "invalid_policy" };
+  const users = getUsers();
+  const missingUsers = users.filter((user) => {
+    if (cleanMode === "required_owner" && user.role !== "owner") return false;
+    if (cleanMode !== "required_owner" && cleanMode !== "required_all") return false;
+    return !getMfaRecord(user.id)?.enabled;
+  });
+  // Existing users must enrol before a mandatory policy is switched on. If a
+  // new user is later added, login still has a safe password-verified enrolment path.
+  if (missingUsers.length > 0) {
+    return {
+      ok: false,
+      error: "users_not_enrolled",
+      missingUsers: missingUsers.map((user) => ({ id: user.id, name: user.name, username: user.username })),
+    };
+  }
+  openDatabase()
+    .prepare("UPDATE auth_security_policy SET mode = ?, updated_at = ? WHERE id = 1")
+    .run(cleanMode, new Date().toISOString());
+  return { ok: true, policy: { mode: cleanMode } };
 }
 
 function getPublicKey() {
@@ -511,8 +1059,155 @@ function evaluateLicense(serial, persistSeen) {
 }
 
 function getLicenseStatus() {
-  if (HW_E2E) return buildLicenseStatus("active", { license: { subscriptionType: "lifetime", subscriptionStartDate: new Date().toISOString(), subscriptionExpiresAt: null } });
+  if (HW_E2E) return buildLicenseStatus("active", { license: { subscriptionType: "lifetime", subscriptionStartDate: new Date().toISOString(), subscriptionExpiresAt: null, features: ["*"] } });
   return evaluateLicense(storageGet(LICENSE_TOKEN_KEY), true);
+}
+
+function getStoredBranchesForLicense() {
+  const stored = readJsonKey(BRANCHES_STORAGE_KEY, []);
+  if (Array.isArray(stored) && stored.length > 0) return stored;
+  return [{
+    id: "branch_main",
+    code: "MAIN",
+    name: "الفرع الرئيسي",
+    isMain: true,
+    active: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }];
+}
+
+function getBranchActivations() {
+  const stored = readJsonKey(BRANCH_ACTIVATIONS_KEY, []);
+  if (!Array.isArray(stored)) return [];
+  return stored.filter((item) => item && typeof item.activationId === "string");
+}
+
+// Existing branches from installations made before paid branch licensing are
+// grandfathered once. The value lives outside renderer storage and backups, so
+// importing or editing app data cannot manufacture extra paid slots.
+function getLegacyBranchSlots() {
+  const raw = storageGet(BRANCH_LEGACY_SLOTS_KEY);
+  const stored = Number(raw);
+  if (raw !== null && Number.isSafeInteger(stored) && stored >= 0) return stored;
+  const legacySlots = Math.max(0, getStoredBranchesForLicense().length - 1);
+  storageSet(BRANCH_LEGACY_SLOTS_KEY, String(legacySlots));
+  return legacySlots;
+}
+
+function getBranchLicenseStatusInternal() {
+  const branches = getStoredBranchesForLicense();
+  const legacySlots = getLegacyBranchSlots();
+  const activations = getBranchActivations();
+  const activatedSlots = activations.length;
+  const branchLimit = 1 + legacySlots + activatedSlots;
+  const unusedActivations = activations.filter((item) => !item.consumedAt).length;
+  return {
+    machineCode: getMachineCode(),
+    branchCount: branches.length,
+    branchLimit,
+    availableSlots: Math.max(0, Math.min(unusedActivations, branchLimit - branches.length)),
+    activatedSlots,
+    legacySlots,
+  };
+}
+
+function activateBranchSlot(serial) {
+  if (getLicenseStatus().state !== "active") {
+    return { ok: false, error: "license_inactive", status: getBranchLicenseStatusInternal() };
+  }
+
+  let activation;
+  try {
+    activation = parseSignedPayload(serial, "APBRN.", branchActivationSchema);
+  } catch {
+    return { ok: false, error: "invalid_code", status: getBranchLicenseStatusInternal() };
+  }
+
+  if (activation.machineHash !== getMachineHash()) {
+    return { ok: false, error: "machine_mismatch", status: getBranchLicenseStatusInternal() };
+  }
+
+  const activations = getBranchActivations();
+  if (activations.some((item) => item.activationId === activation.activationId)) {
+    return { ok: false, error: "code_already_used", status: getBranchLicenseStatusInternal() };
+  }
+
+  const currentStatus = getBranchLicenseStatusInternal();
+  if (currentStatus.availableSlots > 0) {
+    return { ok: false, error: "slot_already_available", status: currentStatus };
+  }
+
+  activations.push({
+    activationId: activation.activationId,
+    issuedAt: activation.issuedAt,
+    activatedAt: new Date().toISOString(),
+  });
+  writeJsonKey(BRANCH_ACTIVATIONS_KEY, activations);
+  return { ok: true, status: getBranchLicenseStatusInternal() };
+}
+
+function nextBranchCode(branches) {
+  const used = new Set(branches.map((branch) => String(branch?.code || "").toUpperCase()));
+  let number = 2;
+  while (used.has(`BR-${String(number).padStart(2, "0")}`)) number += 1;
+  return `BR-${String(number).padStart(2, "0")}`;
+}
+
+function createLicensedBranch(input) {
+  if (getLicenseStatus().state !== "active") {
+    return { ok: false, error: "license_inactive", status: getBranchLicenseStatusInternal() };
+  }
+
+  const parsed = branchCreateSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "invalid_branch", status: getBranchLicenseStatusInternal() };
+  }
+
+  return openDatabase().transaction(() => {
+    const status = getBranchLicenseStatusInternal();
+    if (status.availableSlots < 1) {
+      return { ok: false, error: "activation_required", status };
+    }
+
+    const branches = getStoredBranchesForLicense();
+    const activations = getBranchActivations();
+    const activationIndex = activations.findIndex((item) => !item.consumedAt);
+    if (activationIndex < 0) {
+      return { ok: false, error: "activation_required", status: getBranchLicenseStatusInternal() };
+    }
+    const now = new Date().toISOString();
+    const branch = {
+      id: `branch_${crypto.randomUUID()}`,
+      code: nextBranchCode(branches),
+      name: parsed.data.name,
+      isMain: false,
+      active: true,
+      createdAt: now,
+      ...(parsed.data.address ? { address: parsed.data.address } : {}),
+      ...(parsed.data.phone ? { phone: parsed.data.phone } : {}),
+    };
+    writeJsonKey(BRANCHES_STORAGE_KEY, [...branches, branch]);
+    activations[activationIndex] = {
+      ...activations[activationIndex],
+      consumedAt: now,
+      branchId: branch.id,
+    };
+    writeJsonKey(BRANCH_ACTIVATIONS_KEY, activations);
+    return { ok: true, branch, status: getBranchLicenseStatusInternal() };
+  })();
+}
+
+function validateBranchStorageValue(value) {
+  const branches = JSON.parse(String(value));
+  if (!Array.isArray(branches) || branches.length < 1) throw new Error("invalid_branches_payload");
+  if (branches.length > getBranchLicenseStatusInternal().branchLimit) {
+    throw new Error("branch_activation_required");
+  }
+  const storedIds = new Set(getStoredBranchesForLicense().map((branch) => branch?.id));
+  if (branches.some((branch) => !branch || typeof branch.id !== "string" || !storedIds.has(branch.id))) {
+    throw new Error("branch_creation_must_use_license_api");
+  }
+  return JSON.stringify(branches);
 }
 
 // ── Heartbeat API Configuration ──────────────────────────────
@@ -771,6 +1466,208 @@ async function updateOwnProfile({ userId, name, currentPassword, newPassword }) 
   return { ok: true, user };
 }
 
+async function beginOwnMfaEnrollment(event, password) {
+  const user = getSessionUser(event);
+  if (!user) return { ok: false, error: "not_authorized" };
+  if (!isMfaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+  if (getMfaPolicyMode() === "disabled") return { ok: false, error: "feature_disabled" };
+  if (getMfaRecord(user.id)?.enabled) return { ok: false, error: "already_enabled" };
+  if (!isPasswordLengthAllowed(password) || !(await verifyPassword(user.passwordHash, password))) {
+    return { ok: false, error: "invalid_password" };
+  }
+  return { ok: true, ...createEnrollmentChallenge(event, user, "self_enrollment") };
+}
+
+function confirmMfaEnrollment(event, challengeId, code) {
+  const resolved = getMfaChallenge(event, challengeId, ["self_enrollment", "login_enrollment"]);
+  if (!resolved.challenge) return { ok: false, error: resolved.error };
+  const challenge = resolved.challenge;
+  if (!isMfaFeatureLicensed()) {
+    mfaChallenges.delete(challenge.id);
+    return { ok: false, error: "feature_not_licensed" };
+  }
+  const user = getUsers().find((item) => item.id === challenge.userId);
+  if (!user) {
+    mfaChallenges.delete(challenge.id);
+    return { ok: false, error: "user_missing" };
+  }
+  if (challenge.type === "self_enrollment" && getSession(event)?.userId !== user.id) {
+    mfaChallenges.delete(challenge.id);
+    return { ok: false, error: "not_authorized" };
+  }
+  const limited = checkMfaVerificationLock(user.id);
+  if (limited) return limited;
+
+  let accepted = null;
+  try {
+    accepted = verifyTotp(String(code || "").trim(), challenge.secret, { window: 1 });
+  } catch {
+    accepted = null;
+  }
+  if (!accepted) {
+    const failed = recordFailedMfaVerification(user.id);
+    const challengeFailure = recordFailedMfaChallenge(challenge);
+    return failed.error === "rate_limited" ? failed : challengeFailure;
+  }
+
+  const recoveryCodes = storeMfaEnrollment(user.id, challenge.secret, accepted.counter);
+  clearMfaVerificationAttempts(user.id);
+  mfaChallenges.delete(challenge.id);
+  if (challenge.type === "login_enrollment") setSession(event, user);
+  return {
+    ok: true,
+    recoveryCodes,
+    recoveryCodesRemaining: recoveryCodes.length,
+    user: challenge.type === "login_enrollment" ? safeUserForRenderer(user) : undefined,
+    loginCompleted: challenge.type === "login_enrollment",
+  };
+}
+
+async function disableOwnMfa(event, password, verificationCode) {
+  const user = getSessionUser(event);
+  if (!user) return { ok: false, error: "not_authorized" };
+  if (!getMfaRecord(user.id)?.enabled) return { ok: false, error: "not_enabled" };
+  if (isMfaRequiredForUser(user)) return { ok: false, error: "required_by_policy" };
+  if (!isPasswordLengthAllowed(password) || !(await verifyPassword(user.passwordHash, password))) {
+    return { ok: false, error: "invalid_password" };
+  }
+  const proof = verifyMfaProofForUser(user, verificationCode);
+  if (!proof.ok) return proof;
+  deleteMfaForUser(user.id);
+  return { ok: true };
+}
+
+async function regenerateOwnRecoveryCodes(event, password, verificationCode) {
+  const user = getSessionUser(event);
+  if (!user) return { ok: false, error: "not_authorized" };
+  if (!getMfaRecord(user.id)?.enabled) return { ok: false, error: "not_enabled" };
+  if (!isPasswordLengthAllowed(password) || !(await verifyPassword(user.passwordHash, password))) {
+    return { ok: false, error: "invalid_password" };
+  }
+  const proof = verifyMfaProofForUser(user, verificationCode);
+  if (!proof.ok) return proof;
+  const recoveryCodes = replaceRecoveryCodes(user.id);
+  return { ok: true, recoveryCodes, recoveryCodesRemaining: recoveryCodes.length };
+}
+
+function verifyLoginSecondFactor(event, challengeId, code) {
+  const resolved = getMfaChallenge(event, challengeId, ["login_factor"]);
+  if (!resolved.challenge) return { ok: false, error: resolved.error };
+  const challenge = resolved.challenge;
+  if (!isMfaFeatureLicensed()) {
+    mfaChallenges.delete(challenge.id);
+    return { ok: false, error: "challenge_expired" };
+  }
+  const user = getUsers().find((item) => item.id === challenge.userId);
+  if (!user || !getMfaRecord(user.id)?.enabled) {
+    mfaChallenges.delete(challenge.id);
+    return { ok: false, error: "challenge_expired" };
+  }
+  const proof = verifyMfaProofForUser(user, code);
+  if (!proof.ok) {
+    if (proof.error === "rate_limited") return proof;
+    if (proof.error === "code_reused") {
+      return { ...recordFailedMfaChallenge(challenge), error: "code_reused" };
+    }
+    return recordFailedMfaChallenge(challenge);
+  }
+  mfaChallenges.delete(challenge.id);
+  setSession(event, user);
+  return {
+    ok: true,
+    user: safeUserForRenderer(user),
+    usedMethod: proof.method,
+    recoveryCodesRemaining: countRecoveryCodes(user.id),
+  };
+}
+
+function getAccountRecoveryRateLimit(event) {
+  return checkRateLimit(recoveryAttempts, String(event.sender.id), Date.now());
+}
+
+function recordFailedAccountRecovery(event) {
+  const key = String(event.sender.id);
+  const limited = recordFailedSupportAttempt(
+    recoveryAttempts,
+    key,
+    Date.now(),
+    MFA_MAX_ATTEMPTS,
+    MFA_RECOVERY_LOCKOUT_MS
+  );
+  return limited || { ok: false, error: "invalid_recovery_code" };
+}
+
+function beginAccountRecovery(event, recoveryCode) {
+  const limited = getAccountRecoveryRateLimit(event);
+  if (limited) return limited;
+  const userId = findAndConsumeRecoveryCode(recoveryCode);
+  const user = userId ? getUsers().find((item) => item.id === userId) : null;
+  if (!user) return recordFailedAccountRecovery(event);
+  clearAttempts(recoveryAttempts, String(event.sender.id));
+  const challenge = createMfaChallenge(event, user, "account_recovery");
+  return {
+    ok: true,
+    challengeId: challenge.id,
+    expiresAt: new Date(challenge.expiresAt).toISOString(),
+    username: user.username,
+  };
+}
+
+async function completeAccountRecovery(event, challengeId, newPassword, resetMfa = true) {
+  const resolved = getMfaChallenge(event, challengeId, ["account_recovery"]);
+  if (!resolved.challenge) return { ok: false, error: resolved.error };
+  if (!isPasswordLengthAllowed(newPassword, 6)) return { ok: false, error: "invalid_input" };
+  const challenge = resolved.challenge;
+  const users = getUsers();
+  const user = users.find((item) => item.id === challenge.userId);
+  if (!user) {
+    mfaChallenges.delete(challenge.id);
+    return { ok: false, error: "user_missing" };
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  user.passwordHash = passwordHash;
+  const tx = openDatabase().transaction(() => {
+    setUsers(users);
+    if (resetMfa) {
+      openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(user.id);
+      openDatabase().prepare("DELETE FROM user_mfa WHERE user_id = ?").run(user.id);
+      openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(user.id);
+    }
+  });
+  tx();
+
+  clearAttempts(loginAttempts, String(user.username || "").toLowerCase());
+  clearPersistedLock(String(user.username || "").toLowerCase(), Date.now());
+  clearMfaVerificationAttempts(user.id);
+  revokeUserSessions(user.id);
+  revokeUserChallenges(user.id);
+  return {
+    ok: true,
+    username: user.username,
+    mfaReset: Boolean(resetMfa),
+    requiresMfaEnrollment: Boolean(resetMfa && isMfaRequiredForUser(user)),
+  };
+}
+
+async function resetUserMfaByOwner(event, targetUserId, ownerPassword, verificationCode) {
+  const owner = getSessionUser(event);
+  if (!owner || owner.role !== "owner") return { ok: false, error: "not_authorized" };
+  const target = getUsers().find((user) => user.id === String(targetUserId || ""));
+  if (!target) return { ok: false, error: "user_missing" };
+  if (target.role === "owner") return { ok: false, error: "cannot_reset_owner" };
+  if (!isPasswordLengthAllowed(ownerPassword) || !(await verifyPassword(owner.passwordHash, ownerPassword))) {
+    return { ok: false, error: "invalid_password" };
+  }
+  if (getMfaRecord(owner.id)?.enabled) {
+    const proof = verifyMfaProofForUser(owner, verificationCode);
+    if (!proof.ok) return proof;
+  }
+  deleteMfaForUser(target.id);
+  revokeUserSessions(target.id);
+  return { ok: true };
+}
+
 function getSupportRateLimitResult(key) {
   return checkRateLimit(supportAttempts, key, Date.now());
 }
@@ -794,6 +1691,10 @@ async function resetOwnerPassword({ supportCode, username, password }) {
   if (supportExpiresMs === null || new Date().getTime() > supportExpiresMs) {
     return { ok: false, error: "support_code_expired" };
   }
+  const alreadyConsumed = openDatabase()
+    .prepare("SELECT 1 FROM consumed_support_codes WHERE support_id = ?")
+    .get(support.supportId);
+  if (alreadyConsumed) return { ok: false, error: "support_code_already_used" };
 
   const users = getUsers();
   const owner = users.find((user) => user.role === "owner");
@@ -803,10 +1704,38 @@ async function resetOwnerPassword({ supportCode, username, password }) {
   if (!cleanUsername || !isPasswordLengthAllowed(password, 6)) {
     return { ok: false, error: "invalid_input" };
   }
+  if (
+    users.some(
+      (user) => user.id !== owner.id && user.username.toLowerCase() === cleanUsername.toLowerCase()
+    )
+  ) {
+    return { ok: false, error: "username_taken" };
+  }
 
+  const previousAttemptKey = String(owner.username || "").toLowerCase();
+  const passwordHash = await hashPassword(password);
   owner.username = cleanUsername;
-  owner.passwordHash = await hashPassword(password);
-  setUsers(users);
+  owner.passwordHash = passwordHash;
+  try {
+    const tx = openDatabase().transaction(() => {
+      openDatabase()
+        .prepare("INSERT INTO consumed_support_codes (support_id, consumed_at) VALUES (?, ?)")
+        .run(support.supportId, new Date().toISOString());
+      setUsers(users);
+      openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(owner.id);
+      openDatabase().prepare("DELETE FROM user_mfa WHERE user_id = ?").run(owner.id);
+      openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(owner.id);
+    });
+    tx();
+  } catch {
+    return { ok: false, error: "support_code_already_used" };
+  }
+  clearAttempts(loginAttempts, previousAttemptKey);
+  clearAttempts(loginAttempts, cleanUsername.toLowerCase());
+  clearPersistedLock(previousAttemptKey, Date.now());
+  clearPersistedLock(cleanUsername.toLowerCase(), Date.now());
+  revokeUserSessions(owner.id);
+  revokeUserChallenges(owner.id);
   return { ok: true, user: owner };
 }
 
@@ -843,6 +1772,8 @@ function createWindow() {
   const _wcId = win.webContents.id; // capture before destruction
   win.webContents.on("destroyed", () => {
     rendererSessions.delete(_wcId);
+    revokeSenderChallenges(_wcId);
+    recoveryAttempts.delete(String(_wcId));
   });
 
   // Backup-on-close: give the renderer a chance to write a backup to the
@@ -1834,9 +2765,7 @@ function registerIpc() {
     const existing = getUsers();
     const existingById = new Map(existing.map((user) => [user.id, user]));
     const existingByUsername = new Map(existing.map((user) => [String(user.username).toLowerCase(), user]));
-
-    return JSON.stringify(
-      incoming.map((user) => {
+    const normalized = incoming.map((user) => {
         const cleanUsername = normalizeUsername(user?.username);
         if (!cleanUsername) {
           throw new Error("invalid_username");
@@ -1851,23 +2780,50 @@ function registerIpc() {
         if (!isArgonPasswordHash(passwordHash)) {
           throw new Error("invalid_password_hash");
         }
+        const userId = existingUser?.id || String(user?.id || "").trim();
+        if (!userId || userId.length > 120) throw new Error("invalid_user_id");
         return {
           ...user,
+          id: userId,
           name: String(user?.name || cleanUsername).trim(),
           username: cleanUsername,
           passwordHash,
-          role: user?.role === "owner" ? "owner" : "employee",
+          // Account identity and privilege are main-process invariants. Existing
+          // users cannot be re-keyed (which would detach MFA) or promoted by a
+          // forged renderer storage write. Only first-run setup creates an owner.
+          role: existingUser?.role || "employee",
+          createdAt: existingUser?.createdAt || user?.createdAt || new Date().toISOString(),
         };
-      })
-    );
+      });
+
+    const ids = new Set();
+    const usernames = new Set();
+    for (const user of normalized) {
+      const usernameKey = user.username.toLowerCase();
+      if (ids.has(user.id) || usernames.has(usernameKey)) throw new Error("duplicate_user_identity");
+      ids.add(user.id);
+      usernames.add(usernameKey);
+    }
+    for (const owner of existing.filter((user) => user.role === "owner")) {
+      if (!ids.has(owner.id)) throw new Error("owner_cannot_be_removed");
+    }
+    return JSON.stringify(normalized);
   }
 
   function normalizeRendererStorageValue(key, value) {
     if (String(key) === `${STORE_PREFIX}users`) return mergeRendererUsersValue(value);
+    if (String(key) === BRANCHES_STORAGE_KEY) return validateBranchStorageValue(value);
     return String(value);
   }
 
   ipcMain.on("storage:get", (event, key) => {
+    // During shutdown the DB is closed; a late synchronous read (fired while the
+    // renderer unloads) must not reopen or touch it — answer null instead of
+    // throwing an uncaught exception in the main process.
+    if (isQuitting || !db) {
+      event.returnValue = null;
+      return;
+    }
     if (!isRendererStorageKey(key) || !canReadRendererStorage(event)) {
       event.returnValue = null;
       return;
@@ -1880,7 +2836,9 @@ function registerIpc() {
       return false;
     }
     try {
-      return storageSet(String(key), normalizeRendererStorageValue(key, value));
+      const saved = storageSet(String(key), normalizeRendererStorageValue(key, value));
+      if (String(key) === `${STORE_PREFIX}users`) cleanupMfaForMissingUsers();
+      return saved;
     } catch {
       return false;
     }
@@ -1895,7 +2853,9 @@ function registerIpc() {
     if (String(prefix) !== STORE_PREFIX || !hasOwnerSession(event)) {
       return false;
     }
-    return storageClearPrefix(String(prefix));
+    const cleared = storageClearPrefix(String(prefix));
+    cleanupMfaForMissingUsers();
+    return cleared;
   });
 
   // ── Batch operations — eliminates per-key sync IPC bottleneck ────────
@@ -1915,6 +2875,7 @@ function registerIpc() {
   ipcMain.handle("storage:set-batch", (event, entries) => {
     if (!entries || typeof entries !== "object") return false;
     try {
+      let usersWereUpdated = false;
       const tx = openDatabase().transaction(() => {
         for (const [key, value] of Object.entries(entries)) {
           if (!isRendererStorageKey(key) || !canMutateRendererStorage(event, key)) continue;
@@ -1924,10 +2885,12 @@ function registerIpc() {
               normalizeRendererStorageValue(key, value),
               new Date().toISOString()
             );
+            if (String(key) === `${STORE_PREFIX}users`) usersWereUpdated = true;
           } catch { /* skip invalid individual keys */ }
         }
       });
       tx();
+      if (usersWereUpdated) cleanupMfaForMissingUsers();
       return true;
     } catch {
       return false;
@@ -1979,6 +2942,23 @@ function registerIpc() {
     return { ok: true, status: getLicenseStatus() };
   });
 
+  ipcMain.handle("branch-license:get-status", (event) => {
+    if (!getSession(event)) throw new Error("not_authorized");
+    return getBranchLicenseStatusInternal();
+  });
+  ipcMain.handle("branch-license:activate", (event, serial) => {
+    if (!hasOwnerSession(event)) {
+      return { ok: false, error: "not_authorized", status: getBranchLicenseStatusInternal() };
+    }
+    return activateBranchSlot(serial);
+  });
+  ipcMain.handle("branch-license:create-branch", (event, input) => {
+    if (!hasOwnerSession(event)) {
+      return { ok: false, error: "not_authorized", status: getBranchLicenseStatusInternal() };
+    }
+    return createLicensedBranch(input);
+  });
+
   ipcMain.handle("setup:has-owner", () => getUsers().some((user) => user.role === "owner"));
   ipcMain.handle("setup:create-owner", async (event, payload) => {
     const result = await createOwner(payload?.username, payload?.password);
@@ -1997,13 +2977,46 @@ function registerIpc() {
   ipcMain.handle("auth:login", async (event, payload) => {
     const result = await login(payload?.username, payload?.password);
     if (result.ok && result.user) {
+      // The idle lock is renderer-only and intentionally keeps the established
+      // main-process session. Re-authenticating the same user therefore needs
+      // the password only; a fresh app login still receives the MFA challenge.
+      const existingSession = getSession(event);
+      if (existingSession?.userId === result.user.id) {
+        setSession(event, result.user);
+        return { ...result, user: safeUserForRenderer(result.user) };
+      }
+      if (existingSession) clearSession(event);
+      const mfaResult = buildMfaLoginResult(event, result.user);
+      if (mfaResult) return mfaResult;
       setSession(event, result.user);
       return { ...result, user: safeUserForRenderer(result.user) };
     }
     return result;
   });
+  ipcMain.handle("auth:get-session", (event) => {
+    const user = getSessionUser(event);
+    return user
+      ? { ok: true, user: safeUserForRenderer(user) }
+      : { ok: false, error: "not_authenticated" };
+  });
+  ipcMain.handle("auth:verify-second-factor", (event, payload) =>
+    verifyLoginSecondFactor(event, payload?.challengeId, payload?.code)
+  );
+  ipcMain.handle("auth:begin-account-recovery", (event, payload) =>
+    beginAccountRecovery(event, payload?.recoveryCode)
+  );
+  ipcMain.handle("auth:complete-account-recovery", (event, payload) =>
+    completeAccountRecovery(
+      event,
+      payload?.challengeId,
+      payload?.newPassword,
+      payload?.resetMfa !== false
+    )
+  );
   ipcMain.handle("auth:logout", (event) => {
     clearSession(event);
+    revokeSenderChallenges(event.sender.id);
+    recoveryAttempts.delete(String(event.sender.id));
     return { ok: true };
   });
   ipcMain.handle("auth:change-password", async (event, payload) => {
@@ -2030,6 +3043,55 @@ function registerIpc() {
     }
     return result;
   });
+  ipcMain.handle("mfa:get-own-status", (event) => {
+    const user = getSessionUser(event);
+    return user
+      ? { ok: true, ...getMfaStatusForUser(user) }
+      : { ok: false, error: "not_authorized" };
+  });
+  ipcMain.handle("mfa:begin-enrollment", (event, payload) =>
+    beginOwnMfaEnrollment(event, payload?.password)
+  );
+  ipcMain.handle("mfa:confirm-enrollment", (event, payload) =>
+    confirmMfaEnrollment(event, payload?.challengeId, payload?.code)
+  );
+  ipcMain.handle("mfa:disable-own", (event, payload) =>
+    disableOwnMfa(event, payload?.password, payload?.verificationCode)
+  );
+  ipcMain.handle("mfa:regenerate-recovery-codes", (event, payload) =>
+    regenerateOwnRecoveryCodes(event, payload?.password, payload?.verificationCode)
+  );
+  ipcMain.handle("mfa:get-policy", (event) =>
+    hasOwnerSession(event)
+      ? { ok: true, policy: getMfaPolicy() }
+      : { ok: false, error: "not_authorized" }
+  );
+  ipcMain.handle("mfa:update-policy", (event, payload) =>
+    hasOwnerSession(event)
+      ? updateMfaPolicy(payload?.mode)
+      : { ok: false, error: "not_authorized" }
+  );
+  ipcMain.handle("mfa:list-user-statuses", (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    return {
+      ok: true,
+      users: getUsers().map((user) => ({
+        userId: user.id,
+        name: user.name,
+        username: user.username,
+        role: user.role,
+        ...getMfaStatusForUser(user),
+      })),
+    };
+  });
+  ipcMain.handle("mfa:reset-user", (event, payload) =>
+    resetUserMfaByOwner(
+      event,
+      payload?.userId,
+      payload?.ownerPassword,
+      payload?.verificationCode
+    )
+  );
   ipcMain.handle("support:reset-owner-password", async (event, payload) => {
     const key = String(event.sender.id);
     const rateLimited = getSupportRateLimitResult(key);
@@ -2298,6 +3360,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   try { db?.pragma("wal_checkpoint(TRUNCATE)"); } catch { /* ignore */ }
-  try { db?.close(); db = null; } catch { /* ignore */ }
+  try { closeDatabase(); } catch { /* ignore */ }
 });

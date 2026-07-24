@@ -34,8 +34,8 @@ test("E2E-001: first-run setup → owner creation → auto-login → manual re-l
     await expect(setup.toast(/تم إنشاء المدير/)).toBeVisible();
 
     // ── Step 3: Auto-login lands directly on the dashboard ──────────────
-    // The dashboard greeting contains "أهلاً بك في" followed by the company name.
-    await expect(window.getByText(/أهلاً بك في/)).toBeVisible();
+    // The current dashboard layout always exposes the authenticated logout action.
+    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
 
     // First run auto-opens the "What's New" dialog over the dashboard (the app
     // version has a changelog entry). Dismiss it so its backdrop doesn't
@@ -52,7 +52,7 @@ test("E2E-001: first-run setup → owner creation → auto-login → manual re-l
 
     // ── Step 5: Manual login with the created credentials works ─────────
     await login.loginAs(OWNER_USERNAME, OWNER_PASSWORD);
-    await expect(window.getByText(/أهلاً بك في/)).toBeVisible();
+    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
   } finally {
     await closeElectron(handle);
   }

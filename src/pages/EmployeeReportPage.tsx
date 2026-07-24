@@ -1,10 +1,9 @@
-﻿import { useMemo, useState, type ReactNode } from "react";
-import { ArrowRight, Target, TrendingUp, UserRound } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { ArrowRight, Target, UserRound } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
-import { Badge } from "../components/ui/Badge";
 import { Field } from "../components/ui/Input";
 import { EmptyState } from "../components/ui/EmptyState";
 import { useUsers } from "../store/UsersContext";
@@ -47,7 +46,7 @@ export function EmployeeReportPage() {
     <>
       <PageHeader
         title="تقرير الموظفين"
-        description="متابعة المحصَّل والعمولات الشهرية لكل موظف"
+        description="متابعة المحصَّل والرواتب الشهرية لكل موظف"
         actions={
           <Button variant="outline" onClick={() => navigate("/reports/financial")}>
             <ArrowRight className="w-4 h-4" /> رجوع للمركز المالي
@@ -87,10 +86,6 @@ export function EmployeeReportPage() {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {employees.map((employee) => {
             const stats = employeeSalesStats(employee.id, month);
-            const targetPct = stats.target > 0
-              ? Math.min(100, Math.round((stats.totalCollected / stats.target) * 100))
-              : null;
-            const achieved = stats.target > 0 && stats.totalCollected >= stats.target;
 
             return (
               <Card key={employee.id}>
@@ -113,55 +108,12 @@ export function EmployeeReportPage() {
                       tone="slate"
                     />
                     <ReportRow
-                      label="الراتب"
+                      label="الراتب الشهري"
                       value={formatCurrency(stats.salary, settings.currency)}
-                    />
-                    <ReportRow
-                      label={`العمولة (${stats.commissionPct}%)`}
-                      value={formatCurrency(stats.commissionEarned, settings.currency)}
-                      tone="amber"
-                    />
-                    <ReportRow
-                      label="الإجمالي"
-                      value={formatCurrency(stats.totalEarnings, settings.currency)}
                       tone="green"
                       strong
                     />
                   </div>
-
-                  {/* Target progress */}
-                  {stats.target > 0 ? (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-ink-faint flex items-center gap-1">
-                          <Target className="w-3 h-3" />
-                          التارجت: {formatCurrency(stats.target, settings.currency)}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          {achieved ? (
-                            <Badge tone="green">
-                              <TrendingUp className="w-3 h-3 inline ml-0.5" />
-                              محقق
-                              {stats.totalCollected > stats.target && ` +${formatCurrency(stats.totalCollected - stats.target, settings.currency)}`}
-                            </Badge>
-                          ) : (
-                            <Badge tone="amber">
-                              متبقي {formatCurrency(stats.target - stats.totalCollected, settings.currency)}
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div className="w-full bg-surface-muted rounded-full h-2">
-                        <div
-                          className={`h-2 rounded-full transition-all ${achieved ? "bg-emerald-500" : "bg-amber-400"}`}
-                          style={{ width: `${targetPct ?? 0}%` }}
-                        />
-                      </div>
-                      <div className="text-xs text-ink-faint text-end">{targetPct ?? 0}%</div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-ink-faint text-center py-1">لا يوجد تارجت لهذا الشهر</div>
-                  )}
                 </CardBody>
               </Card>
             );

@@ -30,11 +30,13 @@ export type FeatureKey =
   | "excelExport"
   | "employeesReport"
   | "advancedAnalytics"
+  | "marketingHub"
   | "whatsappIntegration"
   | "darkMode"
   | "activityLog"
   | "advancedAlerts"
   | "advancedSecurity"
+  | "twoFactorAuth"
   | "barcodeSystem"
   | "multiSalePrices"
   | "creditPayment"
@@ -71,11 +73,13 @@ export const FEATURES: FeatureDef[] = [
   { key: "excelExport", label: "تصدير Excel", description: "تصدير الجداول والتقارير وكشوف الحساب إلى ملفات Excel", defaultEnabled: false },
   { key: "employeesReport", label: "تقرير الموظفين", description: "متابعة المحصَّل والعمولات الشهرية للموظفين", defaultEnabled: false },
   { key: "advancedAnalytics", label: "التحليلات المتقدمة", description: "تصنيف ABC، دوران المخزون، المنتجات الراكدة، ربحية العملاء، واتجاه المبيعات", defaultEnabled: false },
+  { key: "marketingHub", label: "مركز التسويق والنمو", description: "تقسيم العملاء، فرص إعادة الشراء، حملات موجهة وقياس قيمة الشرائح من بيانات المبيعات", defaultEnabled: false },
   { key: "whatsappIntegration", label: "التكامل مع واتساب", description: "إرسال الفواتير وإيصالات الدفع عبر واتساب مع قوالب قابلة للتخصيص", defaultEnabled: false },
   { key: "darkMode", label: "الوضع المظلم (Dark Mode)", description: "تفعيل واجهة المستخدم المظلمة للعين", defaultEnabled: false },
   { key: "activityLog", label: "سجل النشاط", description: "تتبع كافة حركات وتعديلات المستخدمين على النظام", defaultEnabled: false },
   { key: "advancedAlerts", label: "لوحة التنبيهات المتقدمة", description: "كروت ذكية للفواتير المتأخرة والأرصدة والتنبيهات القابلة للتخصيص", defaultEnabled: false },
   { key: "advancedSecurity", label: "النسخ الاحتياطي والأمان المتقدم", description: "نسخ احتياطي تلقائي وقفل شاشة تلقائي وخيارات أمان إضافية", defaultEnabled: false },
+  { key: "twoFactorAuth", label: "المصادقة الثنائية والأكواد الاحتياطية", description: "حماية الدخول بتطبيق Authenticator وأكواد استرداد للحساب", defaultEnabled: false },
   { key: "barcodeSystem", label: "نظام الباركود", description: "توليد وطباعة باركود المنتجات ودعم قارئ الباركود", defaultEnabled: false },
   { key: "multiSalePrices", label: "أسعار البيع المتعددة", description: "دعم سعر جملة وسعر تجزئة لنفس المنتج والبيع بأي منهما", defaultEnabled: false },
   { key: "creditPayment", label: "الدفع بالرصيد الدائن", description: "السماح للعميل بالدفع من رصيده الدائن ضمن وسائل الدفع", defaultEnabled: true },
@@ -92,8 +96,69 @@ export const FEATURE_MAP: Record<FeatureKey, FeatureDef> = FEATURES.reduce(
   {} as Record<FeatureKey, FeatureDef>
 );
 
+export type FeatureCategoryId =
+  | "sales"
+  | "inventory"
+  | "relationships"
+  | "finance"
+  | "insights"
+  | "automation"
+  | "security";
+
+export interface FeatureCategory {
+  id: FeatureCategoryId;
+  label: string;
+  description: string;
+}
+
+export const FEATURE_CATEGORIES: FeatureCategory[] = [
+  { id: "sales", label: "المبيعات والشراء", description: "أدوات البيع اليومية، الفواتير وطرق التسعير." },
+  { id: "inventory", label: "المخزون وقطع الغيار", description: "إدارة الأصناف والكميات والباركود وبدائل القطع." },
+  { id: "relationships", label: "العملاء والموردون", description: "بيانات الأطراف والحسابات والعمولات." },
+  { id: "finance", label: "المالية", description: "الخزينة والمستحقات والتحصيل." },
+  { id: "insights", label: "التقارير والبيانات", description: "التقارير والتحليلات والتسويق المبني على البيانات." },
+  { id: "automation", label: "التشغيل والتنبيهات", description: "واتساب والتنبيهات وتجربة الاستخدام." },
+  { id: "security", label: "الأمان والنسخ الاحتياطي", description: "حماية البيانات والحسابات ومراجعة النشاط." },
+];
+
+export const FEATURE_CATEGORY_BY_KEY: Record<FeatureKey, FeatureCategoryId> = {
+  pos: "sales",
+  salesInvoices: "sales",
+  purchaseInvoices: "sales",
+  quotations: "sales",
+  returns: "sales",
+  products: "inventory",
+  inventory: "inventory",
+  stocktakes: "inventory",
+  alerts: "inventory",
+  customers: "relationships",
+  suppliers: "relationships",
+  drivers: "relationships",
+  cashbox: "finance",
+  dues: "finance",
+  dataImport: "insights",
+  reports: "insights",
+  excelExport: "insights",
+  employeesReport: "insights",
+  advancedAnalytics: "insights",
+  marketingHub: "insights",
+  whatsappIntegration: "automation",
+  darkMode: "automation",
+  activityLog: "security",
+  advancedAlerts: "automation",
+  advancedSecurity: "security",
+  twoFactorAuth: "security",
+  barcodeSystem: "inventory",
+  multiSalePrices: "sales",
+  creditPayment: "sales",
+  creditSales: "sales",
+  expiryTracking: "inventory",
+  partAlternatives: "inventory",
+};
+
 export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
   "advancedAnalytics",
+  "marketingHub",
   "whatsappIntegration",
   "employeesReport",
   "activityLog",
@@ -102,6 +167,7 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
   "advancedAlerts",
   "darkMode",
   "advancedSecurity",
+  "twoFactorAuth",
   "barcodeSystem",
   "multiSalePrices",
   "creditSales",
@@ -117,6 +183,7 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
 export function isAllowedByLicense(key: FeatureKey, license?: LicensePayload | null): boolean {
   const allowed = license?.features;
   if (!allowed || allowed.length === 0) return !PAID_FEATURE_KEYS.has(key);
+  if (allowed.includes("*")) return true;
   return allowed.includes(key);
 }
 
@@ -131,7 +198,7 @@ export function isAllowedByLicense(key: FeatureKey, license?: LicensePayload | n
  */
 export function defaultFeatureState(key: FeatureKey, license?: LicensePayload | null): boolean {
   const licFeatures = license?.features;
-  if (licFeatures && licFeatures.length > 0) return licFeatures.includes(key);
+  if (licFeatures && licFeatures.length > 0) return licFeatures.includes("*") || licFeatures.includes(key);
   return FEATURE_MAP[key].defaultEnabled;
 }
 

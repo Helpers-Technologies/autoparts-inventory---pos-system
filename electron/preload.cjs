@@ -28,6 +28,11 @@ contextBridge.exposeInMainWorld("desktopAPI", {
       return () => ipcRenderer.removeListener("license:restored", handler);
     },
   },
+  branchLicensing: {
+    getStatus: () => ipcRenderer.invoke("branch-license:get-status"),
+    activate: (serial) => ipcRenderer.invoke("branch-license:activate", serial),
+    createBranch: (input) => ipcRenderer.invoke("branch-license:create-branch", input),
+  },
   setup: {
     createOwner: (username, password) =>
       ipcRenderer.invoke("setup:create-owner", { username, password }),
@@ -37,6 +42,17 @@ contextBridge.exposeInMainWorld("desktopAPI", {
   auth: {
     login: (username, password) =>
       ipcRenderer.invoke("auth:login", { username, password }),
+    getSession: () => ipcRenderer.invoke("auth:get-session"),
+    verifySecondFactor: (challengeId, code) =>
+      ipcRenderer.invoke("auth:verify-second-factor", { challengeId, code }),
+    beginAccountRecovery: (recoveryCode) =>
+      ipcRenderer.invoke("auth:begin-account-recovery", { recoveryCode }),
+    completeAccountRecovery: (challengeId, newPassword, resetMfa) =>
+      ipcRenderer.invoke("auth:complete-account-recovery", {
+        challengeId,
+        newPassword,
+        resetMfa,
+      }),
     logout: () => ipcRenderer.invoke("auth:logout"),
     hashPassword: (password) => ipcRenderer.invoke("auth:hash-password", password),
     changePassword: (userId, currentPassword, newPassword) =>
@@ -58,6 +74,22 @@ contextBridge.exposeInMainWorld("desktopAPI", {
         username,
         password,
       }),
+  },
+  mfa: {
+    getOwnStatus: () => ipcRenderer.invoke("mfa:get-own-status"),
+    beginEnrollment: (password) =>
+      ipcRenderer.invoke("mfa:begin-enrollment", { password }),
+    confirmEnrollment: (challengeId, code) =>
+      ipcRenderer.invoke("mfa:confirm-enrollment", { challengeId, code }),
+    disableOwn: (password, verificationCode) =>
+      ipcRenderer.invoke("mfa:disable-own", { password, verificationCode }),
+    regenerateRecoveryCodes: (password, verificationCode) =>
+      ipcRenderer.invoke("mfa:regenerate-recovery-codes", { password, verificationCode }),
+    getPolicy: () => ipcRenderer.invoke("mfa:get-policy"),
+    updatePolicy: (mode) => ipcRenderer.invoke("mfa:update-policy", { mode }),
+    listUserStatuses: () => ipcRenderer.invoke("mfa:list-user-statuses"),
+    resetUser: (userId, ownerPassword, verificationCode) =>
+      ipcRenderer.invoke("mfa:reset-user", { userId, ownerPassword, verificationCode }),
   },
   print: {
     route: (route) => ipcRenderer.invoke("print:route", route),

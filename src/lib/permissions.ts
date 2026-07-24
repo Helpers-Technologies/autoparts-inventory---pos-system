@@ -9,41 +9,56 @@ export const PERMISSION_GROUPS: {
   actions: { key: string; label: string }[];
 }[] = [
   {
+    key: "pos",
+    label: "الكاشير ونقطة البيع (POS)",
+    description: "إصدار فواتير الكاشير والتمرير السريع والخصومات",
+    actions: [
+      { key: "view", label: "فتح الكاشير" },
+      { key: "createSale", label: "إصدار فواتير كاشير" },
+      { key: "applyDiscount", label: "تطبيق الخصم" },
+      { key: "holdCart", label: "تعليق واسترجاع السلات" },
+    ],
+  },
+  {
     key: "products",
-    label: "المنتجات",
-    description: "قائمة المنتجات وبيانات الأسعار",
+    label: "المنتجات ودليل القطع",
+    description: "قائمة المنتجات والأسعار والبدائل والكتالوج والباركود",
     actions: [
       { key: "view", label: "عرض" },
       { key: "add", label: "إضافة" },
       { key: "edit", label: "تعديل" },
       { key: "delete", label: "حذف" },
+      { key: "printBarcode", label: "طباعة الباركود" },
     ],
   },
   {
     key: "inventory",
-    label: "المخزون",
-    description: "كميات المنتجات وحركات المخزون",
+    label: "المخزون والجرد والفروع",
+    description: "كميات المنتجات، التسويات، الجرد الدوري وتحويلات الفروع",
     actions: [
-      { key: "view", label: "عرض" },
-      { key: "adjust", label: "تسوية" },
+      { key: "view", label: "عرض الأرصدة" },
+      { key: "adjust", label: "تسوية مخزون" },
+      { key: "stocktakes", label: "الجرد الدوري" },
+      { key: "transfers", label: "تحويلات الفروع" },
     ],
   },
   {
     key: "purchaseInvoices",
-    label: "فواتير المشتريات",
-    description: "مشتريات الموردين وسداد المستحقات",
+    label: "فواتير المشتريات والتوريد",
+    description: "مشتريات الموردين وسداد المستحقات ومساعد التوريد",
     actions: [
       { key: "view", label: "عرض" },
       { key: "add", label: "إضافة" },
       { key: "edit", label: "تعديل" },
-      { key: "pay", label: "سداد" },
+      { key: "pay", label: "سداد مستحقات" },
       { key: "delete", label: "حذف" },
+      { key: "purchasingAssistant", label: "مساعد التوريد" },
     ],
   },
   {
     key: "salesInvoices",
-    label: "فواتير المبيعات",
-    description: "مبيعات العملاء والتحصيل والإلغاء",
+    label: "فواتير المبيعات وعروض الأسعار",
+    description: "مبيعات العملاء والتحصيل والإلغاء وعروض الأسعار",
     actions: [
       { key: "view", label: "عرض" },
       { key: "add", label: "إضافة" },
@@ -55,8 +70,8 @@ export const PERMISSION_GROUPS: {
   },
   {
     key: "customers",
-    label: "العملاء",
-    description: "بيانات العملاء وأرصدتهم",
+    label: "العملاء وسيارات الجراج",
+    description: "بيانات العملاء وأرصدتهم وسياراتهم",
     actions: [
       { key: "view", label: "عرض" },
       { key: "add", label: "إضافة" },
@@ -66,8 +81,8 @@ export const PERMISSION_GROUPS: {
   },
   {
     key: "suppliers",
-    label: "الموردين",
-    description: "بيانات الموردين والبونص",
+    label: "الموردين والخصومات",
+    description: "بيانات الموردين والبونص والخصومات",
     actions: [
       { key: "view", label: "عرض" },
       { key: "add", label: "إضافة" },
@@ -78,8 +93,8 @@ export const PERMISSION_GROUPS: {
   },
   {
     key: "drivers",
-    label: "السائقين",
-    description: "بيانات السائقين ورحلاتهم",
+    label: "السائقين والتوصيل",
+    description: "بيانات السائقين ورحلات التوصيل",
     actions: [
       { key: "view", label: "عرض" },
       { key: "add", label: "إضافة" },
@@ -89,23 +104,24 @@ export const PERMISSION_GROUPS: {
   },
   {
     key: "returns",
-    label: "المرتجعات",
-    description: "مرتجعات البيع والشراء",
+    label: "المرتجعات والضمان",
+    description: "مرتجعات البيع والشراء ومطالبات الضمان",
     actions: [
       { key: "view", label: "عرض" },
       { key: "add", label: "إضافة" },
+      { key: "approve", label: "اعتماد واسترداد" },
     ],
   },
   {
     key: "alerts",
-    label: "التنبيهات",
-    description: "الصلاحية والمخزون والمديونيات",
+    label: "التنبيهات الإدارية",
+    description: "تنبيهات نواقص المخزون ومواعيد الاستحقاق",
     actions: [{ key: "view", label: "عرض" }],
   },
   {
     key: "cashbox",
-    label: "الخزينة",
-    description: "الرصيد والحركات اليدوية",
+    label: "الخزينة والمالية",
+    description: "الرصيد وإيداع وصرف المصروفات والافتتاحي",
     actions: [
       { key: "view", label: "عرض" },
       { key: "add", label: "إضافة نقدية" },
@@ -115,25 +131,30 @@ export const PERMISSION_GROUPS: {
   },
   {
     key: "reports",
-    label: "التقارير",
-    description: "تقارير الأداء والأرصدة",
-    actions: [{ key: "view", label: "عرض" }],
+    label: "التقارير والتحليلات",
+    description: "تقارير قطع الغيار والمالية والتحليلات المتقدمة",
+    actions: [
+      { key: "view", label: "عرض التقارير" },
+      { key: "analytics", label: "التحليلات المتقدمة" },
+      { key: "export", label: "تصدير وطباعة" },
+    ],
   },
 ];
 
 export function createPermissions(enabled = false): UserPermissions {
   return {
-    products: { view: enabled, add: enabled, edit: enabled, delete: enabled },
-    inventory: { view: enabled, adjust: enabled },
-    purchaseInvoices: { view: enabled, add: enabled, edit: enabled, pay: enabled, delete: enabled },
+    pos: { view: enabled, createSale: enabled, applyDiscount: enabled, holdCart: enabled },
+    products: { view: enabled, add: enabled, edit: enabled, delete: enabled, printBarcode: enabled },
+    inventory: { view: enabled, adjust: enabled, stocktakes: enabled, transfers: enabled },
+    purchaseInvoices: { view: enabled, add: enabled, edit: enabled, pay: enabled, delete: enabled, purchasingAssistant: enabled },
     salesInvoices: { view: enabled, add: enabled, edit: enabled, receive: enabled, cancel: enabled, delete: enabled },
     customers: { view: enabled, add: enabled, edit: enabled, delete: enabled },
     suppliers: { view: enabled, add: enabled, edit: enabled, delete: enabled, commissions: enabled },
     drivers: { view: enabled, add: enabled, edit: enabled, delete: enabled },
-    returns: { view: enabled, add: enabled },
+    returns: { view: enabled, add: enabled, approve: enabled },
     alerts: { view: enabled },
     cashbox: { view: enabled, add: enabled, spend: enabled, editOpeningBalance: enabled },
-    reports: { view: enabled },
+    reports: { view: enabled, analytics: enabled, export: enabled },
   };
 }
 
@@ -157,6 +178,13 @@ export function normalizePermissions(input?: Partial<UserPermissions> | null): U
   const legacyCustomers = source.customers;
   const legacySuppliers = source.suppliers;
   const legacyCashbox = source.cashbox;
+
+  if (!source.pos) {
+    permissions.pos.view = Boolean(legacySales?.view || legacySales?.add);
+    permissions.pos.createSale = Boolean(legacySales?.add);
+    permissions.pos.applyDiscount = Boolean(legacySales?.add);
+    permissions.pos.holdCart = Boolean(legacySales?.view || legacySales?.add);
+  }
 
   if (!source.inventory) {
     permissions.inventory.view = Boolean(legacyProducts?.view);

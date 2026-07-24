@@ -41,6 +41,10 @@ import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 // later from صفحة المستخدمين.
 function makeEmployeeDefaultPermissions() {
   const p = createPermissions(false);
+  p.pos.view = true;
+  p.pos.createSale = true;
+  p.pos.applyDiscount = true;
+  p.pos.holdCart = true;
   p.products.view = true;
   p.inventory.view = true;
   p.salesInvoices.view = true;

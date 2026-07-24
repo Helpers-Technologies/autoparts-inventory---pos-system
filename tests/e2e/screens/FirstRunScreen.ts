@@ -15,6 +15,8 @@ export class FirstRunScreen {
 
   companyNameArInput = () =>
     this.p.getByPlaceholder("مثال: النور لقطع غيار السيارات");
+  ownerNameInput = () => this.p.getByPlaceholder("مثال: عمر أحمد");
+  ownerPhoneInput = () => this.p.getByPlaceholder("01xxxxxxxxx (11 رقم)");
 
   nextButton = () => this.p.getByRole("button", { name: "التالي" });
   backupFolderButton = () =>
@@ -44,6 +46,8 @@ export class FirstRunScreen {
 
     // Step 2 — company (Arabic name is required).
     await this.companyNameArInput().fill("شركة الاختبار");
+    await this.ownerNameInput().fill("مالك الاختبار");
+    await this.ownerPhoneInput().fill("01000000000");
     await this.nextButton().click();
 
     // Step 3 — Chinese/Korean specialization defaults are fine as-is.

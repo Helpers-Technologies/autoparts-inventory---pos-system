@@ -16,6 +16,7 @@ import { useAutoPartsPro } from "../store/AutoPartsProContext";
 import { useAuth } from "../store/AuthContext";
 import { Select } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
+import { Dialog } from "../components/ui/Dialog";
 import { localISODate } from "../lib/utils";
 import { hasPermission } from "../lib/permissions";
 
@@ -37,6 +38,13 @@ export function AutoPartsReportsPage() {
   const vehicleCatalog = useVehicleCatalog();
   const [period, setPeriod] = useState<"30" | "90" | "180" | "all">("90");
   const [printTarget, setPrintTarget] = useState<"stagnant" | "returns" | "reorder" | null>(null);
+  const [reportModal, setReportModal] = useState<"stagnant" | "returns" | "reorder" | "brands" | "completion" | null>(null);
+  const [modalLimit, setModalLimit] = useState<number>(50);
+
+  function openModal(type: typeof reportModal) {
+    setModalLimit(50);
+    setReportModal(type);
+  }
   const canViewBranches = hasPermission(currentUser, "inventory");
   const canViewWarranty = hasPermission(currentUser, "returns");
   const canManagePricing = currentUser?.role === "owner";
@@ -167,7 +175,7 @@ export function AutoPartsReportsPage() {
     }))
     .sort((a, b) => a.product.quantity - b.product.quantity);
 
-  const brands = (() => {
+  const allBrands = (() => {
     const map = new Map<string, { count: number; quantity: number; value: number }>();
     for (const product of activeProducts) {
       const brand = product.partBrand?.trim() || "بدون ماركة";
@@ -179,9 +187,14 @@ export function AutoPartsReportsPage() {
     }
     return [...map.entries()]
       .map(([brand, values]) => ({ brand, ...values }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 12);
+      .sort((a, b) => b.value - a.value);
   })();
+
+  const brands = allBrands.slice(0, 5);
+
+  const incompleteProducts = activeProducts.filter(
+    (product) => !fittedProductIds.has(product.id) || !product.rackLocation || !product.oemNumbers?.length
+  );
 
   if (printTarget) {
     return (
@@ -267,39 +280,504 @@ export function AutoPartsReportsPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader title="المخزون الراكد" subtitle="رصيد لم يتحرك خلال آخر 90 يومًا" actions={<Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("stagnant")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
-          <CardBody>{deadStock.length === 0 ? <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="لا يوجد مخزون راكد" /> : <div className="space-y-2">{deadStock.slice(0, 12).map((product) => <div key={product.id} className="flex items-center justify-between gap-3 rounded-xl border border-line p-3"><div><div className="text-sm font-semibold">{product.name}</div><div className="font-mono text-[11px] text-ink-faint" dir="ltr">{product.partNumber || product.code}</div></div><div className="text-left"><Badge tone="amber">{product.quantity} وحدة</Badge><div className="mt-1 text-xs font-semibold">{formatCurrency(product.quantity * product.purchasePrice, settings.currency)}</div></div></div>)}</div>}</CardBody>
-        </Card>
-        <Card>
-          <CardHeader title={<span className="flex items-center gap-2"><Undo2 className="h-4 w-4 text-rose-600" /> مراقبة المرتجعات</span>} subtitle="القطع الأعلى في الكمية المرتجعة" actions={<Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("returns")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
-          <CardBody>{returnedByProduct.size === 0 ? <EmptyState icon={<Undo2 className="h-5 w-5" />} title="لا توجد مرتجعات مبيعات" /> : <div className="space-y-2">{[...returnedByProduct.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([productId, quantity]) => { const product = productById.get(productId); return <div key={productId} className="flex items-center justify-between rounded-xl border border-line p-3"><div><div className="text-sm font-semibold">{product?.name || "منتج محذوف"}</div><div className="font-mono text-[11px] text-ink-faint" dir="ltr">{product?.partNumber || product?.code || productId}</div></div><Badge tone="rose">{quantity} مرتجع</Badge></div>; })}</div>}</CardBody>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-4 items-start">
-        <Card>
-          <CardHeader title="مقترحات إعادة الطلب" subtitle="القطع التي وصلت للحد الأدنى أو نفدت" actions={<Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("reorder")}><Printer className="w-3.5 h-3.5" />طباعة الكشف</Button>} />
-          <CardBody>
-            {reorderRows.length === 0 ? <EmptyState icon={<ShieldCheck className="w-5 h-5" />} title="المخزون في حالة جيدة" /> : (
-              <Table><THead><TR><TH>رقم القطعة</TH><TH>الصنف</TH><TH>الموقع</TH><TH className="text-end">الحالي</TH><TH className="text-end">الحد الأدنى</TH><TH className="text-end">المقترح طلبه</TH></TR></THead><TBody>{reorderRows.map(({ product, suggested }) => <TR key={product.id}><TD className="font-mono text-xs" dir="ltr">{product.partNumber || product.code}</TD><TD><div className="font-medium">{product.name}</div><div className="text-[11px] text-ink-faint" dir="ltr">{product.partBrand || "—"}</div></TD><TD className="font-mono text-xs" dir="ltr">{product.rackLocation || "—"}</TD><TD className="text-end"><Badge tone={product.quantity <= 0 ? "red" : "amber"}>{product.quantity}</Badge></TD><TD className="text-end">{product.minStock}</TD><TD className="text-end font-bold text-brand-700">{suggested}</TD></TR>)}</TBody></Table>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 items-stretch">
+        <Card className="flex flex-col h-full">
+          <CardHeader
+            title="المخزون الراكد"
+            subtitle="رصيد لم يتحرك خلال آخر 90 يومًا"
+            actions={
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("stagnant")}>
+                  <Printer className="w-3.5 h-3.5" />طباعة الكشف
+                </Button>
+                {deadStock.length > 5 && (
+                  <Button size="sm" variant="ghost" className="text-xs text-brand-600 font-medium hover:bg-brand-50" onClick={() => openModal("stagnant")}>
+                    المزيد ({deadStock.length})
+                  </Button>
+                )}
+              </div>
+            }
+          />
+          <CardBody className="flex-1 flex flex-col justify-between">
+            {deadStock.length === 0 ? (
+              <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="لا يوجد مخزون راكد" />
+            ) : (
+              <div className="flex-1 flex flex-col justify-between space-y-2">
+                <div className="space-y-2">
+                  {deadStock.slice(0, 5).map((product) => (
+                    <div key={product.id} className="flex items-center justify-between gap-3 rounded-xl border border-line p-3">
+                      <div>
+                        <div className="text-sm font-semibold">{product.name}</div>
+                        <div className="font-mono text-[11px] text-ink-faint" dir="ltr">{product.partNumber || product.code}</div>
+                      </div>
+                      <div className="text-left">
+                        <Badge tone="amber">{product.quantity} وحدة</Badge>
+                        <div className="mt-1 text-xs font-semibold">{formatCurrency(product.quantity * product.purchasePrice, settings.currency)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {deadStock.length > 5 && (
+                  <div className="pt-2 text-center border-t border-line-soft mt-auto">
+                    <button
+                      onClick={() => openModal("stagnant")}
+                      className="text-xs text-brand-600 hover:text-brand-800 font-semibold"
+                    >
+                      عرض باقي الأصناف الراكدة ({deadStock.length - 5} متبقٍ) ←
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHeader title="أعلى ماركات القطع قيمةً" subtitle="حسب قيمة تكلفة المخزون الحالية" />
-          <CardBody className="space-y-2">{brands.map((row, index) => <div key={row.brand} className="rounded-lg border border-line p-3"><div className="flex items-center justify-between gap-3"><div><span className="text-xs text-ink-faint me-2">#{index + 1}</span><span className="font-semibold" dir="ltr">{row.brand}</span></div><span className="font-bold">{formatCurrency(row.value, settings.currency)}</span></div><div className="mt-1 text-xs text-ink-muted">{row.count} صنف · {row.quantity} وحدة</div></div>)}</CardBody>
+        <Card className="flex flex-col h-full">
+          <CardHeader
+            title={<span className="flex items-center gap-2"><Undo2 className="h-4 w-4 text-rose-600" /> مراقبة المرتجعات</span>}
+            subtitle="القطع الأعلى في الكمية المرتجعة"
+            actions={
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("returns")}>
+                  <Printer className="w-3.5 h-3.5" />طباعة الكشف
+                </Button>
+                {returnedByProduct.size > 5 && (
+                  <Button size="sm" variant="ghost" className="text-xs text-brand-600 font-medium hover:bg-brand-50" onClick={() => openModal("returns")}>
+                    المزيد ({returnedByProduct.size})
+                  </Button>
+                )}
+              </div>
+            }
+          />
+          <CardBody className="flex-1 flex flex-col justify-between">
+            {returnedByProduct.size === 0 ? (
+              <EmptyState icon={<Undo2 className="h-5 w-5" />} title="لا توجد مرتجعات مبيعات" />
+            ) : (
+              <div className="flex-1 flex flex-col justify-between space-y-2">
+                <div className="space-y-2">
+                  {[...returnedByProduct.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([productId, quantity]) => {
+                    const product = productById.get(productId);
+                    return (
+                      <div key={productId} className="flex items-center justify-between rounded-xl border border-line p-3">
+                        <div>
+                          <div className="text-sm font-semibold">{product?.name || "منتج محذوف"}</div>
+                          <div className="font-mono text-[11px] text-ink-faint" dir="ltr">{product?.partNumber || product?.code || productId}</div>
+                        </div>
+                        <Badge tone="rose">{quantity} مرتجع</Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+                {returnedByProduct.size > 5 && (
+                  <div className="pt-2 text-center border-t border-line-soft mt-auto">
+                    <button
+                      onClick={() => openModal("returns")}
+                      className="text-xs text-brand-600 hover:text-brand-800 font-semibold"
+                    >
+                      عرض باقي المرتجعات ({returnedByProduct.size - 5} متبقٍ) ←
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-4 items-stretch">
+        <Card className="flex flex-col h-full">
+          <CardHeader
+            title="مقترحات إعادة الطلب"
+            subtitle="القطع التي وصلت للحد الأدنى أو نفدت"
+            actions={
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="gap-1 border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setPrintTarget("reorder")}>
+                  <Printer className="w-3.5 h-3.5" />طباعة الكشف
+                </Button>
+                {reorderRows.length > 5 && (
+                  <Button size="sm" variant="ghost" className="text-xs text-brand-600 font-medium hover:bg-brand-50" onClick={() => openModal("reorder")}>
+                    المزيد ({reorderRows.length})
+                  </Button>
+                )}
+              </div>
+            }
+          />
+          <CardBody className="flex-1 flex flex-col justify-between">
+            {reorderRows.length === 0 ? (
+              <EmptyState icon={<ShieldCheck className="w-5 h-5" />} title="المخزون في حالة جيدة" />
+            ) : (
+              <div className="flex-1 flex flex-col justify-between">
+                <Table>
+                  <THead>
+                    <TR>
+                      <TH>رقم القطعة</TH>
+                      <TH>الصنف</TH>
+                      <TH>الموقع</TH>
+                      <TH className="text-end">الحالي</TH>
+                      <TH className="text-end">الحد الأدنى</TH>
+                      <TH className="text-end">المقترح طلبه</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {reorderRows.slice(0, 5).map(({ product, suggested }) => (
+                      <TR key={product.id}>
+                        <TD className="font-mono text-xs" dir="ltr">{product.partNumber || product.code}</TD>
+                        <TD>
+                          <div className="font-medium">{product.name}</div>
+                          <div className="text-[11px] text-ink-faint" dir="ltr">{product.partBrand || "—"}</div>
+                        </TD>
+                        <TD className="font-mono text-xs" dir="ltr">{product.rackLocation || "—"}</TD>
+                        <TD className="text-end"><Badge tone={product.quantity <= 0 ? "red" : "amber"}>{product.quantity}</Badge></TD>
+                        <TD className="text-end">{product.minStock}</TD>
+                        <TD className="text-end font-bold text-brand-700">{suggested}</TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+                {reorderRows.length > 5 && (
+                  <div className="pt-3 text-center border-t border-line-soft mt-auto">
+                    <button
+                      onClick={() => openModal("reorder")}
+                      className="text-xs text-brand-600 hover:text-brand-800 font-semibold"
+                    >
+                      عرض باقي مقترحات إعادة الطلب ({reorderRows.length - 5} متبقٍ) ←
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card className="flex flex-col h-full">
+          <CardHeader
+            title="أعلى ماركات القطع قيمةً"
+            subtitle="حسب قيمة تكلفة المخزون الحالية"
+            actions={
+              allBrands.length > 5 ? (
+                <Button size="sm" variant="ghost" className="text-xs text-brand-600 font-medium hover:bg-brand-50" onClick={() => openModal("brands")}>
+                  المزيد ({allBrands.length})
+                </Button>
+              ) : undefined
+            }
+          />
+          <CardBody className="flex-1 flex flex-col justify-between">
+            <div className="space-y-2">
+              {brands.map((row, index) => (
+                <div key={row.brand} className="rounded-lg border border-line p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs text-ink-faint me-2">#{index + 1}</span>
+                      <span className="font-semibold" dir="ltr">{row.brand}</span>
+                    </div>
+                    <span className="font-bold">{formatCurrency(row.value, settings.currency)}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-ink-muted">{row.count} صنف · {row.quantity} وحدة</div>
+                </div>
+              ))}
+            </div>
+            {allBrands.length > 5 && (
+              <div className="pt-2 text-center border-t border-line-soft mt-auto">
+                <button
+                  onClick={() => openModal("brands")}
+                  className="text-xs text-brand-600 hover:text-brand-800 font-semibold"
+                >
+                  عرض باقي الماركات ({allBrands.length - 5} متبقٍ) ←
+                </button>
+              </div>
+            )}
+          </CardBody>
         </Card>
       </div>
 
       <Card>
-        <CardHeader title="اكتمال بيانات قطع الغيار" subtitle="الأصناف التي تحتاج استكمال بيانات قبل الاعتماد على دليل السيارة" />
+        <CardHeader
+          title="اكتمال بيانات قطع الغيار"
+          subtitle={`الأصناف التي تحتاج استكمال بيانات قبل الاعتماد على دليل السيارة (${incompleteProducts.length} صنف)`}
+          actions={
+            incompleteProducts.length > 5 ? (
+              <Button size="sm" variant="ghost" className="text-xs text-brand-600 font-medium hover:bg-brand-50" onClick={() => openModal("completion")}>
+                المزيد ({incompleteProducts.length})
+              </Button>
+            ) : undefined
+          }
+        />
         <CardBody>
-          <Table><THead><TR><TH>رقم القطعة</TH><TH>الصنف</TH><TH>التوافق</TH><TH>موقع الرف</TH><TH>OEM</TH><TH>الضمان</TH></TR></THead><TBody>{activeProducts.filter((product) => !fittedProductIds.has(product.id) || !product.rackLocation || !product.oemNumbers?.length).slice(0, 100).map((product) => <TR key={product.id}><TD className="font-mono text-xs" dir="ltr">{product.partNumber || product.code}</TD><TD>{product.name}</TD><TD><Badge tone={fittedProductIds.has(product.id) ? "green" : "rose"}>{fittedProductIds.has(product.id) ? "مربوط" : "ناقص"}</Badge></TD><TD><Badge tone={product.rackLocation ? "green" : "amber"}>{product.rackLocation || "ناقص"}</Badge></TD><TD><Badge tone={product.oemNumbers?.length ? "green" : "amber"}>{product.oemNumbers?.length || "ناقص"}</Badge></TD><TD>{product.warrantyMonths ? `${product.warrantyMonths} شهر` : "—"}</TD></TR>)}</TBody></Table>
+          <Table>
+            <THead>
+              <TR>
+                <TH>رقم القطعة</TH>
+                <TH>الصنف</TH>
+                <TH>التوافق</TH>
+                <TH>موقع الرف</TH>
+                <TH>OEM</TH>
+                <TH>الضمان</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {incompleteProducts.slice(0, 5).map((product) => (
+                <TR key={product.id}>
+                  <TD className="font-mono text-xs" dir="ltr">{product.partNumber || product.code}</TD>
+                  <TD className="font-medium">{product.name}</TD>
+                  <TD><Badge tone={fittedProductIds.has(product.id) ? "green" : "rose"}>{fittedProductIds.has(product.id) ? "مربوط" : "ناقص"}</Badge></TD>
+                  <TD><Badge tone={product.rackLocation ? "green" : "amber"}>{product.rackLocation || "ناقص"}</Badge></TD>
+                  <TD><Badge tone={product.oemNumbers?.length ? "green" : "amber"}>{product.oemNumbers?.length || "ناقص"}</Badge></TD>
+                  <TD>{product.warrantyMonths ? `${product.warrantyMonths} شهر` : "—"}</TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+          {incompleteProducts.length > 5 && (
+            <div className="pt-3 text-center border-t border-line-soft">
+              <button
+                onClick={() => openModal("completion")}
+                className="text-xs text-brand-600 hover:text-brand-800 font-semibold"
+              >
+                عرض كافة الأصناف الناقصة البيانات ({incompleteProducts.length - 5} متبقٍ) ←
+              </button>
+            </div>
+          )}
         </CardBody>
       </Card>
+
+      {/* POPUP Dialogs for Detail Views */}
+      {reportModal === "stagnant" && (
+        <Dialog
+          open={true}
+          onClose={() => setReportModal(null)}
+          title="كشف المخزون الراكد (أصناف لم تتحرك خلال 90 يومًا)"
+          subtitle={`إجمالي ${deadStock.length} صنف بقيمة تكلفة ${formatCurrency(deadStock.reduce((s, p) => s + p.quantity * p.purchasePrice, 0), settings.currency)}`}
+          width="2xl"
+        >
+          <div className="overflow-x-auto max-h-[65vh] p-1">
+            <Table>
+              <THead>
+                <TR>
+                  <TH className="w-12">م</TH>
+                  <TH>رقم القطعة / الكود</TH>
+                  <TH>اسم الصنف</TH>
+                  <TH className="text-end">الكمية الراكدة</TH>
+                  <TH className="text-end">سعر الشراء</TH>
+                  <TH className="text-end">إجمالي القيمة</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {deadStock.slice(0, modalLimit).map((p, idx) => (
+                  <TR key={p.id}>
+                    <TD className="text-xs text-ink-faint">{idx + 1}</TD>
+                    <TD className="font-mono text-xs" dir="ltr">{p.partNumber || p.code}</TD>
+                    <TD className="font-semibold text-ink text-sm">{p.name}</TD>
+                    <TD className="text-end"><Badge tone="amber">{p.quantity} وحدة</Badge></TD>
+                    <TD className="text-end font-mono text-xs">{formatCurrency(p.purchasePrice, settings.currency)}</TD>
+                    <TD className="text-end font-mono font-bold text-ink text-sm">{formatCurrency(p.quantity * p.purchasePrice, settings.currency)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            {deadStock.length > modalLimit && (
+              <div className="p-3 text-center border-t border-line mt-2">
+                <button
+                  onClick={() => setModalLimit((prev) => prev + 50)}
+                  className="px-4 py-1.5 text-xs text-brand-600 hover:text-brand-800 font-semibold bg-brand-500/10 hover:bg-brand-500/20 rounded-lg transition-colors"
+                >
+                  تحميل المزيد ({deadStock.length - modalLimit} متبقٍ)
+                </button>
+              </div>
+            )}
+          </div>
+        </Dialog>
+      )}
+
+      {reportModal === "returns" && (
+        <Dialog
+          open={true}
+          onClose={() => setReportModal(null)}
+          title="كشف مراقبة مرتجعات قطع الغيار"
+          subtitle={`إجمالي ${returnedByProduct.size} صنف تم إرجاعها خلال الفترة`}
+          width="2xl"
+        >
+          <div className="overflow-x-auto max-h-[65vh] p-1">
+            <Table>
+              <THead>
+                <TR>
+                  <TH className="w-12">م</TH>
+                  <TH>رقم القطعة / الكود</TH>
+                  <TH>اسم الصنف</TH>
+                  <TH className="text-end">الكمية المرتجعة</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {[...returnedByProduct.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, modalLimit)
+                  .map(([productId, quantity], idx) => {
+                    const product = productById.get(productId);
+                    return (
+                      <TR key={productId}>
+                        <TD className="text-xs text-ink-faint">{idx + 1}</TD>
+                        <TD className="font-mono text-xs" dir="ltr">{product?.partNumber || product?.code || productId}</TD>
+                        <TD className="font-semibold text-ink text-sm">{product?.name || "منتج محذوف"}</TD>
+                        <TD className="text-end"><Badge tone="rose">{quantity} مرتجع</Badge></TD>
+                      </TR>
+                    );
+                  })}
+              </TBody>
+            </Table>
+            {returnedByProduct.size > modalLimit && (
+              <div className="p-3 text-center border-t border-line mt-2">
+                <button
+                  onClick={() => setModalLimit((prev) => prev + 50)}
+                  className="px-4 py-1.5 text-xs text-brand-600 hover:text-brand-800 font-semibold bg-brand-500/10 hover:bg-brand-500/20 rounded-lg transition-colors"
+                >
+                  تحميل المزيد ({returnedByProduct.size - modalLimit} متبقٍ)
+                </button>
+              </div>
+            )}
+          </div>
+        </Dialog>
+      )}
+
+      {reportModal === "reorder" && (
+        <Dialog
+          open={true}
+          onClose={() => setReportModal(null)}
+          title="كشف مقترحات إعادة الطلب والنواقص الكامل"
+          subtitle={`إجمالي ${reorderRows.length} صنف يحتاج لإعادة الطلب`}
+          width="2xl"
+        >
+          <div className="overflow-x-auto max-h-[65vh] p-1">
+            <Table>
+              <THead>
+                <TR>
+                  <TH>رقم القطعة</TH>
+                  <TH>الصنف والماركة</TH>
+                  <TH>الموقع</TH>
+                  <TH className="text-end">الحالي</TH>
+                  <TH className="text-end">الحد الأدنى</TH>
+                  <TH className="text-end">المقترح طلبه</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {reorderRows.slice(0, modalLimit).map(({ product, suggested }) => (
+                  <TR key={product.id}>
+                    <TD className="font-mono text-xs" dir="ltr">{product.partNumber || product.code}</TD>
+                    <TD>
+                      <div className="font-semibold text-ink text-sm">{product.name}</div>
+                      <div className="text-[11px] text-ink-faint" dir="ltr">{product.partBrand || "—"}</div>
+                    </TD>
+                    <TD className="font-mono text-xs" dir="ltr">{product.rackLocation || "—"}</TD>
+                    <TD className="text-end"><Badge tone={product.quantity <= 0 ? "red" : "amber"}>{product.quantity}</Badge></TD>
+                    <TD className="text-end text-sm">{product.minStock}</TD>
+                    <TD className="text-end font-bold text-brand-700 text-sm">{suggested}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            {reorderRows.length > modalLimit && (
+              <div className="p-3 text-center border-t border-line mt-2">
+                <button
+                  onClick={() => setModalLimit((prev) => prev + 50)}
+                  className="px-4 py-1.5 text-xs text-brand-600 hover:text-brand-800 font-semibold bg-brand-500/10 hover:bg-brand-500/20 rounded-lg transition-colors"
+                >
+                  تحميل المزيد ({reorderRows.length - modalLimit} متبقٍ)
+                </button>
+              </div>
+            )}
+          </div>
+        </Dialog>
+      )}
+
+      {reportModal === "brands" && (
+        <Dialog
+          open={true}
+          onClose={() => setReportModal(null)}
+          title="أعلى ماركات القطع قيمةً - القائمة الكاملة"
+          subtitle={`إجمالي ${allBrands.length} ماركة قطع غيار متوفرة بالمخزون`}
+          width="xl"
+        >
+          <div className="overflow-x-auto max-h-[65vh] p-1">
+            <Table>
+              <THead>
+                <TR>
+                  <TH className="w-12">م</TH>
+                  <TH>الماركة</TH>
+                  <TH className="text-center">عدد الأصناف</TH>
+                  <TH className="text-center">إجمالي الوحدات</TH>
+                  <TH className="text-end">إجمالي القيمة التقديرية</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {allBrands.slice(0, modalLimit).map((row, idx) => (
+                  <TR key={row.brand}>
+                    <TD className="text-xs text-ink-faint">#{idx + 1}</TD>
+                    <TD className="font-semibold text-ink text-sm" dir="ltr">{row.brand}</TD>
+                    <TD className="text-center text-xs">{row.count} صنف</TD>
+                    <TD className="text-center text-xs">{row.quantity} وحدة</TD>
+                    <TD className="text-end font-mono font-bold text-ink text-sm">{formatCurrency(row.value, settings.currency)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            {allBrands.length > modalLimit && (
+              <div className="p-3 text-center border-t border-line mt-2">
+                <button
+                  onClick={() => setModalLimit((prev) => prev + 50)}
+                  className="px-4 py-1.5 text-xs text-brand-600 hover:text-brand-800 font-semibold bg-brand-500/10 hover:bg-brand-500/20 rounded-lg transition-colors"
+                >
+                  تحميل المزيد ({allBrands.length - modalLimit} متبقٍ)
+                </button>
+              </div>
+            )}
+          </div>
+        </Dialog>
+      )}
+
+      {reportModal === "completion" && (
+        <Dialog
+          open={true}
+          onClose={() => setReportModal(null)}
+          title="أصناف محتاجة لاستكمال البيانات"
+          subtitle={`إجمالي ${incompleteProducts.length} صنف ناقصة في التوافق أو موقع الرف أو أرقام OEM`}
+          width="2xl"
+        >
+          <div className="overflow-x-auto max-h-[65vh] p-1">
+            <Table>
+              <THead>
+                <TR>
+                  <TH>رقم القطعة</TH>
+                  <TH>الصنف</TH>
+                  <TH>التوافق</TH>
+                  <TH>موقع الرف</TH>
+                  <TH>OEM</TH>
+                  <TH>الضمان</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {incompleteProducts.slice(0, modalLimit).map((product) => (
+                  <TR key={product.id}>
+                    <TD className="font-mono text-xs" dir="ltr">{product.partNumber || product.code}</TD>
+                    <TD className="font-semibold text-ink text-sm">{product.name}</TD>
+                    <TD><Badge tone={fittedProductIds.has(product.id) ? "green" : "rose"}>{fittedProductIds.has(product.id) ? "مربوط" : "ناقص"}</Badge></TD>
+                    <TD><Badge tone={product.rackLocation ? "green" : "amber"}>{product.rackLocation || "ناقص"}</Badge></TD>
+                    <TD><Badge tone={product.oemNumbers?.length ? "green" : "amber"}>{product.oemNumbers?.length || "ناقص"}</Badge></TD>
+                    <TD className="text-xs">{product.warrantyMonths ? `${product.warrantyMonths} شهر` : "—"}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            {incompleteProducts.length > modalLimit && (
+              <div className="p-3 text-center border-t border-line mt-2">
+                <button
+                  onClick={() => setModalLimit((prev) => prev + 50)}
+                  className="px-4 py-1.5 text-xs text-brand-600 hover:text-brand-800 font-semibold bg-brand-500/10 hover:bg-brand-500/20 rounded-lg transition-colors"
+                >
+                  تحميل المزيد ({incompleteProducts.length - modalLimit} متبقٍ)
+                </button>
+              </div>
+            )}
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }

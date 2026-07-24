@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CarFront, ChevronLeft, Gauge, Plus, Search, Settings2 } from "lucide-react";
+import { CarFront, ChevronLeft, Gauge, Plus, Search, Settings2, X } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -33,6 +33,9 @@ export function VehicleCatalogPage() {
   const [generationDialog, setGenerationDialog] = useState(false);
   const [engineGenerationId, setEngineGenerationId] = useState("");
   const [specializationDialog, setSpecializationDialog] = useState(false);
+  const [showPreferenceBanner, setShowPreferenceBanner] = useState(() => {
+    return localStorage.getItem("dismiss_catalog_pref_banner") !== "true";
+  });
 
   const [makeForm, setMakeForm] = useState({ name: "", nameAr: "", countryCode: "" });
   const [modelForm, setModelForm] = useState({ name: "", nameAr: "", vehicleType: "Passenger Car" });
@@ -188,10 +191,45 @@ export function VehicleCatalogPage() {
         <CatalogStat label="كل ماركات الكتالوج" value={catalog.vehicleMakes.filter((item) => item.active).length} />
       </div>
 
-      <div className="rounded-xl border border-brand-200 bg-brand-50/70 dark:bg-brand-500/10 dark:border-brand-500/30 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-        <div><div className="text-sm font-semibold">{catalog.vehicleCatalogPreferences.includeAllMakes ? "النشاط يعرض كل ماركات السيارات" : `النشاط مخصص لـ ${catalog.specializedVehicleMakes.filter((make) => make.active).length} ماركة`}</div><div className="text-xs text-ink-muted mt-0.5">يُطبق الاختيار على الكتالوج ودليل قطع الغيار وربط المنتجات بالسيارات</div></div>
-        <div className="flex flex-wrap gap-1.5">{catalog.vehicleCatalogPreferences.selectedCountryCodes.map((code: string) => <Badge key={code} tone="blue">{vehicleCountryLabel(code)}</Badge>)}{catalog.vehicleCatalogPreferences.selectedMakeIds.length ? <Badge tone="indigo">+ {catalog.vehicleCatalogPreferences.selectedMakeIds.length} ماركة محددة</Badge> : null}</div>
-      </div>
+      {showPreferenceBanner && (
+        <div className="rounded-xl border border-brand-200 bg-brand-50/70 dark:bg-brand-500/10 dark:border-brand-500/30 px-4 py-3 flex items-center justify-between gap-3 relative">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold">
+              {catalog.vehicleCatalogPreferences.includeAllMakes
+                ? "النشاط يعرض كل ماركات السيارات"
+                : `النشاط مخصص لـ ${catalog.specializedVehicleMakes.filter((make) => make.active).length} ماركة`}
+            </div>
+            <div className="text-xs text-ink-muted mt-0.5">
+              يُطبق الاختيار على الكتالوج ودليل قطع الغيار وربط المنتجات بالسيارات
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex flex-wrap gap-1.5">
+              {catalog.vehicleCatalogPreferences.selectedCountryCodes.map((code: string) => (
+                <Badge key={code} tone="blue">
+                  {vehicleCountryLabel(code)}
+                </Badge>
+              ))}
+              {catalog.vehicleCatalogPreferences.selectedMakeIds.length ? (
+                <Badge tone="indigo">
+                  + {catalog.vehicleCatalogPreferences.selectedMakeIds.length} ماركة محددة
+                </Badge>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowPreferenceBanner(false);
+                localStorage.setItem("dismiss_catalog_pref_banner", "true");
+              }}
+              className="text-ink-faint hover:text-ink-muted p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors"
+              title="إغلاق"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,0.9fr)_minmax(520px,1.4fr)] gap-4 items-start">
         <Card>

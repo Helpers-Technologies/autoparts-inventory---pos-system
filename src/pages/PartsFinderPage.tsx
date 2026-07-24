@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { CarFront, ChevronLeft, PackageSearch, Search } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Badge } from "../components/ui/Badge";
@@ -12,10 +13,9 @@ import { useCatalog } from "../store/CatalogContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { formatCurrency } from "../lib/format";
 import { productMatchesSearch } from "../lib/partSearch";
-import { ProductDetailsDrawer } from "../features/products/ProductDetailsDrawer";
-import type { Product } from "../types";
 
 export function PartsFinderPage() {
+  const navigate = useNavigate();
   const { settings } = useSettings();
   const { products } = useCatalog();
   const catalog = useVehicleCatalog();
@@ -25,7 +25,6 @@ export function PartsFinderPage() {
   const [engineId, setEngineId] = useState("");
   const [year, setYear] = useState("");
   const [query, setQuery] = useState("");
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const models = catalog.vehicleModels.filter((model) => model.makeId === makeId && model.active);
   const generations = catalog.vehicleGenerations.filter((generation) => generation.modelId === modelId && generation.active);
@@ -103,7 +102,7 @@ export function PartsFinderPage() {
                 <button
                   key={product.id}
                   type="button"
-                  onClick={() => setSelectedProduct(product)}
+                  onClick={() => navigate(`/products/${product.id}`)}
                   className="group space-y-3 rounded-xl border border-line bg-surface p-4 text-right transition-all hover:-translate-y-0.5 hover:border-cyan-400 hover:shadow-lg hover:shadow-cyan-950/5 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
                   aria-label={`عرض تفاصيل ${product.name}`}
                 >
@@ -117,7 +116,6 @@ export function PartsFinderPage() {
           )}
         </CardBody>
       </Card>
-      <ProductDetailsDrawer product={selectedProduct} onClose={() => setSelectedProduct(null)} />
     </>
   );
 }

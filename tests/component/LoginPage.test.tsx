@@ -20,10 +20,16 @@ import { renderWithProviders } from "../helpers/render";
 // ── Module-level mocks ────────────────────────────────────────────────────────
 
 const mockLogin = vi.fn();
+const mockVerifySecondFactor = vi.fn();
+const mockResumeDesktopSession = vi.fn();
 const mockNavigate = vi.fn();
 
 vi.mock("../../src/store/AuthContext", () => ({
-  useAuth: () => ({ login: mockLogin }),
+  useAuth: () => ({
+    login: mockLogin,
+    verifySecondFactor: mockVerifySecondFactor,
+    resumeDesktopSession: mockResumeDesktopSession,
+  }),
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -127,5 +133,75 @@ describe("LoginPage — TC-COMP-LOGIN", () => {
 
     // useAuth().login should not be called when username is blank.
     expect(mockLogin).not.toHaveBeenCalled();
+  });
+
+  it("TC-COMP-LOGIN-006 — password success requiring 2FA does not navigate before factor verification", async () => {
+    mockLogin.mockResolvedValue({
+      ok: false,
+      error: "second_factor_required",
+      requiresSecondFactor: true,
+      challengeId: "challenge-1",
+    });
+    mockVerifySecondFactor.mockResolvedValue({ ok: true });
+    const { user, usernameInput, passwordInput, submitButton } = setup();
+
+    await user.type(usernameInput(), "owner");
+    await user.type(passwordInput(), "Secret1!");
+    await user.click(submitButton());
+
+    expect(await screen.findByRole("heading", { name: "التحقق بخطوتين" })).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await user.type(
+      screen.getByPlaceholderText("000000 أو XXXX-XXXX-XXXX-XXXX"),
+      "123456"
+    );
+    await user.click(screen.getByRole("button", { name: "تحقق وسجّل الدخول" }));
+
+    await waitFor(() =>
+      expect(mockVerifySecondFactor).toHaveBeenCalledWith("challenge-1", "123456")
+    );
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true }));
+  });
+
+  it("TC-COMP-LOGIN-007 — recovery code can identify the account and reset password without old credentials", async () => {
+    const beginAccountRecovery = vi.fn().mockResolvedValue({
+      ok: true,
+      challengeId: "recovery-1",
+      username: "forgotten-owner",
+    });
+    const completeAccountRecovery = vi.fn().mockResolvedValue({
+      ok: true,
+      username: "forgotten-owner",
+      mfaReset: true,
+    });
+    (window as unknown as { desktopAPI: unknown }).desktopAPI = {
+      auth: { beginAccountRecovery, completeAccountRecovery },
+    };
+    const { user, usernameInput } = setup();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "نسيت اسم الدخول أو كلمة المرور؟ استخدم كودًا احتياطيًا",
+      })
+    );
+    await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX-XXXX"), "ABCD-EFGH-JKLM-NPQR");
+    await user.click(screen.getByRole("button", { name: "تحقق من الكود" }));
+
+    expect(await screen.findByText("forgotten-owner")).toBeInTheDocument();
+    const modal = screen.getByRole("dialog", { name: "استرداد الحساب بكود احتياطي" });
+    const passwordInputs = modal.querySelectorAll<HTMLInputElement>('input[type="password"]');
+    await user.type(passwordInputs[0], "NewSecret1!");
+    await user.type(passwordInputs[1], "NewSecret1!");
+    await user.click(screen.getByRole("button", { name: "تعيين كلمة المرور واسترداد الحساب" }));
+
+    await waitFor(() =>
+      expect(completeAccountRecovery).toHaveBeenCalledWith(
+        "recovery-1",
+        "NewSecret1!",
+        true
+      )
+    );
+    await waitFor(() => expect(usernameInput()).toHaveValue("forgotten-owner"));
   });
 });

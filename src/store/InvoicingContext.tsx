@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type {
   CashEntry,
+  CashierShift,
   ID,
   InvoiceLine,
   PaymentMethod,
@@ -55,6 +56,11 @@ export interface InvoicingContextValue {
   purchaseReturns: PurchaseReturn[];
   cashEntries: CashEntry[];
   stockMovements: StockMovement[];
+  shifts: CashierShift[];
+  activeShift: CashierShift | null;
+  openShift: (opts: { openingCash: number; note?: string }) => CashierShift;
+  closeShift: (shiftId: ID, closingCashActual: number, note?: string) => CashierShift;
+  getShiftSummary: (shiftId: ID) => CashierShift;
   addSalesInvoice: (
     inv: Omit<SalesInvoice, "id" | "createdAt" | "status" | "remaining">
   ) => SalesInvoice;

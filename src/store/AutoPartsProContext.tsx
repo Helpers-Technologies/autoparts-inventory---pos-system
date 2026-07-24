@@ -10,6 +10,7 @@ import {
 } from "react";
 import type {
   Branch,
+  BranchCreationResult,
   BranchStock,
   CustomerVehicle,
   PriceTier,
@@ -185,7 +186,7 @@ export interface AutoPartsProContextValue {
   archiveCustomerVehicle: (id: string, archived: boolean) => void;
   addWarrantyClaim: (input: NewWarrantyClaim) => WarrantyClaim;
   updateWarrantyClaim: (id: string, patch: Partial<WarrantyClaim>) => void;
-  addBranch: (input: NewBranch) => Branch;
+  addBranch: (input: NewBranch) => Promise<BranchCreationResult>;
   updateBranch: (id: string, patch: Partial<Branch>) => void;
   transferStock: (input: Omit<StockTransfer, "id" | "transferNumber" | "createdAt" | "status">) => StockTransfer | null;
   branchQuantity: (branchId: string, productId: string) => number;
@@ -289,12 +290,25 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     setWarrantyClaims((items) => items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item));
   }, []);
 
-  const addBranch = useCallback((input: NewBranch) => {
-    const item: Branch = { ...input, id: uid("branch"), code: `BR-${String(branches.length + 1).padStart(2, "0")}`, isMain: false, createdAt: new Date().toISOString() };
-    setBranches((items) => [...items, item]);
-    logAudit?.("branch_created", item.name, `كود الفرع: ${item.code}`);
-    return item;
-  }, [branches.length, logAudit]);
+  const addBranch = useCallback(async (input: NewBranch): Promise<BranchCreationResult> => {
+    const api = window.desktopAPI?.branchLicensing;
+    if (!api) return { ok: false, error: "desktop_required" };
+    try {
+      const result = await api.createBranch({
+        name: input.name,
+        address: input.address,
+        phone: input.phone,
+      });
+      if (!result.ok || !result.branch) return result;
+      setBranches((items) => items.some((item) => item.id === result.branch!.id)
+        ? items
+        : [...items, result.branch!]);
+      logAudit?.("branch_created", result.branch.name, `كود الفرع: ${result.branch.code}`);
+      return result;
+    } catch {
+      return { ok: false, error: "desktop_required" };
+    }
+  }, [logAudit]);
 
   const updateBranch = useCallback((id: string, patch: Partial<Branch>) => {
     setBranches((items) => items.map((item) => {
@@ -364,7 +378,7 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     if (!target) return false;
     if (priceTiers.length <= 1) return false;
     setPriceTiers((items) => {
-      let nextItems = items.filter((item) => item.id !== id);
+      const nextItems = items.filter((item) => item.id !== id);
       if (target.isDefault && nextItems.length > 0) {
         nextItems[0] = { ...nextItems[0], isDefault: true };
       }

@@ -12,6 +12,8 @@ import {
   ShoppingBag,
   CarFront,
   ShieldCheck,
+  PlayCircle,
+  Lock,
 } from "lucide-react";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
@@ -24,8 +26,8 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { todayISO, uid } from "../lib/utils";
-import type { InvoiceLine, PaymentMethod, Product, SalesPaymentType, SalesPriceType } from "../types";
-import { formatCurrency } from "../lib/format";
+import type { CashierShift, InvoiceLine, PaymentMethod, Product, SalesPaymentType, SalesPriceType } from "../types";
+import { formatCurrency, formatDateTime } from "../lib/format";
 import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
 import { useFeatures } from "../lib/useFeatures";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
@@ -33,6 +35,9 @@ import { printAppRoute } from "../lib/print";
 import { productVehicleFitmentStatus, useAutoPartsPro, vehicleDisplayName } from "../store/AutoPartsProContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { computeCreditPaymentView } from "../store/_pure";
+import { OpenShiftDialog } from "../components/shifts/OpenShiftDialog";
+import { CloseShiftDialog } from "../components/shifts/CloseShiftDialog";
+import { ShiftReportModal } from "../components/shifts/ShiftReportModal";
 
 interface LineDraft {
   id: string;
@@ -76,7 +81,7 @@ function getProductPrice(product: Product, selectedPriceType: SalesPriceType = D
 
 export function POSPage() {
   const { products: allProducts, customers: allCustomers } = useCatalog();
-  const { salesInvoices, addSalesInvoice, applyCustomerCredit } = useInvoicing();
+  const { salesInvoices, addSalesInvoice, applyCustomerCredit, activeShift } = useInvoicing();
   const { customerBalance } = useReporting();
   const pro = useAutoPartsPro();
   const branchQuantity = pro.branchQuantity;
@@ -93,6 +98,12 @@ export function POSPage() {
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
   const [pendingCustomerName, setPendingCustomerName] = useState("");
+
+  // Shift Dialogs State
+  const [isOpenShiftOpen, setIsOpenShiftOpen] = useState(false);
+  const [isCloseShiftOpen, setIsCloseShiftOpen] = useState(false);
+  const [selectedShiftForReport, setSelectedShiftForReport] = useState<CashierShift | null>(null);
+  const [isShiftReportOpen, setIsShiftReportOpen] = useState(false);
 
   // Form State
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -397,6 +408,11 @@ export function POSPage() {
 
   // Save POS sales invoice
   const submitSale = () => {
+    if (!activeShift) {
+      toast.error("الوردية مغلقة", "يرجى فتح وردية كاشير جديدة قبل إصدار فواتير المبيعات.");
+      setIsOpenShiftOpen(true);
+      return;
+    }
     if (!customerId) {
       toast.error("يرجى اختيار العميل");
       return;
@@ -517,8 +533,68 @@ export function POSPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden gap-4" dir="rtl">
-            {/* Main resizable split */}
+    <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden gap-3" dir="rtl">
+      {/* Shift Status Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-surface p-3 rounded-xl border border-line shadow-sm shrink-0">
+        <div className="flex items-center gap-3">
+          {activeShift ? (
+            <>
+              <Badge tone="green" className="py-1 px-3 text-xs font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                وردية نشطة #{activeShift.shiftNumber}
+              </Badge>
+              <div className="text-xs text-ink-muted hidden sm:flex items-center gap-3">
+                <span>الكاشير: <strong className="text-ink">{activeShift.cashierName}</strong></span>
+                <span className="text-line">|</span>
+                <span>وقت الفتح: <strong className="text-ink">{formatDateTime(activeShift.openedAt)}</strong></span>
+              </div>
+            </>
+          ) : (
+            <Badge tone="amber" className="py-1 px-3 text-xs font-semibold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              الوردية مغلقة
+            </Badge>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {activeShift ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedShiftForReport(activeShift);
+                  setIsShiftReportOpen(true);
+                }}
+              >
+                <FileText className="w-4 h-4 ml-1.5 text-brand-600" />
+                تقرير الوردية (X-Report)
+              </Button>
+
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsCloseShiftOpen(true)}
+              >
+                <Lock className="w-4 h-4 ml-1.5" />
+                تقفيل وإغلاق الوردية
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsOpenShiftOpen(true)}
+            >
+              <PlayCircle className="w-4 h-4 ml-1.5" />
+              فتح وردية كاشير جديدة
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Main resizable split */}
       <div
         ref={splitContainerRef}
         className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-2"
@@ -1038,6 +1114,31 @@ export function POSPage() {
           </div>
         </div>
       )}
+
+      {/* Shift Dialog Modals */}
+      <OpenShiftDialog
+        open={isOpenShiftOpen}
+        onClose={() => setIsOpenShiftOpen(false)}
+      />
+
+      <CloseShiftDialog
+        shift={activeShift}
+        open={isCloseShiftOpen}
+        onClose={() => setIsCloseShiftOpen(false)}
+        onPrintZReport={(shiftToPrint) => {
+          setSelectedShiftForReport(shiftToPrint);
+          setIsShiftReportOpen(true);
+        }}
+      />
+
+      <ShiftReportModal
+        shift={selectedShiftForReport}
+        open={isShiftReportOpen}
+        onClose={() => {
+          setIsShiftReportOpen(false);
+          setSelectedShiftForReport(null);
+        }}
+      />
     </div>
   );
 }

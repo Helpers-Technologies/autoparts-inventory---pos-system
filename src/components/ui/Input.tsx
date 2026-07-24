@@ -125,7 +125,7 @@ export function Field({
   required,
   className,
 }: {
-  label?: string;
+  label?: React.ReactNode;
   hint?: string;
   error?: string;
   children: React.ReactNode;
@@ -144,7 +144,7 @@ export function Field({
     e.stopPropagation();
     if (hint) {
       if (toast) {
-        toast.info(label || "معلومات", hint);
+        toast.info(typeof label === "string" ? label : "معلومات", hint);
       } else {
         alert(hint);
       }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   CalendarClock,
@@ -34,7 +34,6 @@ import { useSettings } from "../store/SettingsContext";
 import { formatCurrency, formatDate } from "../lib/format";
 import { daysUntil, isExpired, isExpiringSoon } from "../lib/utils";
 import { useFeatures } from "../lib/useFeatures";
-import { ProductDetailsDrawer } from "../features/products/ProductDetailsDrawer";
 import type { Product } from "../types";
 
 const CREDIT_KEYS = new Set<CardKey>([
@@ -96,6 +95,7 @@ export function AlertsPage() {
   const { purchaseInvoices, salesInvoices } = useInvoicing();
   const { customerBalance, customerCredit, supplierBalance } = useReporting();
   const { settings } = useSettings();
+  const navigate = useNavigate();
 
   const [statsVisible, setStatsVisible] = useState<Set<CardKey>>(() => loadVisible("alerts-stats-visible"));
   const [statsOrder, setStatsOrder] = useState<CardKey[]>(() => loadOrder("alerts-stats-order"));
@@ -108,7 +108,6 @@ export function AlertsPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "outOfStock" | "lowStock" | "expiringSoon" | "expired">("all");
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
@@ -463,7 +462,7 @@ export function AlertsPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <button
-                              onClick={() => setSelectedProduct(p)}
+                              onClick={() => navigate(`/products/${p.id}`)}
                               className="text-sm font-semibold text-ink hover:text-brand-600 dark:hover:text-brand-400 truncate text-start block max-w-full"
                             >
                               {p.name}
@@ -485,7 +484,7 @@ export function AlertsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setSelectedProduct(p)}
+                            onClick={() => navigate(`/products/${p.id}`)}
                             className="h-8 w-8 p-0"
                             title="التفاصيل"
                           >
@@ -523,7 +522,7 @@ export function AlertsPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <button
-                              onClick={() => setSelectedProduct(p)}
+                              onClick={() => navigate(`/products/${p.id}`)}
                               className="text-sm font-semibold text-ink hover:text-brand-600 dark:hover:text-brand-400 truncate text-start block max-w-full"
                             >
                               {p.name}
@@ -545,7 +544,7 @@ export function AlertsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setSelectedProduct(p)}
+                            onClick={() => navigate(`/products/${p.id}`)}
                             className="h-8 w-8 p-0"
                             title="التفاصيل"
                           >
@@ -577,7 +576,7 @@ export function AlertsPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <button
-                              onClick={() => setSelectedProduct(p)}
+                              onClick={() => navigate(`/products/${p.id}`)}
                               className="text-sm font-semibold text-ink hover:text-brand-600 dark:hover:text-brand-400 truncate text-start block max-w-full"
                             >
                               {p.name}
@@ -592,7 +591,7 @@ export function AlertsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setSelectedProduct(p)}
+                            onClick={() => navigate(`/products/${p.id}`)}
                             className="h-8 w-8 p-0"
                             title="التفاصيل"
                           >
@@ -624,7 +623,7 @@ export function AlertsPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <button
-                              onClick={() => setSelectedProduct(p)}
+                              onClick={() => navigate(`/products/${p.id}`)}
                               className="text-sm font-semibold text-ink hover:text-brand-600 dark:hover:text-brand-400 truncate text-start block max-w-full"
                             >
                               {p.name}
@@ -639,7 +638,7 @@ export function AlertsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setSelectedProduct(p)}
+                            onClick={() => navigate(`/products/${p.id}`)}
                             className="h-8 w-8 p-0"
                             title="التفاصيل"
                           >
@@ -747,12 +746,6 @@ export function AlertsPage() {
           }
         })}
       </div>
-
-      {/* Product Details Drawer */}
-      <ProductDetailsDrawer
-        product={selectedProduct}
-        onClose={() => setSelectedProduct(null)}
-      />
 
       {/* Settings dialog */}
       <Dialog

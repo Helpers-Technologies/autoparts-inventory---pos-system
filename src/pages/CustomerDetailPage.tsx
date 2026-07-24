@@ -20,7 +20,7 @@ import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
-import { Input, Field, Textarea } from "../components/ui/Input";
+import { Input, Field, Select, Textarea } from "../components/ui/Input";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
 import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -72,6 +72,7 @@ export function CustomerDetailPage() {
     name: "",
     phone: "",
     address: "",
+    marketingConsent: "unknown",
     notes: "",
   });
 
@@ -123,6 +124,7 @@ export function CustomerDetailPage() {
       name: customer.name,
       phone: customer.phone ?? "",
       address: customer.address ?? "",
+      marketingConsent: customer.marketingConsent ?? "unknown",
       notes: customer.notes ?? "",
     });
     setEditOpen(true);
@@ -272,6 +274,13 @@ export function CustomerDetailPage() {
             </Info>
             <Info label="عميل منذ" icon={<CalendarClock className="w-3.5 h-3.5" />}>
               {customer.createdAt ? formatDate(customer.createdAt) : "—"}
+            </Info>
+            <Info label="التواصل التسويقي">
+              {customer.marketingConsent === "opted_in"
+                ? "موافق على العروض"
+                : customer.marketingConsent === "opted_out"
+                  ? "لا يرغب في الرسائل"
+                  : "لم تُسجّل الموافقة"}
             </Info>
             {customer.notes ? (
               <Info label="ملاحظات" className="sm:col-span-2 xl:col-span-4">
@@ -442,6 +451,20 @@ export function CustomerDetailPage() {
           </Field>
           <Field label="العنوان" required>
             <Input value={form.address ?? ""} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          </Field>
+          <Field
+            label="الموافقة على التواصل التسويقي"
+            hint="لا ترسل عروضًا للعميل إذا اختار عدم استقبال الرسائل."
+            className="col-span-2"
+          >
+            <Select
+              value={form.marketingConsent ?? "unknown"}
+              onChange={(e) => setForm({ ...form, marketingConsent: e.target.value as Customer["marketingConsent"] })}
+            >
+              <option value="unknown">لم تُسجّل الموافقة بعد</option>
+              <option value="opted_in">موافق على استقبال العروض</option>
+              <option value="opted_out">لا يرغب في رسائل تسويقية</option>
+            </Select>
           </Field>
           <Field label="ملاحظات" className="col-span-2">
             <Textarea rows={2} value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   FEATURES,
+  FEATURE_CATEGORIES,
+  FEATURE_CATEGORY_BY_KEY,
   FEATURE_MAP,
   isAllowedByLicense,
   defaultFeatureState,
@@ -43,6 +45,13 @@ describe("FEATURE_MAP", () => {
 
   it("keeps creditPayment ON by default (pre-existing capability, gateable per package)", () => {
     expect(FEATURE_MAP.creditPayment.defaultEnabled).toBe(true);
+  });
+
+  it("assigns every feature to one clear category", () => {
+    expect(FEATURE_CATEGORIES.length).toBeGreaterThan(0);
+    for (const feature of FEATURES) {
+      expect(FEATURE_CATEGORY_BY_KEY[feature.key]).toBeTruthy();
+    }
   });
 
   it("keeps creditSales OFF by default because deferred sales are a paid add-on", () => {
@@ -123,6 +132,24 @@ describe("isFeatureEnabled", () => {
     expect(isFeatureEnabled("creditSales", settingsWith({ creditSales: true }), null)).toBe(false);
     expect(isFeatureEnabled("creditSales", settingsWith({}), makeLicense(["creditSales"]))).toBe(true);
     expect(isFeatureEnabled("creditSales", settingsWith({ creditSales: false }), makeLicense(["creditSales"]))).toBe(false);
+  });
+
+  it("allows every feature for a signed full-package wildcard", () => {
+    expect(isAllowedByLicense("twoFactorAuth", makeLicense(["*"]))).toBe(true);
+    expect(isAllowedByLicense("salesInvoices", makeLicense(["*"]))).toBe(true);
+  });
+
+  it("keeps two-factor authentication paid unless the signed package includes it", () => {
+    expect(isAllowedByLicense("twoFactorAuth", null)).toBe(false);
+    expect(isAllowedByLicense("twoFactorAuth", makeLicense(["twoFactorAuth"]))).toBe(true);
+  });
+
+  it("keeps the marketing hub paid and prevents a local toggle from bypassing its license", () => {
+    expect(FEATURE_MAP.marketingHub.defaultEnabled).toBe(false);
+    expect(isAllowedByLicense("marketingHub", null)).toBe(false);
+    expect(isFeatureEnabled("marketingHub", settingsWith({ marketingHub: true }), null)).toBe(false);
+    expect(isFeatureEnabled("marketingHub", settingsWith({}), makeLicense(["marketingHub"]))).toBe(true);
+    expect(isAllowedByLicense("marketingHub", makeLicense(["*"]))).toBe(true);
   });
 
   it("evaluates every feature key without throwing", () => {

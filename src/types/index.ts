@@ -3,12 +3,67 @@ export type ID = string;
 export type PaymentStatus = "paid" | "partial" | "unpaid";
 export type SalesPaymentType = "cash" | "account";
 export type SalesPriceType = "wholesale" | "retail";
+export type MfaPolicyMode = "disabled" | "optional" | "required_owner" | "required_all";
 export type LoginResult = {
   ok: boolean;
-  error?: "invalid_credentials" | "rate_limited";
+  error?:
+    | "invalid_credentials"
+    | "rate_limited"
+    | "second_factor_required"
+    | "mfa_enrollment_required"
+    | "invalid_code"
+    | "code_reused"
+    | "challenge_expired"
+    | "invalid_challenge"
+    | "not_authenticated";
   remainSeconds?: number;
   attemptsRemaining?: number;
+  requiresSecondFactor?: boolean;
+  requiresMfaEnrollment?: boolean;
+  challengeId?: string;
+  expiresAt?: string;
+  methods?: Array<"totp" | "recovery_code">;
+  manualKey?: string;
+  otpauthUri?: string;
 };
+
+export interface MfaPolicy {
+  mode: MfaPolicyMode;
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+  required: boolean;
+  available: boolean;
+  recoveryCodesRemaining: number;
+  policy: MfaPolicy;
+}
+
+export interface MfaUserStatus extends MfaStatus {
+  userId: string;
+  name: string;
+  username: string;
+  role: UserRole;
+}
+
+export type MfaActionError =
+  | "not_authorized"
+  | "invalid_input"
+  | "invalid_password"
+  | "invalid_code"
+  | "code_reused"
+  | "challenge_expired"
+  | "invalid_challenge"
+  | "rate_limited"
+  | "already_enabled"
+  | "not_enabled"
+  | "required_by_policy"
+  | "feature_disabled"
+  | "feature_not_licensed"
+  | "user_missing"
+  | "cannot_reset_owner"
+  | "invalid_policy"
+  | "users_not_enrolled";
 
 export type UserRole = "owner" | "employee";
 export type ActivationState =
@@ -46,18 +101,45 @@ export interface LicenseStatus {
   message?: string;
 }
 
+export interface BranchLicenseStatus {
+  machineCode: string;
+  branchCount: number;
+  branchLimit: number;
+  availableSlots: number;
+  activatedSlots: number;
+  legacySlots: number;
+}
+
+export type BranchLicenseError =
+  | "not_authorized"
+  | "license_inactive"
+  | "invalid_code"
+  | "machine_mismatch"
+  | "code_already_used"
+  | "slot_already_available"
+  | "activation_required"
+  | "invalid_branch"
+  | "desktop_required";
+
+export interface BranchActivationResult {
+  ok: boolean;
+  status?: BranchLicenseStatus;
+  error?: BranchLicenseError;
+}
+
 export interface UserPermissions {
-  products: { view: boolean; add: boolean; edit: boolean; delete: boolean };
-  inventory: { view: boolean; adjust: boolean };
-  purchaseInvoices: { view: boolean; add: boolean; edit: boolean; pay: boolean; delete: boolean };
+  pos: { view: boolean; createSale: boolean; applyDiscount: boolean; holdCart: boolean };
+  products: { view: boolean; add: boolean; edit: boolean; delete: boolean; printBarcode: boolean };
+  inventory: { view: boolean; adjust: boolean; stocktakes: boolean; transfers: boolean };
+  purchaseInvoices: { view: boolean; add: boolean; edit: boolean; pay: boolean; delete: boolean; purchasingAssistant: boolean };
   salesInvoices: { view: boolean; add: boolean; edit: boolean; receive: boolean; cancel: boolean; delete: boolean };
   customers: { view: boolean; add: boolean; edit: boolean; delete: boolean };
   suppliers: { view: boolean; add: boolean; edit: boolean; delete: boolean; commissions: boolean };
   drivers: { view: boolean; add: boolean; edit: boolean; delete: boolean };
-  returns: { view: boolean; add: boolean };
+  returns: { view: boolean; add: boolean; approve: boolean };
   alerts: { view: boolean };
   cashbox: { view: boolean; add: boolean; spend: boolean; editOpeningBalance: boolean };
-  reports: { view: boolean };
+  reports: { view: boolean; analytics: boolean; export: boolean };
 }
 
 export interface MonthlyEmployeeConfig {
@@ -109,6 +191,8 @@ export interface Customer {
   phone?: string;
   address?: string;
   shippingDirection?: "qibli" | "bahri";
+  /** Consent captured by the shop before sending promotional messages. */
+  marketingConsent?: "unknown" | "opted_in" | "opted_out";
   notes?: string;
   archived?: boolean;
   createdAt: string;
@@ -227,7 +311,34 @@ export interface SalesInvoice {
   priceTierId?: ID;
   priceTierName?: string;
   createdByUserId?: ID;
+  shiftId?: ID;
   createdAt: string;
+}
+
+export interface CashierShift {
+  id: ID;
+  shiftNumber: number;
+  cashierId: ID;
+  cashierName: string;
+  cashierUsername: string;
+  openedAt: string;
+  closedAt?: string;
+  status: "open" | "closed";
+  openingCash: number;
+  closingCashActual?: number;
+  expectedCash: number;
+  difference?: number;
+  note?: string;
+  totalSalesCount: number;
+  totalSalesAmount: number;
+  /** نقدية دخلت الدرج بخلاف تحصيلات المبيعات (عهدة/إضافة يدوية/مرتجع مشتريات). */
+  totalCashAdditions?: number;
+  totalCashSales: number;
+  totalVisaSales: number;
+  totalCreditSales: number;
+  totalRefunds: number;
+  totalExpenses: number;
+  salesInvoiceIds: ID[];
 }
 
 export type StockMovementType =
@@ -365,6 +476,10 @@ export interface CashEntry {
   referenceId?: ID;
   date: string;
   paymentMethod?: PaymentMethod;
+  /** الوردية التي حدثت خلالها الحركة، لمنع خلط خزنة أكثر من كاشير. */
+  shiftId?: ID;
+  createdByUserId?: ID;
+  createdAt?: string;
 }
 
 export interface Settings {
@@ -479,6 +594,8 @@ export type AuditAction =
   | "driver_deleted"
   | "cash_manual_add"
   | "cash_manual_remove"
+  | "shift_opened"
+  | "shift_closed"
   | "invoice_restored"
   | "user_login"
   | "user_logout"
@@ -570,6 +687,10 @@ export interface Branch {
   address?: string;
   phone?: string;
   createdAt: string;
+}
+
+export interface BranchCreationResult extends BranchActivationResult {
+  branch?: Branch;
 }
 
 export interface BranchStock {

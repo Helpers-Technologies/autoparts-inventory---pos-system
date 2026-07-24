@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
   RotateCcw,
   Filter,
+  ChevronDown,
 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -54,6 +55,10 @@ export function InventoryPage() {
   const [qtyFilter, setQtyFilter] = useState<"all" | "available" | "low" | "zero">("all");
   const [expiryFilter, setExpiryFilter] = useState<"all" | "valid" | "soon" | "expired">("all");
 
+  // Pagination & limit state for inventory list
+  const [inventoryPageSize, setInventoryPageSize] = useState(10);
+  const [inventoryVisibleCount, setInventoryVisibleCount] = useState(10);
+
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [brandFilter, setBrandFilter] = useState("");
   const [originFilter, setOriginFilter] = useState("");
@@ -61,6 +66,13 @@ export function InventoryPage() {
   const [makeFilter, setMakeFilter] = useState("");
   const [rackFilter, setRackFilter] = useState("");
   const [conditionFilter, setConditionFilter] = useState("");
+
+  // Reset the visible count whenever any filter changes so the user sees the
+  // top of the freshly filtered list. Declared after all filter state above to
+  // avoid a temporal-dead-zone reference in the dependency array.
+  useEffect(() => {
+    setInventoryVisibleCount(inventoryPageSize);
+  }, [q, category, supplier, qtyFilter, expiryFilter, brandFilter, originFilter, qualityFilter, makeFilter, rackFilter, conditionFilter, inventoryPageSize]);
 
   const [adjustTarget, setAdjustTarget] = useState<Product | null>(null);
   const [adjType, setAdjType] = useState<"in" | "out">("in");
@@ -249,6 +261,14 @@ export function InventoryPage() {
   const [movDateFrom, setMovDateFrom] = useState("");
   const [movDateTo, setMovDateTo] = useState("");
 
+  // Pagination & limit state for movements log
+  const [movementsPageSize, setMovementsPageSize] = useState(10);
+  const [movementsVisibleCount, setMovementsVisibleCount] = useState(10);
+
+  useEffect(() => {
+    setMovementsVisibleCount(movementsPageSize);
+  }, [movQ, movType, movDateFrom, movDateTo, movementsPageSize]);
+
   const filteredMovements = useMemo(() => {
     let list = [...stockMovements];
     if (movQ.trim()) {
@@ -266,8 +286,16 @@ export function InventoryPage() {
     if (movDateTo) {
       list = list.filter((m) => m.date <= movDateTo);
     }
-    return list.slice(0, 100);
+    return list;
   }, [stockMovements, movQ, movType, movDateFrom, movDateTo]);
+
+  const visibleProducts = useMemo(() => {
+    return filtered.slice(0, inventoryVisibleCount);
+  }, [filtered, inventoryVisibleCount]);
+
+  const visibleMovements = useMemo(() => {
+    return filteredMovements.slice(0, movementsVisibleCount);
+  }, [filteredMovements, movementsVisibleCount]);
 
   return (
     <>
@@ -370,6 +398,22 @@ export function InventoryPage() {
                   </Badge>
                 )}
               </Button>
+              <div className="flex items-center gap-1.5 bg-surface-muted px-2.5 h-9 rounded-xl text-xs border border-line/60">
+                <span className="text-ink-muted whitespace-nowrap">العدد الظاهر:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={5000}
+                  value={inventoryPageSize || ""}
+                  onChange={(e) => {
+                    const val = Math.max(1, parseInt(e.target.value) || 10);
+                    setInventoryPageSize(val);
+                    setInventoryVisibleCount(val);
+                  }}
+                  className="w-14 h-6 text-center rounded border border-line bg-surface font-semibold text-brand-700 dark:text-brand-300 outline-none focus:ring-1 focus:ring-brand-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  title="تحديد عدد النتائج المعروضة"
+                />
+              </div>
             </div>
 
             {hasAnyFilterActive && (
@@ -562,7 +606,7 @@ export function InventoryPage() {
                 </TR>
               </THead>
               <TBody>
-                {filtered.map((p) => {
+                {visibleProducts.map((p) => {
                   const du = daysUntil(p.expiryDate);
                   const low = p.quantity <= p.minStock;
                   const expired = p.hasExpiry && du !== null && du < 0;
@@ -636,13 +680,33 @@ export function InventoryPage() {
               </TBody>
             </Table>
           )}
+
+          {filtered.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-line text-xs text-ink-muted">
+              <div>
+                عرض <span className="font-semibold text-ink">{Math.min(inventoryVisibleCount, filtered.length)}</span> من إجمالي <span className="font-semibold text-ink">{filtered.length}</span> قطعة
+              </div>
+              {filtered.length > inventoryVisibleCount && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setInventoryVisibleCount((prev) => prev + inventoryPageSize)}
+                  className="gap-1.5 font-medium border-brand-300 dark:border-brand-500/40 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-500/10"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                  إظهار المزيد (+{Math.min(inventoryPageSize, filtered.length - inventoryVisibleCount)})
+                </Button>
+              )}
+            </div>
+          )}
         </CardBody>
       </Card>
 
       <Card>
         <CardHeader title="سجل حركات المخزون" subtitle={`${filteredMovements.length} حركة`} />
         <CardBody className="space-y-3">
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
             <div className="relative w-52">
               <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
               <Input
@@ -702,6 +766,22 @@ export function InventoryPage() {
                 مسح
               </button>
             )}
+            <div className="flex items-center gap-1.5 bg-surface-muted px-2.5 h-9 rounded-xl text-xs border border-line/60 ms-auto">
+              <span className="text-ink-muted whitespace-nowrap">العدد الظاهر:</span>
+              <input
+                type="number"
+                min={1}
+                max={5000}
+                value={movementsPageSize || ""}
+                onChange={(e) => {
+                  const val = Math.max(1, parseInt(e.target.value) || 10);
+                  setMovementsPageSize(val);
+                  setMovementsVisibleCount(val);
+                }}
+                className="w-14 h-6 text-center rounded border border-line bg-surface font-semibold text-brand-700 dark:text-brand-300 outline-none focus:ring-1 focus:ring-brand-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                title="تحديد عدد الحركات المعروضة"
+              />
+            </div>
           </div>
           {filteredMovements.length === 0 ? (
             <EmptyState
@@ -720,7 +800,7 @@ export function InventoryPage() {
                 </TR>
               </THead>
               <TBody>
-                {filteredMovements.map((m) => (
+                {visibleMovements.map((m) => (
                   <TR key={m.id}>
                     <TD>{formatDate(m.date)}</TD>
                     <TD className="text-ink">{m.productName}</TD>
@@ -794,6 +874,26 @@ export function InventoryPage() {
                 ))}
               </TBody>
             </Table>
+          )}
+
+          {filteredMovements.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-line text-xs text-ink-muted">
+              <div>
+                عرض <span className="font-semibold text-ink">{Math.min(movementsVisibleCount, filteredMovements.length)}</span> من إجمالي <span className="font-semibold text-ink">{filteredMovements.length}</span> حركة
+              </div>
+              {filteredMovements.length > movementsVisibleCount && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMovementsVisibleCount((prev) => prev + movementsPageSize)}
+                  className="gap-1.5 font-medium border-brand-300 dark:border-brand-500/40 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-500/10"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                  إظهار المزيد (+{Math.min(movementsPageSize, filteredMovements.length - movementsVisibleCount)})
+                </Button>
+              )}
+            </div>
           )}
         </CardBody>
       </Card>

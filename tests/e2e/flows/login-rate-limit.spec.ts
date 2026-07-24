@@ -27,11 +27,14 @@ test("E2E-002: 5 wrong passwords trigger the rate-limit lockout", async () => {
     const setup = new FirstRunScreen(window);
     await expect(setup.heading()).toBeVisible();
     await setup.createOwner(OWNER_USERNAME, OWNER_PASSWORD);
-    await expect(window.getByText(/أهلاً بك في/)).toBeVisible();
+    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
 
     // First run auto-opens the "What's New" dialog over the dashboard; dismiss
     // it so its backdrop doesn't intercept the logout click below.
-    await window.getByRole("button", { name: "تمام، فهمت" }).click();
+    const whatsNewButton = window.getByRole("button", { name: "تمام، فهمت" });
+    if (await whatsNewButton.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await whatsNewButton.click();
+    }
 
     // ── Step 2: Logout to reach the login screen ────────────────────────────
     await window.getByRole("button", { name: "تسجيل الخروج" }).click();

@@ -1,10 +1,11 @@
-﻿import {
+import {
   createContext,
   useCallback,
   useContext,
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { CheckCircle2, AlertTriangle, Info, XCircle, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -50,52 +51,55 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="fixed top-4 left-4 z-[100] flex flex-col gap-2 items-start max-w-sm">
-        {items.map((t) => (
-          <div
-            key={t.id}
-            role="status"
-            className={cn(
-              "animate-fadeIn flex items-start gap-3 w-full",
-              "bg-surface rounded-lg shadow-lg border border-line p-3 pe-8 relative"
-            )}
-          >
+      {createPortal(
+        <div className="fixed top-4 left-4 z-[99999] flex flex-col gap-2 items-start max-w-sm pointer-events-none" dir="rtl">
+          {items.map((t) => (
             <div
+              key={t.id}
+              role="status"
               className={cn(
-                "mt-0.5",
-                t.type === "success" && "text-emerald-600 dark:text-emerald-400",
-                t.type === "error" && "text-red-600 dark:text-red-400",
-                t.type === "warning" && "text-amber-600 dark:text-amber-400",
-                t.type === "info" && "text-blue-600 dark:text-blue-400"
+                "animate-fadeIn flex items-start gap-3 w-full pointer-events-auto",
+                "bg-surface rounded-lg shadow-2xl border border-line p-3 pe-8 relative"
               )}
             >
-              {t.type === "success" ? (
-                <CheckCircle2 className="w-5 h-5" />
-              ) : t.type === "error" ? (
-                <XCircle className="w-5 h-5" />
-              ) : t.type === "warning" ? (
-                <AlertTriangle className="w-5 h-5" />
-              ) : (
-                <Info className="w-5 h-5" />
-              )}
+              <div
+                className={cn(
+                  "mt-0.5",
+                  t.type === "success" && "text-emerald-600 dark:text-emerald-400",
+                  t.type === "error" && "text-red-600 dark:text-red-400",
+                  t.type === "warning" && "text-amber-600 dark:text-amber-400",
+                  t.type === "info" && "text-blue-600 dark:text-blue-400"
+                )}
+              >
+                {t.type === "success" ? (
+                  <CheckCircle2 className="w-5 h-5" />
+                ) : t.type === "error" ? (
+                  <XCircle className="w-5 h-5" />
+                ) : t.type === "warning" ? (
+                  <AlertTriangle className="w-5 h-5" />
+                ) : (
+                  <Info className="w-5 h-5" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-ink">{t.title}</div>
+                {t.description ? (
+                  <div className="text-xs text-ink-muted mt-0.5">
+                    {t.description}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                className="absolute top-1.5 end-1.5 p-1 text-ink-faint hover:text-ink-muted"
+                onClick={() => setItems((arr) => arr.filter((x) => x.id !== t.id))}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-ink">{t.title}</div>
-              {t.description ? (
-                <div className="text-xs text-ink-muted mt-0.5">
-                  {t.description}
-                </div>
-              ) : null}
-            </div>
-            <button
-              className="absolute top-1.5 end-1.5 p-1 text-ink-faint hover:text-ink-muted"
-              onClick={() => setItems((arr) => arr.filter((x) => x.id !== t.id))}
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>,
+        document.body
+      )}
     </ToastContext.Provider>
   );
 }

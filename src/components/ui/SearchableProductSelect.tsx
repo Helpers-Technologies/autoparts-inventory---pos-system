@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Search, Package, Check, X, Box } from "lucide-react";
+import { ChevronDown, Package, Check, X, Box, ScanLine } from "lucide-react";
 import type { Product } from "../../types";
 import { isFuzzyMatch } from "../../lib/fuzzySearch";
 import { Badge } from "./Badge";
@@ -23,7 +23,7 @@ export function SearchableProductSelect({
   value,
   onChange,
   placeholder = "— اختر منتجاً أو ابحث —",
-  searchPlaceholder = "ابحث بالاسم، رقم القطعة، OEM، الباركود، الماركة...",
+  searchPlaceholder = "امسح الباركود أو ابحث بالاسم، Part No.، OEM...",
   className = "",
   disabled = false,
   dropUp,
@@ -203,7 +203,7 @@ export function SearchableProductSelect({
       {/* Search Input Box Header */}
       <div className="p-2.5 border-b border-line bg-surface-muted/60 shrink-0">
         <div className="relative flex items-center">
-          <Search className="w-4 h-4 text-ink-faint absolute right-3 pointer-events-none" />
+          <ScanLine className="w-4 h-4 text-cyan-600 dark:text-cyan-400 absolute right-3 pointer-events-none" />
           <input
             ref={inputRef}
             value={query}

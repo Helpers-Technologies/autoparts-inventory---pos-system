@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Shield, RotateCcw } from "lucide-react";
+import { Shield, RotateCcw, Search, Filter, FilterX } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Field, Input, Select } from "../components/ui/Input";
@@ -49,6 +49,8 @@ const ACTION_META: Record<
   driver_deleted:          { label: "حذف سائق",                tone: "red" },
   cash_manual_add:         { label: "إضافة نقدية",             tone: "emerald" },
   cash_manual_remove:      { label: "خصم نقدي",                tone: "rose" },
+  shift_opened:            { label: "فتح وردية كاشير",         tone: "emerald" },
+  shift_closed:            { label: "تقفيل وردية كاشير",       tone: "indigo" },
   invoice_restored:        { label: "استعادة فاتورة",          tone: "blue" },
   user_login:              { label: "تسجيل دخول المستخدم",     tone: "emerald" },
   user_logout:             { label: "تسجيل خروج المستخدم",     tone: "rose" },
@@ -73,7 +75,7 @@ const CATEGORY_ACTIONS: Record<Category, AuditAction[] | null> = {
   returns:   ["return_sale_created", "return_purchase_created"],
   stock:     ["product_created", "product_updated", "product_deleted", "product_archived", "product_restored", "stock_adjusted", "stocktake_created"],
   deletions: ["invoice_sale_deleted", "invoice_purchase_deleted", "product_deleted", "customer_deleted", "supplier_deleted", "driver_deleted", "quotation_deleted", "branch_deleted"],
-  cash:      ["cash_manual_add", "cash_manual_remove"],
+  cash:      ["cash_manual_add", "cash_manual_remove", "shift_opened", "shift_closed"],
   parties:   ["customer_created", "customer_updated", "customer_deleted", "customer_archived", "customer_restored", "supplier_created", "supplier_updated", "supplier_deleted", "supplier_archived", "supplier_restored", "driver_created", "driver_updated", "driver_deleted"],
   system:    ["user_login", "user_logout", "settings_updated", "backup_created", "backup_restored", "branch_created", "branch_updated", "branch_deleted"],
 };
@@ -127,85 +129,129 @@ export function AuditLogPage() {
         description={`آخر ${auditLogs.length.toLocaleString()} عملية مسجلة`}
       />
 
-      <Card>
-        <CardHeader title="تصفية السجل" />
-        <CardBody className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <Card className="mb-4 shadow-sm border border-line">
+        <CardHeader
+          title={
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-brand-500" />
+              <span>تصفية السجل</span>
+              {hasFilters && (
+                <span className="mr-auto text-xs px-2.5 py-0.5 rounded-full bg-brand-500/10 text-brand-600 font-medium">
+                  {filtered.length} نتيجة
+                </span>
+              )}
+            </div>
+          }
+        />
+        <CardBody className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-[1.5fr_1.2fr_1fr_1fr_1fr_auto] gap-3 items-end">
             <Field label="بحث">
-              <Input
-                value={q}
-                onChange={(e) => handleQ(e.target.value)}
-                placeholder="ابحث في الكيان أو التفاصيل..."
-              />
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" />
+                <Input
+                  value={q}
+                  onChange={(e) => handleQ(e.target.value)}
+                  placeholder="ابحث في الكيان أو التفاصيل..."
+                  className="h-10 pl-9 pr-3 text-xs text-right [text-align-last:right] focus:border-brand-500"
+                />
+              </div>
             </Field>
+
             <Field label="التصنيف">
-              <Select value={category} onChange={(e) => handleCategory(e.target.value as Category)}>
-                <option value="all">الكل</option>
+              <Select
+                value={category}
+                onChange={(e) => handleCategory(e.target.value as Category)}
+                className="h-10 text-xs text-right [text-align-last:right] focus:border-brand-500"
+              >
+                <option value="all">الكل (جميع التصنيفات)</option>
                 <option value="sales">فواتير المبيعات وعروض الأسعار</option>
                 <option value="purchases">فواتير المشتريات</option>
                 <option value="returns">المرتجعات</option>
                 <option value="stock">المخزون والمنتجات</option>
-                <option value="deletions">عمليات الحذف والالغاء</option>
+                <option value="deletions">عمليات الحذف والإلغاء</option>
                 <option value="cash">النقدية والخزينة</option>
                 <option value="parties">العملاء والموردين والسائقين</option>
                 <option value="system">النظام والنسخ الاحتياطي والفروع</option>
               </Select>
             </Field>
+
             <Field label="المستخدم">
-              <Select value={userId} onChange={(e) => handleUser(e.target.value)}>
+              <Select
+                value={userId}
+                onChange={(e) => handleUser(e.target.value)}
+                className="h-10 text-xs text-right [text-align-last:right] focus:border-brand-500"
+              >
                 <option value="">جميع المستخدمين</option>
                 {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
                 ))}
               </Select>
             </Field>
-          </div>
-          <div className="flex gap-2 items-end flex-wrap">
+
             <Field label="من تاريخ">
               <input
                 type="date"
                 value={dateFrom}
-                onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
-                className="h-10 px-3 rounded-lg border border-line bg-surface text-ink text-sm outline-none focus:border-brand-500 w-40"
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setPage(0);
+                }}
+                className="w-full h-10 px-3 rounded-lg border border-line bg-surface text-ink text-xs focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all [color-scheme:dark]"
               />
             </Field>
+
             <Field label="إلى تاريخ">
               <input
                 type="date"
                 value={dateTo}
-                onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
-                className="h-10 px-3 rounded-lg border border-line bg-surface text-ink text-sm outline-none focus:border-brand-500 w-40"
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setPage(0);
+                }}
+                className="w-full h-10 px-3 rounded-lg border border-line bg-surface text-ink text-xs focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all [color-scheme:dark]"
               />
             </Field>
+
             {hasFilters && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="h-10 px-3 text-xs text-ink-faint hover:text-ink transition-colors self-end"
-              >
-                مسح الفلاتر
-              </button>
-            )}
-            {hasFilters && (
-              <span className="text-xs text-ink-faint self-end pb-2">
-                {filtered.length} نتيجة
-              </span>
+              <div className="flex items-center gap-2 h-10 pb-0.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearFilters}
+                  className="h-10 px-3 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 border border-rose-500/20 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  title="إلغاء تفعيل كافة الفلاتر"
+                >
+                  <FilterX className="w-3.5 h-3.5" />
+                  <span>مسح الفلاتر</span>
+                </Button>
+              </div>
             )}
           </div>
         </CardBody>
       </Card>
 
-      <Card>
+      <Card className="shadow-sm border border-line overflow-hidden">
         <CardHeader
-          title="الإجراءات المسجلة"
-          subtitle={hasFilters ? `${filtered.length} نتيجة` : undefined}
+          title={
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4.5 h-4.5 text-brand-500" />
+                <span>الإجراءات المسجلة</span>
+              </div>
+              <span className="text-xs px-2.5 py-1 rounded-full bg-surface-muted border border-line text-ink-muted font-mono">
+                {filtered.length.toLocaleString()} سجل
+              </span>
+            </div>
+          }
         />
 
         {auditLogs.length === 0 ? (
           <CardBody>
             <div className="text-center py-12">
-              <Shield className="w-10 h-10 text-ink-faint mx-auto mb-3" />
-              <div className="text-sm font-medium text-ink-muted">لا توجد سجلات تدقيق بعد</div>
+              <Shield className="w-12 h-12 text-ink-faint mx-auto mb-3 opacity-60" />
+              <div className="text-sm font-semibold text-ink-muted">لا توجد سجلات تدقيق بعد</div>
               <div className="text-xs text-ink-faint mt-1">
                 تظهر الإجراءات تلقائياً بعد إنشاء الفواتير أو حذف البيانات أو تعديل المخزون
               </div>
@@ -213,42 +259,58 @@ export function AuditLogPage() {
           </CardBody>
         ) : filtered.length === 0 ? (
           <CardBody>
-            <div className="text-center py-12 text-sm text-ink-faint">لا توجد نتائج مطابقة</div>
+            <div className="text-center py-12">
+              <FilterX className="w-10 h-10 text-ink-faint mx-auto mb-2 opacity-60" />
+              <div className="text-sm font-medium text-ink-muted">لا توجد نتائج مطابقة للفلاتر المحددة</div>
+              <button
+                onClick={clearFilters}
+                className="mt-3 text-xs text-brand-500 hover:underline font-medium"
+              >
+                إعادة ضبط الفلاتر
+              </button>
+            </div>
           </CardBody>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[950px]">
                 <THead>
-                  <TR>
-                    <TH className="w-40">التاريخ والوقت</TH>
-                    <TH className="w-52">الإجراء</TH>
-                    <TH>الكيان</TH>
-                    <TH className="w-36">المستخدم</TH>
-                    <TH>التفاصيل</TH>
-                    <TH className="w-28"></TH>
+                  <TR className="bg-surface-muted/70 border-b border-line">
+                    <TH className="w-44 py-3 px-4 whitespace-nowrap text-ink-muted text-xs font-semibold">التاريخ والوقت</TH>
+                    <TH className="w-48 py-3 px-4 whitespace-nowrap text-ink-muted text-xs font-semibold">الإجراء</TH>
+                    <TH className="min-w-[230px] py-3 px-4 whitespace-nowrap text-ink-muted text-xs font-semibold">الكيان</TH>
+                    <TH className="w-36 py-3 px-4 whitespace-nowrap text-ink-muted text-xs font-semibold">المستخدم</TH>
+                    <TH className="min-w-[280px] py-3 px-4 text-ink-muted text-xs font-semibold">التفاصيل</TH>
+                    <TH className="w-28 py-3 px-4 whitespace-nowrap"></TH>
                   </TR>
                 </THead>
                 <TBody>
                   {visible.map((log) => {
                     const meta = ACTION_META[log.action];
                     return (
-                      <TR key={log.id}>
-                        <TD className="whitespace-nowrap text-ink-faint text-xs font-mono">
+                      <TR key={log.id} className="hover:bg-brand-500/5 transition-colors border-b border-line-soft/60">
+                        <TD className="py-3 px-4 whitespace-nowrap text-ink-faint text-xs font-mono">
                           {formatDateTime(log.timestamp)}
                         </TD>
-                        <TD>
-                          <Badge tone={meta.tone}>{meta.label}</Badge>
+                        <TD className="py-3 px-4 whitespace-nowrap">
+                          <Badge tone={meta.tone} className="shadow-2xs">{meta.label}</Badge>
                         </TD>
-                        <TD className="font-medium text-ink text-sm">{log.entityLabel}</TD>
-                        <TD className="text-ink-muted text-sm">{log.userName}</TD>
-                        <TD className="text-ink-faint text-xs">{log.details ?? "—"}</TD>
-                        <TD>
+                        <TD className="py-3 px-4 font-semibold text-ink text-sm whitespace-nowrap" dir="auto">
+                          <bdi>{log.entityLabel}</bdi>
+                        </TD>
+                        <TD className="py-3 px-4 text-ink-muted text-xs whitespace-nowrap" dir="auto">
+                          <bdi>{log.userName}</bdi>
+                        </TD>
+                        <TD className="py-3 px-4 text-ink-muted text-xs min-w-[280px] max-w-xl break-words leading-relaxed" dir="auto">
+                          {log.details ? <bdi>{log.details}</bdi> : <span className="text-ink-faint">—</span>}
+                        </TD>
+                        <TD className="py-3 px-4 whitespace-nowrap text-left">
                           {log.snapshot ? (
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => setToRestore(log)}
+                              className="h-8 px-2.5 text-xs text-brand-600 hover:bg-brand-500/10 border-brand-500/30 gap-1.5 rounded-lg transition-colors"
                               title="إرجاع الفاتورة وحركاتها كما كانت قبل الحذف"
                             >
                               <RotateCcw className="w-3.5 h-3.5" /> استعادة
@@ -262,11 +324,11 @@ export function AuditLogPage() {
               </Table>
             </div>
             {visible.length < filtered.length && (
-              <div className="p-4 text-center border-t border-line-soft">
+              <div className="p-4 text-center border-t border-line bg-surface-muted/30">
                 <button
                   type="button"
                   onClick={() => setPage((p) => p + 1)}
-                  className="text-sm text-brand-600 hover:text-brand-800 font-medium"
+                  className="px-4 py-2 text-xs text-brand-600 hover:text-brand-700 bg-brand-500/10 hover:bg-brand-500/20 rounded-lg font-medium transition-colors"
                 >
                   عرض المزيد ({(filtered.length - visible.length).toLocaleString()} متبقٍ)
                 </button>

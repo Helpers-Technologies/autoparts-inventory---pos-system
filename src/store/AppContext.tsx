@@ -36,6 +36,7 @@ import type {
   OfflineEmployee,
   OfflineEmployeeTransaction,
   OfflineEmployeeTransactionType,
+  CashierShift,
 } from "../types";
 import { lsClearAll, lsGet, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, reloadStorageCache } from "../lib/storage";
 import { hashPassword, verifyFallbackPassword } from "../lib/auth";
@@ -71,6 +72,7 @@ import {
   recomputeSalesInvoiceAfterEdit,
   recomputePurchaseInvoiceAfterEdit,
   adjustStockCartonDelta,
+  computeShiftSummary,
 } from "./_pure";
 import { SettingsContext } from "./SettingsContext";
 import { AuditLogContext } from "./AuditLogContext";
@@ -107,6 +109,8 @@ interface AppState {
   auditLogs: AuditLog[];
   quotations: Quotation[];
   stocktakes: Stocktake[];
+  shifts: CashierShift[];
+  activeShift: CashierShift | null;
 }
 
 interface AppActions {
@@ -117,6 +121,11 @@ interface AppActions {
   createOwner: (username: string, password: string) => Promise<boolean>;
   resetDemo: () => void;
   updateSettings: (patch: Partial<Settings>) => void;
+
+  // Shifts
+  openShift: (opts: { openingCash: number; note?: string }) => CashierShift;
+  closeShift: (shiftId: ID, closingCashActual: number, note?: string) => CashierShift;
+  getShiftSummary: (shiftId: ID) => CashierShift;
 
   // Users
   addUser: (u: Omit<AppUser, "id" | "createdAt">) => AppUser;
@@ -532,6 +541,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => lsGet<AuditLog[]>("auditLogs", []));
   const [quotations, setQuotations] = useState<Quotation[]>(() => lsGet<Quotation[]>("quotations", []));
   const [stocktakes, setStocktakes] = useState<Stocktake[]>(() => lsGet<Stocktake[]>("stocktakes", []));
+  const [shifts, setShifts] = useState<CashierShift[]>(() => lsGet<CashierShift[]>("shifts", []));
   const currentUserRef = useRef<AppUser | null>(null);
   // BUG-01: code counters mirrored in refs so several add* calls inside ONE
   // event handler (CSV bulk import) each get a distinct code — the state value
@@ -596,6 +606,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAuditLogs(lsGet<AuditLog[]>("auditLogs", []));
     setQuotations(lsGet<Quotation[]>("quotations", []));
     setStocktakes(lsGet<Stocktake[]>("stocktakes", []));
+    setShifts(lsGet<CashierShift[]>("shifts", []));
   }, [licenseStatus]);
 
   const clearDesktopRendererState = useCallback(() => {
@@ -617,6 +628,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAuditLogs([]);
     setQuotations([]);
     setStocktakes([]);
+    setShifts([]);
   }, [licenseStatus]);
 
   const refreshLicenseStatus = useCallback(async () => {
@@ -671,7 +683,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const liveStateRef = useRef({
     settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
     stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users,
-    salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes,
+    salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
   });
   // True while state has changed but the 2s-debounced flush hasn't run yet —
   // lets the shutdown handler skip its synchronous full-state write when
@@ -681,10 +693,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     liveStateRef.current = {
       settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
       stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users,
-      salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes,
+      salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
     };
     unflushedChangesRef.current = true;
-  }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes]);
+  }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts]);
 
   // --- Auto Backup Logic (timer-based — never blocks on state changes) ---
   useEffect(() => {
@@ -764,6 +776,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
+
+  const attachCashEntryToActiveShift = useCallback((entry: CashEntry): CashEntry => {
+    const cashier = currentUserRef.current;
+    const cashierShift = cashier
+      ? shifts.find((shift) => shift.status === "open" && shift.cashierId === cashier.id)
+      : undefined;
+    return {
+      ...entry,
+      createdByUserId: entry.createdByUserId ?? cashier?.id,
+      shiftId: entry.shiftId ?? cashierShift?.id,
+      createdAt: entry.createdAt ?? new Date().toISOString(),
+    };
+  }, [shifts]);
   const localOwnerExists = useMemo(() => users.some((u) => u.role === "owner"), [users]);
   const ownerExists = isDesktop ? desktopOwnerExists === true : localOwnerExists;
   const ownerCheckPending = isDesktop && desktopOwnerExists === null;
@@ -805,34 +830,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stocktakes,
         offlineEmployees,
         offlineTransactions,
+        shifts,
       });
       unflushedChangesRef.current = false;
     }, 2000);
     return () => window.clearTimeout(timer);
-  }, [isDesktop, auth.isAuthenticated, settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, offlineEmployees, offlineTransactions]);
+  }, [isDesktop, auth.isAuthenticated, settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, offlineEmployees, offlineTransactions, shifts]);
 
-  const login = useCallback(async (username: string, passwordRaw: string) => {
+  const finalizeDesktopAuthentication = useCallback(async (user: AppUser): Promise<LoginResult> => {
+    // A main-process session exists only after every required authentication
+    // factor succeeds. Reload renderer data at that point and never before it.
+    await reloadStorageCache();
+    loadStoredStateFromDesktop();
+    const updatedUser = normalizeUser(user);
+    setUsers((list) =>
+      list.some((item) => item.id === updatedUser.id)
+        ? list.map((item) => (item.id === updatedUser.id ? updatedUser : item))
+        : [updatedUser, ...list]
+    );
+    logAudit("user_login", updatedUser.name, "تسجيل دخول ناجح", undefined, updatedUser);
+    setAuth({
+      isAuthenticated: true,
+      username: updatedUser.username,
+      userId: updatedUser.id,
+    });
+    return { ok: true };
+  }, [loadStoredStateFromDesktop, logAudit]);
+
+  const login = useCallback(async (username: string, passwordRaw: string): Promise<LoginResult> => {
     const attemptKey = loginAttemptKey(username);
     if (window.desktopAPI?.auth) {
       const result = await window.desktopAPI.auth.login(username, passwordRaw);
       if (!result.ok) return result;
-      // Refresh the cache from the DB now that a session exists — the startup
-      // cache was loaded pre-session (empty / possibly poisoned). Without this,
-      // loadStoredStateFromDesktop could read empty arrays and a later flush
-      // would overwrite the real data on disk.
-      await reloadStorageCache();
-      loadStoredStateFromDesktop();
-      if (result.user) {
-        const updatedUser = normalizeUser(result.user);
-        setUsers((list) =>
-          list.some((u) => u.id === updatedUser.id)
-            ? list.map((u) => (u.id === updatedUser.id ? updatedUser : u))
-            : [updatedUser, ...list]
-        );
-        logAudit("user_login", updatedUser.name, "تسجيل دخول ناجح", undefined, updatedUser);
-      }
-      setAuth({ isAuthenticated: true, username, userId: result.user?.id });
-      return { ok: true };
+      if (!result.user) return { ok: false, error: "not_authenticated" };
+      return finalizeDesktopAuthentication(result.user);
     }
 
     const rateLimited = getRateLimitResult(attemptKey);
@@ -846,7 +877,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAuth({ isAuthenticated: true, username, userId: user.id });
     logAudit("user_login", user.name, "تسجيل دخول ناجح (احتياطي)", undefined, user);
     return { ok: true };
-  }, [loadStoredStateFromDesktop, users]);
+  }, [finalizeDesktopAuthentication, logAudit, users]);
+
+  const verifySecondFactor = useCallback(async (challengeId: string, code: string) => {
+    if (!window.desktopAPI?.auth.verifySecondFactor) {
+      return { ok: false, error: "not_authenticated" } as LoginResult;
+    }
+    const result = await window.desktopAPI.auth.verifySecondFactor(challengeId, code);
+    if (!result.ok) return result;
+    if (!result.user) return { ok: false, error: "not_authenticated" } as LoginResult;
+    return finalizeDesktopAuthentication(result.user);
+  }, [finalizeDesktopAuthentication]);
+
+  const resumeDesktopSession = useCallback(async () => {
+    if (!window.desktopAPI?.auth.getSession) {
+      return { ok: false, error: "not_authenticated" } as LoginResult;
+    }
+    const result = await window.desktopAPI.auth.getSession();
+    if (!result.ok || !result.user) {
+      return { ok: false, error: "not_authenticated" } as LoginResult;
+    }
+    return finalizeDesktopAuthentication(result.user);
+  }, [finalizeDesktopAuthentication]);
   const logout = useCallback(() => {
     const user = currentUserRef.current;
     if (user) {
@@ -858,7 +910,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     setIsLocked(false);
     setAuth({ isAuthenticated: false });
-  }, [clearDesktopRendererState]);
+  }, [clearDesktopRendererState, logAudit]);
 
   const lockSession = useCallback(() => {
     setIsLocked(true);
@@ -950,6 +1002,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAuditLogs([]);
     setQuotations([]);
     setStocktakes([]);
+    setShifts([]);
     window.dispatchEvent(new Event("autoparts:pro-data-restored"));
   }, []);
 
@@ -1443,7 +1496,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         referenceId: id,
         date: inv.date,
       };
-      setCashEntries((list) => [ce, ...list]);
+      setCashEntries((list) => [attachCashEntryToActiveShift(ce), ...list]);
     }
 
     return full;
@@ -1556,7 +1609,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         date: todayISO(),
         paymentMethod,
       };
-      setCashEntries((list) => [ce, ...list]);
+      setCashEntries((list) => [attachCashEntryToActiveShift(ce), ...list]);
       logAudit("invoice_purchase_updated", `${inv.invoiceNumber} — ${inv.supplierName}`, `دفعة: ${amount}`);
     }
   };
@@ -1608,12 +1661,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const prod = products.find((p) => p.id === l.productId);
       return prod ? { ...lineWithPriceType, costPrice: prod.purchasePrice } : lineWithPriceType;
     });
+    const invoiceCashierId = inv.createdByUserId ?? currentUser?.id;
+    const currentShift = shifts.find(
+      (shift) => shift.status === "open" && shift.cashierId === invoiceCashierId,
+    );
     const full: SalesInvoice = {
       ...inv,
       lines: enrichedLines,
       id,
       priceType: invoicePriceType,
       createdByUserId: inv.createdByUserId ?? currentUser?.id,
+      shiftId: inv.shiftId ?? currentShift?.id,
       status,
       remaining,
       createdAt: new Date().toISOString(),
@@ -1652,7 +1710,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         date: inv.date,
         paymentMethod: inv.paymentMethod,
       };
-      setCashEntries((list) => [ce, ...list]);
+      setCashEntries((list) => [attachCashEntryToActiveShift(ce), ...list]);
     }
     // Include overpayment in the initial log entry so the log reflects the full
     // amount the customer actually paid at creation time, not just amountReceived.
@@ -1711,7 +1769,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         date: todayISO(),
         paymentMethod,
       };
-      setCashEntries((list) => [ce, ...list]);
+      setCashEntries((list) => [attachCashEntryToActiveShift(ce), ...list]);
       logAudit("invoice_sale_updated", `${inv.invoiceNumber} — ${inv.customerName}`, `دفعة: ${amount}`);
     }
   };
@@ -1812,7 +1870,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         referenceId: id,
         date: todayISO(),
       };
-      setCashEntries((list) => [ce, ...list]);
+      setCashEntries((list) => [attachCashEntryToActiveShift(ce), ...list]);
     }
 
     // FIX-02: Explicitly preserve paymentLog so it is never accidentally
@@ -1855,7 +1913,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         referenceId: id,
         date: todayISO(),
       };
-      setCashEntries((list) => [ce, ...list]);
+      setCashEntries((list) => [attachCashEntryToActiveShift(ce), ...list]);
       // Cash fully refunded → the invoice keeps NO paid amount or credit; the
       // money already left the cashbox via the refund entry above. Leaving
       // overpayment on it would make customerCredit / the statement show a
@@ -1975,6 +2033,107 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  // Shifts
+  const activeShift = useMemo(() => {
+    if (!currentUser) return null;
+    return shifts.find((s) => s.status === "open" && s.cashierId === currentUser.id) || null;
+  }, [shifts, currentUser]);
+
+  const openShift: AppActions["openShift"] = useCallback(
+    (opts) => {
+      const cashier = currentUserRef.current;
+      if (!cashier) throw new Error("يجب تسجيل الدخول لفتح وردية");
+      const openingCash = Number(opts.openingCash);
+      if (!Number.isFinite(openingCash) || openingCash < 0) {
+        throw new Error("الرصيد الافتتاحي يجب أن يكون رقمًا صحيحًا لا يقل عن صفر");
+      }
+      const existing = shifts.find((s) => s.status === "open" && s.cashierId === cashier.id);
+      if (existing) return existing;
+
+      const nextNumber =
+        (shifts.length > 0 ? Math.max(...shifts.map((s) => s.shiftNumber || 0)) : 0) + 1;
+      const newShift: CashierShift = {
+        id: uid("shift"),
+        shiftNumber: nextNumber,
+        cashierId: cashier.id,
+        cashierName: cashier.name || cashier.username,
+        cashierUsername: cashier.username,
+        openedAt: new Date().toISOString(),
+        status: "open",
+        openingCash,
+        expectedCash: openingCash,
+        totalSalesCount: 0,
+        totalSalesAmount: 0,
+        totalCashAdditions: 0,
+        totalCashSales: 0,
+        totalVisaSales: 0,
+        totalCreditSales: 0,
+        totalRefunds: 0,
+        totalExpenses: 0,
+        salesInvoiceIds: [],
+        note: opts.note?.trim(),
+      };
+
+      setShifts((prev) => [newShift, ...prev]);
+      logAudit(
+        "shift_opened",
+        "وردية كاشير",
+        `فتح وردية رقم #${nextNumber} — رصيد افتتاحي: ${newShift.openingCash}`,
+        undefined,
+        cashier
+      );
+      return newShift;
+    },
+    [shifts, logAudit]
+  );
+
+  const getShiftSummary: AppActions["getShiftSummary"] = useCallback(
+    (shiftId) => {
+      const shift = shifts.find((s) => s.id === shiftId);
+      if (!shift) throw new Error("الوردية غير موجودة");
+      return computeShiftSummary({ shift, salesInvoices, cashEntries, salesReturns });
+    },
+    [shifts, salesInvoices, cashEntries, salesReturns]
+  );
+
+  const closeShift: AppActions["closeShift"] = useCallback(
+    (shiftId, closingCashActual, note) => {
+      const shift = shifts.find((item) => item.id === shiftId);
+      if (!shift) throw new Error("الوردية غير موجودة");
+      if (shift.status !== "open") throw new Error("هذه الوردية مقفولة بالفعل");
+      const actor = currentUserRef.current;
+      if (!actor) throw new Error("يجب تسجيل الدخول لتقفيل الوردية");
+      if (actor.role !== "owner" && shift.cashierId !== actor.id) {
+        throw new Error("لا يمكن للمستخدم تقفيل وردية كاشير آخر");
+      }
+      const closingCash = Number(closingCashActual);
+      if (!Number.isFinite(closingCash) || closingCash < 0) {
+        throw new Error("النقدية الفعلية يجب أن تكون رقمًا صحيحًا لا يقل عن صفر");
+      }
+      const summary = getShiftSummary(shiftId);
+      const now = new Date().toISOString();
+      const diff = Math.round((closingCash - summary.expectedCash) * 100) / 100;
+
+      const updated: CashierShift = {
+        ...summary,
+        status: "closed",
+        closedAt: now,
+        closingCashActual: closingCash,
+        difference: diff,
+        note: note?.trim() || summary.note,
+      };
+
+      setShifts((prev) => prev.map((s) => (s.id === shiftId ? updated : s)));
+      logAudit(
+        "shift_closed",
+        `إغلاق وردية كاشير #${updated.shiftNumber}`,
+        `المتوقع: ${summary.expectedCash} | الفعلي: ${closingCash} | الفارق: ${diff}`
+      );
+      return updated;
+    },
+    [shifts, getShiftSummary, logAudit]
+  );
+
   // Returns
   const addSalesReturn: AppActions["addSalesReturn"] = (r) => {
     // Defense in depth (OBS-08): the UI blocks returns on cancelled invoices,
@@ -2059,7 +2218,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         referenceId: id,
         date: r.date,
       };
-      setCashEntries((l) => [ce, ...l]);
+      setCashEntries((l) => [attachCashEntryToActiveShift(ce), ...l]);
     }
 
     return full;
@@ -2133,7 +2292,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         referenceId: id,
         date: r.date,
       };
-      setCashEntries((l) => [ce, ...l]);
+      setCashEntries((l) => [attachCashEntryToActiveShift(ce), ...l]);
     }
 
     return full;
@@ -2284,7 +2443,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Cashbox
   const addCashEntry: AppActions["addCashEntry"] = (entry) => {
-    const full: CashEntry = {
+    const full = attachCashEntryToActiveShift({
       id: entry.id ?? uid("cash"),
       type: entry.type,
       amount: entry.amount,
@@ -2292,7 +2451,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       referenceId: entry.referenceId,
       date: entry.date,
       paymentMethod: entry.paymentMethod,
-    };
+    });
     setCashEntries((list) => [full, ...list]);
     if (!entry.referenceId && entry.type === "adjustment") {
       const action = entry.amount >= 0 ? "cash_manual_add" : "cash_manual_remove";
@@ -2598,7 +2757,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       state: {
         settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
         autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-        stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users: safeUsers, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes,
+        stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users: safeUsers, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
         vehicleCatalogSchemaVersion: lsGet<number>("vehicleCatalogSchemaVersion", 1),
         vehicleCatalogPreferences: lsGet("vehicleCatalogPreferences", {
           includeAllMakes: true,
@@ -2617,9 +2776,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         branchStocks: lsGet("branchStocks", []),
         stockTransfers: lsGet("stockTransfers", []),
         priceTiers: lsGet("priceTiers", []),
+        marketingCampaigns: lsGet("marketingCampaigns", []),
+        marketingContactLog: lsGet("marketingContactLog", []),
       }
     };
-  }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes]);
+  }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts]);
 
   const exportBackup: AppActions["exportBackup"] = useCallback(async (passphrase?: string) => {
     logAudit("backup_created", "تصدير نسخة احتياطية يدوية", "صيغة hwbak");
@@ -2768,6 +2929,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (Array.isArray(s.auditLogs)) setAuditLogs(s.auditLogs);
       if (Array.isArray(s.quotations)) setQuotations(s.quotations);
       if (Array.isArray(s.stocktakes)) setStocktakes(s.stocktakes);
+      if (Array.isArray(s.shifts)) setShifts(s.shifts);
 
       // Write ALL imported data directly to SQLite (bypass 2s debounce) so a
       // page reload reads the correct data instead of empty seed state.
@@ -2787,6 +2949,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (Array.isArray(s.auditLogs)) batchFlush.auditLogs = s.auditLogs;
       if (Array.isArray(s.quotations)) batchFlush.quotations = s.quotations;
       if (Array.isArray(s.stocktakes)) batchFlush.stocktakes = s.stocktakes;
+      if (Array.isArray(s.shifts)) batchFlush.shifts = s.shifts;
       if (typeof s.vehicleCatalogSchemaVersion === "number") batchFlush.vehicleCatalogSchemaVersion = s.vehicleCatalogSchemaVersion;
       if (s.vehicleCatalogPreferences && typeof s.vehicleCatalogPreferences === "object") {
         batchFlush.vehicleCatalogPreferences = s.vehicleCatalogPreferences;
@@ -2803,6 +2966,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (Array.isArray(s.branchStocks)) batchFlush.branchStocks = s.branchStocks;
       if (Array.isArray(s.stockTransfers)) batchFlush.stockTransfers = s.stockTransfers;
       if (Array.isArray(s.priceTiers)) batchFlush.priceTiers = s.priceTiers;
+      if (Array.isArray(s.marketingCampaigns)) batchFlush.marketingCampaigns = s.marketingCampaigns;
+      if (Array.isArray(s.marketingContactLog)) batchFlush.marketingContactLog = s.marketingContactLog;
       if (Array.isArray(s.offlineEmployees)) batchFlush.offlineEmployees = s.offlineEmployees;
       if (Array.isArray(s.offlineTransactions)) batchFlush.offlineTransactions = s.offlineTransactions;
       if (Array.isArray(s.users)) {
@@ -3016,6 +3181,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateStocktakeItems,
       applyStocktake,
       deleteStocktake,
+      shifts,
+      activeShift,
+      openShift,
+      closeShift,
+      getShiftSummary,
       auditLogs,
       calculateSupplierCommission,
       employeeSalesStats,
@@ -3086,6 +3256,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ownerCheckPending,
       isLocked,
       login,
+      verifySecondFactor,
+      resumeDesktopSession,
       logout,
       lockSession,
       unlockSession,
@@ -3103,6 +3275,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ownerCheckPending,
       isLocked,
       login,
+      verifySecondFactor,
+      resumeDesktopSession,
       logout,
       lockSession,
       unlockSession,
@@ -3132,6 +3306,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => ({
       quotations, addQuotation, updateQuotation, convertQuotation, deleteQuotation,
       salesInvoices, purchaseInvoices, salesReturns, purchaseReturns, cashEntries, stockMovements,
+      shifts, activeShift, openShift, closeShift, getShiftSummary,
       addSalesInvoice, updateSalesInvoice, recordSalesReceipt, cancelSalesInvoice,
       deleteSalesInvoice, applyCustomerCredit, settleAllDues, settleSupplierDues,
       addPurchaseInvoice, updatePurchaseInvoice, recordPurchasePayment, deletePurchaseInvoice,
@@ -3143,7 +3318,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // (Cashbox "الرصيد الحالي", Dashboard) holding a stale balance closure until the next
     // cash entry or a restart. Other actions are plain functions and stay omitted by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [quotations, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns, cashEntries, stockMovements, currentCashBalance]
+    [quotations, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns, cashEntries, stockMovements, shifts, activeShift, currentCashBalance]
   );
 
   // F3-6: Catalog slice — products / suppliers / customers / drivers + their CRUD actions.

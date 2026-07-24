@@ -52,7 +52,7 @@ export function Dialog({
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm animate-fadeIn"
+        className="absolute inset-0 bg-slate-950/50 transition-opacity animate-fadeIn"
         onClick={onClose}
       />
       <div

@@ -8,15 +8,18 @@ import { Dialog } from "../components/ui/Dialog";
 import { useApp } from "../store/AppContext";
 import { useToast } from "../components/ui/Toast";
 import { lsGet } from "../lib/storage";
-import { FEATURES, defaultFeatureState, isAllowedByLicense, type FeatureKey } from "../lib/features";
-import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle } from "lucide-react";
+import { FEATURES, FEATURE_CATEGORIES, FEATURE_CATEGORY_BY_KEY, defaultFeatureState, isAllowedByLicense, type FeatureDef, type FeatureKey } from "../lib/features";
+import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ChevronDown, ChevronUp } from "lucide-react";
 import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import {
   DEFAULT_INVOICE_WHATSAPP_TEMPLATE,
   WHATSAPP_INVOICE_TAGS,
 } from "../lib/whatsappTemplate";
+import { MfaPolicyCard } from "../components/security/MfaPolicyCard";
+import { TwoFactorSecurityPanel } from "../components/security/TwoFactorSecurityPanel";
 
 const SUPPORT_WHATSAPP = "201118445625";
+const FEATURE_PREVIEW_LIMIT = 8;
 
 const PLAN_LABELS: Record<string, string> = {
   basic: "الباقة الأساسية",
@@ -48,9 +51,9 @@ function LicenseCell({
   children?: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="text-[10px] text-ink-faint uppercase font-bold mb-1.5 tracking-wide">{label}</div>
-      {children ?? <div className={`text-sm font-bold text-ink ${valueClass ?? ""}`}>{value}</div>}
+    <div className="min-w-0 rounded-lg border border-line-soft bg-surface-muted/45 px-3 py-2">
+      <div className="mb-1 text-[10px] font-bold tracking-wide text-ink-faint">{label}</div>
+      {children ?? <div className={`text-sm font-bold leading-5 text-ink ${valueClass ?? ""}`}>{value}</div>}
     </div>
   );
 }
@@ -64,7 +67,7 @@ function planDisplayLabel(license?: { plan?: string; features?: string[] } | nul
 }
 
 export function SettingsPage() {
-  const { settings, updateSettings, exportBackup, importBackup, backupToPath, exportToExcel, licenseStatus, activateLicense } = useApp();
+  const { settings, updateSettings, exportBackup, importBackup, backupToPath, exportToExcel, licenseStatus, activateLicense, currentUser } = useApp();
   const toast = useToast();
   const [form, setForm] = useState(settings);
   const [licenseDialogOpen, setLicenseDialogOpen] = useState(false);
@@ -75,6 +78,10 @@ export function SettingsPage() {
   const [backupPassphrase, setBackupPassphrase] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTab, setPreviewTab] = useState<"invoice" | "whatsapp">("invoice");
+  const [whatsappTemplateExpanded, setWhatsappTemplateExpanded] = useState(false);
+  const [mfaRefreshKey, setMfaRefreshKey] = useState(0);
+  const [showAllFeatures, setShowAllFeatures] = useState(false);
+  const [lockedFeature, setLockedFeature] = useState<FeatureDef | null>(null);
   const whatsappTemplateRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => setForm(settings), [settings]);
@@ -114,6 +121,23 @@ export function SettingsPage() {
   function openLicenseRequestWhatsapp() {
     const url = "https://wa.me/" + SUPPORT_WHATSAPP + "?text=" + encodeURIComponent(buildLicenseRequest());
     window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function openFeatureUpgradeWhatsapp() {
+    if (!lockedFeature) return;
+    const message = [
+      "طلب ترقية / إضافة مدفوعة — AutoParts Inventory & Sales System",
+      "العميل: " + (form.companyNameAr || form.companyName || "—"),
+      "الميزة المطلوبة: " + lockedFeature.label,
+      "كود الجهاز: " + (licenseStatus?.machineCode ?? "غير متاح"),
+      "",
+      "المطلوب: (إضافة مستقلة / ترقية الباقة)",
+    ].join("\n");
+    window.open(
+      "https://wa.me/" + SUPPORT_WHATSAPP + "?text=" + encodeURIComponent(message),
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   function insertWhatsappTag(tag: string) {
@@ -215,6 +239,7 @@ export function SettingsPage() {
   const featureChecked = (key: FeatureKey) => form.features?.[key] ?? defaultFeatureState(key, license);
   const featureOn = (key: FeatureKey) => isAllowedByLicense(key, license) && featureChecked(key);
   const excelExportEnabled = featureOn("excelExport");
+  const mfaFeatureAllowed = isAllowedByLicense("twoFactorAuth", license);
   const toggleFeature = (key: FeatureKey, value: boolean) =>
     setForm({ ...form, features: { ...(form.features ?? {}), [key]: value } });
 
@@ -225,6 +250,70 @@ export function SettingsPage() {
     end.setMonth(end.getMonth() + months);
     const diff = end.getTime() - new Date().getTime();
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  }
+
+  function renderFeatureCard(feature: FeatureDef) {
+    const allowed = isAllowedByLicense(feature.key, license);
+    const isMfaFeature = feature.key === "twoFactorAuth";
+    const checked = allowed && (isMfaFeature || featureChecked(feature.key));
+
+    if (!allowed) {
+      return (
+        <button
+          key={feature.key}
+          type="button"
+          onClick={() => setLockedFeature(feature)}
+          className="group flex min-h-28 items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/45 p-3 text-right transition-colors hover:border-amber-400 hover:bg-amber-50 dark:border-amber-500/25 dark:bg-amber-500/5 dark:hover:bg-amber-500/10"
+          aria-label={`طلب تفعيل ${feature.label}`}
+        >
+          <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+            <Lock className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-ink">
+              {feature.label}
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100/70 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/15 dark:text-amber-300">
+                إضافة مدفوعة <PackagePlus className="h-3 w-3" />
+              </span>
+            </span>
+            <span className="mt-1 block text-xs leading-5 text-ink-muted">{feature.description}</span>
+            <span className="mt-2 inline-flex text-[11px] font-bold text-amber-700 dark:text-amber-300">اضغط لمعرفة خيارات التفعيل</span>
+          </span>
+        </button>
+      );
+    }
+
+    return (
+      <label
+        key={feature.key}
+        className="flex min-h-28 items-start gap-3 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-brand-300 hover:bg-surface-muted/45"
+      >
+        {isMfaFeature ? (
+          <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded border border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">✓</span>
+        ) : (
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 shrink-0 accent-brand-600"
+            checked={checked}
+            onChange={(event) => toggleFeature(feature.key, event.target.checked)}
+          />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-ink">
+            {feature.label}
+            {isMfaFeature ? (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">مضمنة في الترخيص</span>
+            ) : null}
+          </span>
+          <span className="mt-1 block text-xs leading-5 text-ink-faint">{feature.description}</span>
+          {!isMfaFeature ? (
+            <span className={`mt-2 block text-[11px] font-semibold ${checked ? "text-emerald-700 dark:text-emerald-300" : "text-ink-faint"}`}>
+              {checked ? "ظاهرة ومفعّلة" : "مخفية من الواجهة"}
+            </span>
+          ) : null}
+        </span>
+      </label>
+    );
   }
 
   return (
@@ -239,11 +328,11 @@ export function SettingsPage() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
+      <div className="grid w-full min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="lg:col-span-2">
           <CardHeader title="بيانات الشركة" subtitle="تظهر في الفواتير وأعلى التطبيق" />
-          <CardBody className="space-y-3">
-            <div className="flex items-center gap-6 mb-4">
+          <CardBody className="grid gap-5 lg:grid-cols-[minmax(13rem,0.42fr)_minmax(0,1fr)] lg:items-center">
+            <div className="flex items-center gap-6">
               <div className="relative group/logo">
                 <div
                   className={`w-20 h-20 rounded-2xl border-4 border-surface shadow-lg overflow-hidden flex items-center justify-center text-2xl ${
@@ -298,46 +387,48 @@ export function SettingsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="اسم الشركة بالعربية" required>
-                <Input
-                  value={form.companyNameAr}
-                  onChange={(e) => setForm({ ...form, companyNameAr: e.target.value })}
-                />
-              </Field>
-              <Field label="اسم الشركة بالإنجليزية">
-                <Input
-                  value={form.companyName}
-                  onChange={(e) => setForm({ ...form, companyName: e.target.value })}
-                />
-              </Field>
-            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Field label="اسم الشركة بالعربية" required>
+                  <Input
+                    value={form.companyNameAr}
+                    onChange={(e) => setForm({ ...form, companyNameAr: e.target.value })}
+                  />
+                </Field>
+                <Field label="اسم الشركة بالإنجليزية">
+                  <Input
+                    value={form.companyName}
+                    onChange={(e) => setForm({ ...form, companyName: e.target.value })}
+                  />
+                </Field>
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="اسم صاحب الشركة / المحل" required>
-                <Input
-                  value={form.ownerName || ""}
-                  onChange={(e) => setForm({ ...form, ownerName: e.target.value })}
-                />
-              </Field>
-              <Field label="رقم موبايل صاحب الشركة / المحل" required hint="يجب أن يتكون من 11 رقمًا ويبدأ بـ 01">
-                <Input
-                  type="tel"
-                  maxLength={11}
-                  value={form.ownerPhone || ""}
-                  onChange={(e) => setForm({ ...form, ownerPhone: normalizePhoneInput(e.target.value) })}
-                  placeholder="01xxxxxxxxx (11 رقم)"
-                  dir="ltr"
-                  className="tracking-wider font-mono text-right"
-                />
-              </Field>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Field label="اسم صاحب الشركة / المحل" required>
+                  <Input
+                    value={form.ownerName || ""}
+                    onChange={(e) => setForm({ ...form, ownerName: e.target.value })}
+                  />
+                </Field>
+                <Field label="رقم موبايل صاحب الشركة / المحل" required hint="يجب أن يتكون من 11 رقمًا ويبدأ بـ 01">
+                  <Input
+                    type="tel"
+                    maxLength={11}
+                    value={form.ownerPhone || ""}
+                    onChange={(e) => setForm({ ...form, ownerPhone: normalizePhoneInput(e.target.value) })}
+                    placeholder="01xxxxxxxxx (11 رقم)"
+                    dir="ltr"
+                    className="tracking-wider font-mono text-right"
+                  />
+                </Field>
+              </div>
             </div>
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHeader title="الإعدادات العامة" subtitle="العملة والتنبيهات" />
-          <CardBody className="grid grid-cols-1 md:grid-cols-2 gap-4 space-y-0 items-start">
+        <Card className="lg:col-span-2">
+          <CardHeader title="الإعدادات العامة والأمان" subtitle="إعدادات التشغيل الأساسية وحماية الحساب" />
+          <CardBody className="grid grid-cols-1 items-start gap-4 space-y-0 md:grid-cols-2 xl:grid-cols-3">
             <Field
               label="الحد الأدنى الافتراضي للمخزون"
               hint="يُستخدم كقيمة افتراضية عند إضافة منتج جديد"
@@ -408,6 +499,36 @@ export function SettingsPage() {
               <PaidFeatureNotice title="قفل الشاشة والأمان المتقدم" />
             )}
           </CardBody>
+
+          {currentUser && mfaFeatureAllowed ? (
+            <div className="border-t border-line px-4 py-4" dir="rtl">
+              <div className="grid gap-3 xl:grid-cols-2">
+                <div className="rounded-xl border border-line bg-surface-muted/40 p-4">
+                  <MfaPolicyCard embedded onChanged={() => setMfaRefreshKey((value) => value + 1)} />
+                </div>
+                <div className="rounded-xl border border-line bg-surface-muted/40 p-4">
+                  <TwoFactorSecurityPanel
+                    key={mfaRefreshKey}
+                    currentUser={currentUser}
+                    isOwner
+                    embedded
+                  />
+                </div>
+              </div>
+            </div>
+          ) : currentUser ? (
+            <div className="border-t border-line px-4 py-4" dir="rtl">
+              <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-500/30 dark:bg-amber-500/10 sm:flex-row sm:items-center sm:justify-between">
+                <PaidFeatureNotice
+                  title="المصادقة الثنائية والأكواد الاحتياطية"
+                  description="أضف حماية الدخول وأكواد الاسترداد كإضافة مستقلة أو ضمن ترقية الباقة."
+                />
+                <Button type="button" variant="outline" className="shrink-0" onClick={() => setLockedFeature(FEATURES.find((feature) => feature.key === "twoFactorAuth") ?? null)}>
+                  <PackagePlus className="w-4 h-4" /> خيارات التفعيل
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </Card>
 
         <Card className="lg:col-span-2">
@@ -418,264 +539,369 @@ export function SettingsPage() {
                 <span>المميزات والوحدات</span>
               </div>
             }
-            subtitle="تحكّم في الوحدات الظاهرة للعميل — الوحدات المقفولة في الباقة لا يمكن تفعيلها"
+            subtitle="اعرض الأساسيات أولًا، ثم استكشف المميزات حسب احتياج عملك وباقتك"
           />
-          <CardBody>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {FEATURES.map((f) => {
-                const allowed = isAllowedByLicense(f.key, license);
-                const checked = allowed && featureChecked(f.key);
-                return (
-                  <label
-                    key={f.key}
-                    className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
-                      allowed
-                        ? "border-line hover:bg-surface-muted cursor-pointer"
-                        : "border-line-soft bg-surface-muted/60 cursor-not-allowed"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={checked}
-                      disabled={!allowed}
-                      onChange={(e) => toggleFeature(f.key, e.target.checked)}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-                        {f.label}
-                        {!allowed && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded px-1.5 py-0.5">
-                            <Lock className="w-3 h-3" /> غير متاح في الباقة
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-ink-faint mt-0.5">{f.description}</div>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-            <div className="mt-3 text-xs text-ink-faint">
-              إخفاء وحدة هنا يزيلها من القائمة الجانبية ويمنع الوصول إليها. الباقة المرتبطة بالسيريال
-              تحدّد الوحدات المتاحة أصلاً، ولا يمكن تجاوزها من هنا.
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader title="إعدادات الفاتورة" subtitle="تنسيق الفاتورة ومشاركتها" />
-          <CardBody className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Field label="مقاس الورق">
-              <Select
-                value={form.printPaperSize}
-                onChange={(e) =>
-                  setForm({ ...form, printPaperSize: e.target.value as "A4" | "A5" })
-                }
-              >
-                <option value="A4">A4</option>
-                <option value="A5">A5</option>
-              </Select>
-            </Field>
-
-            <Field label="مجلد حفظ الفواتير (PDF)" className="md:col-span-2">
-              <div className="flex gap-2">
-                <Input
-                  value={form.invoicesSavePath}
-                  readOnly
-                  placeholder="اختر مجلداً..."
-                  className="bg-surface-muted"
-                />
-                <Button
-                  variant="outline"
-                  onClick={async () => {
-                    if (window.desktopAPI?.setup?.selectDirectory) {
-                      const path = await window.desktopAPI.setup.selectDirectory();
-                      if (path) setForm({ ...form, invoicesSavePath: path });
-                    }
-                  }}
+          <CardBody className="space-y-4">
+            {!showAllFeatures ? (
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {FEATURES.slice(0, FEATURE_PREVIEW_LIMIT).map((feature) => renderFeatureCard(feature))}
+                <button
+                  type="button"
+                  onClick={() => setShowAllFeatures(true)}
+                  className="group flex min-h-28 items-center gap-3 rounded-xl border border-dashed border-brand-300 bg-brand-50/50 p-3 text-right transition-colors hover:border-brand-500 hover:bg-brand-50 dark:border-brand-500/40 dark:bg-brand-500/10 dark:hover:bg-brand-500/15"
                 >
-                  <FolderOpen className="w-4 h-4" />
-                </Button>
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-600 text-white shadow-sm">
+                    <PackagePlus className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-bold text-brand-800 dark:text-brand-200">عرض المزيد من المميزات</span>
+                    <span className="mt-1 block text-xs leading-5 text-brand-700/80 dark:text-brand-300/80">
+                      {FEATURES.length - FEATURE_PREVIEW_LIMIT} ميزة إضافية، مرتبة حسب احتياج عملك.
+                    </span>
+                  </span>
+                </button>
               </div>
-            </Field>
-            
-            <Field label="نص ذيل الفاتورة" className="md:col-span-3">
-              <Textarea
-                rows={3}
-                value={form.invoiceFooter}
-                onChange={(e) => setForm({ ...form, invoiceFooter: e.target.value })}
-              />
-            </Field>
-            
-            {featureOn("whatsappIntegration") ? (
-              <Field
-                label="قالب رسالة واتساب للفواتير"
-                hint="اضغط على أي وسم لإضافته داخل الرسالة في مكان المؤشر"
-                className="md:col-span-3"
-              >
-                <Textarea
-                  ref={whatsappTemplateRef}
-                  rows={7}
-                  dir="rtl"
-                  value={form.whatsappInvoiceTemplate ?? DEFAULT_INVOICE_WHATSAPP_TEMPLATE}
-                  onChange={(e) => setForm({ ...form, whatsappInvoiceTemplate: e.target.value })}
-                />
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {WHATSAPP_INVOICE_TAGS.map((item) => (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      onClick={() => insertWhatsappTag(item.tag)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-[11px] text-ink-muted hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300"
-                      title={`إضافة ${item.label}`}
-                    >
-                      <span>{item.label}</span>
-                      <code dir="ltr" className="font-mono text-[10px] text-ink">
-                        {item.tag}
-                      </code>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-2 flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setForm({ ...form, whatsappInvoiceTemplate: DEFAULT_INVOICE_WHATSAPP_TEMPLATE })}
-                  >
-                    استعادة القالب الافتراضي
+            ) : (
+              <div className="space-y-5">
+                {FEATURE_CATEGORIES.map((category) => {
+                  const categoryFeatures = FEATURES.filter(
+                    (feature) => FEATURE_CATEGORY_BY_KEY[feature.key] === category.id
+                  );
+                  return (
+                    <section key={category.id} className="rounded-xl border border-line bg-surface-muted/30 p-3.5">
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-bold text-ink">{category.label}</div>
+                          <p className="mt-0.5 text-xs text-ink-muted">{category.description}</p>
+                        </div>
+                        <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px] font-bold text-ink-faint">
+                          {categoryFeatures.length} مميزات
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {categoryFeatures.map((feature) => renderFeatureCard(feature))}
+                      </div>
+                    </section>
+                  );
+                })}
+                <div className="flex justify-center border-t border-line-soft pt-3">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowAllFeatures(false)}>
+                    عرض المميزات الأساسية فقط
                   </Button>
                 </div>
-              </Field>
-            ) : (
-              <div className="md:col-span-3">
-                <PaidFeatureNotice title="التكامل مع واتساب" />
               </div>
             )}
-
-            <div className="md:col-span-3 flex justify-start gap-2 pt-3 border-t border-line-soft">
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                onClick={() => setPreviewOpen(true)}
-              >
-                <Eye className="w-4 h-4" /> معاينة الفاتورة ورسالة الواتساب
-              </Button>
+            <div className="border-t border-line-soft pt-3 text-xs leading-6 text-ink-faint">
+              يمكنك إخفاء الميزة المتاحة من واجهة النظام دون حذف بياناتها. أمّا الميزة المقفولة فتحتاج ترقية الباقة أو إضافتها كـ Add-on من المطوّر.
             </div>
           </CardBody>
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader title="إعدادات النسخ الاحتياطي التلقائي" subtitle="جدولة حفظ البيانات تلقائياً" />
-          <CardBody className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <CardHeader
+            title="إعدادات الفاتورة"
+            subtitle="إعدادات الطباعة والحفظ ومشاركة الفاتورة"
+          />
+          <CardBody className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <section className="space-y-4 rounded-xl border border-line bg-surface-muted/20 p-4">
+              <div className="flex items-start gap-2">
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300">
+                  <FileSpreadsheet className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-ink">الطباعة والحفظ</div>
+                  <div className="mt-0.5 text-xs text-ink-muted">اختر شكل الفاتورة ومكان حفظ نسخة PDF.</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <Field label="مقاس الورق">
+                  <Select
+                    value={form.printPaperSize}
+                    onChange={(e) => setForm({ ...form, printPaperSize: e.target.value as "A4" | "A5" })}
+                  >
+                    <option value="A4">A4</option>
+                    <option value="A5">A5</option>
+                  </Select>
+                </Field>
+
+                <Field label="مجلد حفظ PDF" className="sm:col-span-2">
+                  <div className="flex gap-2">
+                    <Input
+                      value={form.invoicesSavePath}
+                      readOnly
+                      placeholder="اختر مجلداً..."
+                      className="bg-surface-muted text-right"
+                      dir="ltr"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="اختيار مجلد حفظ الفواتير"
+                      onClick={async () => {
+                        if (window.desktopAPI?.setup?.selectDirectory) {
+                          const path = await window.desktopAPI.setup.selectDirectory();
+                          if (path) setForm({ ...form, invoicesSavePath: path });
+                        }
+                      }}
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </Field>
+              </div>
+
+              <Field label="نص ذيل الفاتورة" hint="رسالة قصيرة تظهر أسفل كل فاتورة">
+                <Textarea
+                  rows={2}
+                  value={form.invoiceFooter}
+                  onChange={(e) => setForm({ ...form, invoiceFooter: e.target.value })}
+                  className="min-h-[64px] resize-y"
+                />
+              </Field>
+            </section>
+
+            <section className="space-y-4 rounded-xl border border-line bg-surface-muted/20 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    <MessageCircle className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-ink">مشاركة الفاتورة</div>
+                    <div className="mt-0.5 text-xs text-ink-muted">راجع المظهر وخصّص رسالة واتساب عند الحاجة.</div>
+                  </div>
+                </div>
+                <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => setPreviewOpen(true)}>
+                  <Eye className="w-4 h-4" /> معاينة
+                </Button>
+              </div>
+
+              {featureOn("whatsappIntegration") ? (
+                <div className="overflow-hidden rounded-xl border border-line bg-surface">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-4 px-3.5 py-3 text-right transition-colors hover:bg-surface-muted/60"
+                    onClick={() => setWhatsappTemplateExpanded((value) => !value)}
+                    aria-expanded={whatsappTemplateExpanded}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold text-ink">تخصيص رسالة واتساب</span>
+                      <span className="mt-0.5 block text-xs text-ink-muted">اختياري — استخدم المتغيرات لإرسال الرسالة المناسبة لكل فاتورة</span>
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-brand-700 dark:text-brand-300">
+                      {whatsappTemplateExpanded ? "إخفاء" : "تعديل"}
+                      {whatsappTemplateExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </span>
+                  </button>
+
+                  {whatsappTemplateExpanded ? (
+                    <div className="space-y-3 border-t border-line p-3.5">
+                      <Textarea
+                        ref={whatsappTemplateRef}
+                        rows={5}
+                        dir="rtl"
+                        value={form.whatsappInvoiceTemplate ?? DEFAULT_INVOICE_WHATSAPP_TEMPLATE}
+                        onChange={(e) => setForm({ ...form, whatsappInvoiceTemplate: e.target.value })}
+                        className="min-h-[132px] resize-y leading-6"
+                      />
+                      <div className="rounded-lg border border-line bg-surface-muted/35 p-2.5">
+                        <div className="mb-2 text-[11px] font-bold text-ink-muted">أضف متغيرًا في موضع المؤشر</div>
+                        <div className="flex gap-1.5 overflow-x-auto pb-1" dir="rtl">
+                          {WHATSAPP_INVOICE_TAGS.map((item) => (
+                            <button
+                              key={item.tag}
+                              type="button"
+                              onClick={() => insertWhatsappTag(item.tag)}
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-[11px] text-ink-muted transition-colors hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300"
+                              title={`إضافة ${item.label}`}
+                            >
+                              <span>{item.label}</span>
+                              <code dir="ltr" className="font-mono text-[10px] text-ink">{item.tag}</code>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setForm({ ...form, whatsappInvoiceTemplate: DEFAULT_INVOICE_WHATSAPP_TEMPLATE })}>
+                          استعادة القالب الافتراضي
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <PaidFeatureNotice title="التكامل مع واتساب" />
+              )}
+            </section>
+          </CardBody>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader title="إعدادات النسخ الاحتياطي" subtitle="جدولة حفظ البيانات تلقائياً واستعادتها عند الحاجة" />
+          <CardBody className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {!featureOn("advancedSecurity") && (
-              <div className="md:col-span-3">
+              <div className="xl:col-span-2">
                 <PaidFeatureNotice title="النسخ الاحتياطي التلقائي والأمان المتقدم" />
               </div>
             )}
-            <Field label="تفعيل النسخ التلقائي">
-              <label className="flex items-center gap-2 h-9 text-sm">
-                <input
-                  type="checkbox"
-                  checked={featureOn("advancedSecurity") && form.autoBackupEnabled}
-                  disabled={!featureOn("advancedSecurity")}
-                  onChange={(e) => setForm({ ...form, autoBackupEnabled: e.target.checked })}
-                />
-                نعم، قم بالحفظ تلقائياً
-              </label>
-            </Field>
-            <Field label="تكرار النسخ">
-              <Select
-                value={form.autoBackupFrequency}
-                disabled={!featureOn("advancedSecurity") || !form.autoBackupEnabled}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    autoBackupFrequency: e.target.value as typeof form.autoBackupFrequency,
-                  })
-                }
-              >
-                <option value="daily">يومي</option>
-                <option value="weekly">أسبوعي</option>
-                <option value="monthly">شهري</option>
-              </Select>
-            </Field>
-            <Field label="نسخة احتياطية عند إغلاق البرنامج" hint="يحفظ نسخة كاملة تلقائياً في المجلد المحدد قبل إغلاق التطبيق">
-              <label className="flex items-center gap-2 h-9 text-sm">
-                <input
-                  type="checkbox"
-                  checked={featureOn("advancedSecurity") && (form.backupOnClose ?? true)}
-                  disabled={!featureOn("advancedSecurity")}
-                  onChange={(e) => setForm({ ...form, backupOnClose: e.target.checked })}
-                />
-                نعم، احفظ نسخة عند الإغلاق
-              </label>
-            </Field>
-            <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 rounded-lg p-3">
-              <div className="text-xs text-blue-700 dark:text-blue-400 font-bold mb-1">آخر نسخة احتياطية:</div>
-              <div className="text-sm text-blue-900 dark:text-blue-300 font-mono">
-                {settings.lastBackupDate ? new Date(settings.lastBackupDate).toLocaleString("ar-EG") : "لم يتم الحفظ بعد"}
+            <section className="rounded-xl border border-line bg-surface-muted/25 p-4">
+              <div className="mb-4 flex items-start gap-2.5">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300">
+                  <Clock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-ink">الجدولة والحماية</h3>
+                  <p className="mt-0.5 text-xs text-ink-muted">اضبط متى ينشئ النظام نسخة من بياناتك.</p>
+                </div>
               </div>
-            </div>
-            <Field label="مجلد النسخ الاحتياطي (محلي / خارجي / شبكة)" className="md:col-span-2">
-              <div className="flex gap-2">
-                <Input
-                  value={form.backupPath}
-                  readOnly
-                  placeholder="اختر مجلداً..."
-                  className="bg-surface-muted font-mono text-xs"
-                />
-                <Button
-                  variant="outline"
-                  disabled={!featureOn("advancedSecurity")}
-                  onClick={async () => {
-                    if (window.desktopAPI?.backup?.selectDirectory) {
-                      const path = await window.desktopAPI.backup.selectDirectory();
-                      if (path) setForm({ ...form, backupPath: path });
-                    } else {
-                      toast.error("متاح في تطبيق سطح المكتب فقط");
-                    }
-                  }}
-                >
-                  <FolderOpen className="w-4 h-4" />
-                </Button>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-line bg-surface p-3">
+                  <Field label="تفعيل النسخ التلقائي">
+                    <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-ink disabled:cursor-not-allowed">
+                      <input
+                        type="checkbox"
+                        checked={featureOn("advancedSecurity") && form.autoBackupEnabled}
+                        disabled={!featureOn("advancedSecurity")}
+                        onChange={(e) => setForm({ ...form, autoBackupEnabled: e.target.checked })}
+                      />
+                      <span>نعم، قم بالحفظ تلقائياً</span>
+                    </label>
+                  </Field>
+                </div>
+                <div className="rounded-lg border border-line bg-surface p-3">
+                  <Field label="تكرار النسخ">
+                    <Select
+                      value={form.autoBackupFrequency}
+                      disabled={!featureOn("advancedSecurity") || !form.autoBackupEnabled}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          autoBackupFrequency: e.target.value as typeof form.autoBackupFrequency,
+                        })
+                      }
+                    >
+                      <option value="daily">يومي</option>
+                      <option value="weekly">أسبوعي</option>
+                      <option value="monthly">شهري</option>
+                    </Select>
+                  </Field>
+                </div>
+                <div className="sm:col-span-2 rounded-lg border border-line bg-surface px-3 py-2.5">
+                  <Field
+                    label="نسخة عند إغلاق البرنامج"
+                    hint="يحفظ نسخة كاملة تلقائياً في المجلد المحدد قبل إغلاق التطبيق"
+                  >
+                    <label className="flex min-h-8 cursor-pointer items-center gap-2 text-sm text-ink disabled:cursor-not-allowed">
+                      <input
+                        type="checkbox"
+                        checked={featureOn("advancedSecurity") && (form.backupOnClose ?? true)}
+                        disabled={!featureOn("advancedSecurity")}
+                        onChange={(e) => setForm({ ...form, backupOnClose: e.target.checked })}
+                      />
+                      <span>احفظ نسخة تلقائياً عند الإغلاق</span>
+                    </label>
+                  </Field>
+                </div>
               </div>
-            </Field>
-            <Field label="نسخ احتياطي فوري">
-              <Button
-                variant="outline"
-                onClick={backupNow}
-                disabled={!featureOn("advancedSecurity") || !form.backupPath?.trim()}
-                className="w-full justify-center"
-              >
-                <Database className="w-4 h-4" /> نسخ احتياطي الآن
-              </Button>
-            </Field>
-            <div className="md:col-span-3 text-xs text-ink-faint">
-              يتم حفظ نسخة كاملة من البيانات (بصيغة JSON) في المجلد المحدد. يمكن استعادتها لاحقاً عبر "استيراد نسخة احتياطية".
-              عند التفعيل، تُحفظ نسخة تلقائياً عند فتح البرنامج حسب التكرار المختار.
-            </div>
+            </section>
+
+            <section className="rounded-xl border border-line bg-surface-muted/25 p-4">
+              <div className="mb-4 flex items-start gap-2.5">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  <Database className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-ink">المسار والحالة</h3>
+                  <p className="mt-0.5 text-xs text-ink-muted">اختر موقع الحفظ، وابدأ نسخة فورية عند الحاجة.</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="rounded-lg border border-brand-100 bg-brand-50/60 p-3 dark:border-brand-500/20 dark:bg-brand-500/10">
+                  <div className="mb-1 text-[11px] font-bold text-brand-700 dark:text-brand-300">آخر نسخة احتياطية</div>
+                  <div className="font-mono text-sm font-medium text-brand-900 dark:text-brand-200" dir="rtl">
+                    {settings.lastBackupDate ? new Date(settings.lastBackupDate).toLocaleString("ar-EG") : "لم يتم الحفظ بعد"}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                  <Field label="مجلد النسخ الاحتياطي" hint="يمكن اختيار مجلد محلي أو قرص خارجي أو مسار شبكة.">
+                    <div className="flex gap-2" dir="ltr">
+                      <Input
+                        value={form.backupPath}
+                        readOnly
+                        placeholder="اختر مجلداً..."
+                        className="bg-surface-muted text-left font-mono text-xs"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        title="اختيار مجلد النسخ الاحتياطي"
+                        disabled={!featureOn("advancedSecurity")}
+                        onClick={async () => {
+                          if (window.desktopAPI?.backup?.selectDirectory) {
+                            const path = await window.desktopAPI.backup.selectDirectory();
+                            if (path) setForm({ ...form, backupPath: path });
+                          } else {
+                            toast.error("متاح في تطبيق سطح المكتب فقط");
+                          }
+                        }}
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </Field>
+
+                  <Button
+                    type="button"
+                    variant="success"
+                    onClick={backupNow}
+                    disabled={!featureOn("advancedSecurity") || !form.backupPath?.trim()}
+                    className="w-full justify-center md:min-w-44 md:w-auto"
+                  >
+                    <Database className="h-4 w-4" />
+                    نسخ احتياطي الآن
+                  </Button>
+                </div>
+                <p className="text-[11px] leading-5 text-ink-faint">
+                  تُحفظ نسخة كاملة بصيغة JSON، ويمكن استعادتها لاحقاً من قسم استيراد النسخ الاحتياطية.
+                </p>
+              </div>
+            </section>
           </CardBody>
         </Card>
-        <Card className="lg:col-span-2 relative group">
-          <CardHeader title="بيانات الاشتراك والضمان" subtitle="تفاصيل الترخيص والدعم الفني الفعلي للنسخة" />
-          <CardBody className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Card className="relative lg:col-span-2">
+          <CardHeader
+            title="بيانات الاشتراك والضمان"
+            subtitle="حالة الترخيص والدعم الفني للنسخة الحالية"
+            actions={(
+              <Button size="sm" onClick={() => setLicenseDialogOpen(true)}>
+                <KeyRound className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">إدارة الاشتراك والضمان</span>
+                <span className="sm:hidden">إدارة الترخيص</span>
+              </Button>
+            )}
+          />
+          <CardBody className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {/* ── Subscription ── */}
-            <section className="rounded-xl bg-surface border border-brand-100 dark:border-brand-500/20 shadow-sm p-5 flex flex-col gap-4">
+            <section className="flex flex-col gap-3 rounded-xl border border-brand-100 bg-brand-50/20 p-3.5 dark:border-brand-500/20 dark:bg-brand-500/[0.04]">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-brand-700 dark:text-brand-300 font-bold">
-                  <ShieldCheck className="w-5 h-5" />
+                <div className="flex items-center gap-2 text-sm font-bold text-brand-700 dark:text-brand-300">
+                  <ShieldCheck className="h-4 w-4" />
                   <span>حالة الاشتراك</span>
                 </div>
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 px-2.5 py-1 rounded-full">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
                   نشط ومفعل
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+              <div className={cn("grid grid-cols-2 gap-2", form.subscriptionType === "limited" ? "2xl:grid-cols-4" : "sm:grid-cols-3")}>
                 <LicenseCell label="مدة الاشتراك" value={subscriptionDurationLabel(form.subscriptionType, form.subscriptionMonths)} />
                 <LicenseCell label="الباقة الحالية" value={planDisplayLabel(licenseStatus?.license)} valueClass="text-brand-700 dark:text-brand-400" />
                 <LicenseCell label="تاريخ التفعيل" value={form.subscriptionStartDate ? new Date(form.subscriptionStartDate).toLocaleDateString("ar-EG") : "غير محدد"} />
@@ -688,36 +914,24 @@ export function SettingsPage() {
                   </LicenseCell>
                 )}
               </div>
-
-              <button
-                type="button"
-                onClick={copyMachineCode}
-                title="اضغط لنسخ كود الجهاز"
-                className="mt-auto flex items-center justify-between gap-2 rounded-lg border border-line-soft bg-surface-muted/60 px-3 py-2 text-[11px] font-mono text-ink-muted hover:border-brand-300 hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
-              >
-                <span className="flex items-center gap-1.5 not-italic font-sans font-bold text-ink-faint">
-                  <Copy className="w-3.5 h-3.5" /> كود الجهاز
-                </span>
-                <span dir="ltr" className="truncate">{licenseStatus?.machineCode ?? "—"}</span>
-              </button>
             </section>
 
             {/* ── Warranty ── */}
-            <section className="rounded-xl bg-surface border border-indigo-100 dark:border-indigo-500/20 shadow-sm p-5 flex flex-col gap-4">
+            <section className="flex flex-col gap-3 rounded-xl border border-indigo-100 bg-indigo-50/20 p-3.5 dark:border-indigo-500/20 dark:bg-indigo-500/[0.04]">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300 font-bold">
-                  <Clock className="w-5 h-5" />
+                <div className="flex items-center gap-2 text-sm font-bold text-indigo-700 dark:text-indigo-300">
+                  <Clock className="h-4 w-4" />
                   <span>حالة الضمان والصيانة</span>
                 </div>
-                <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border ${form.warrantyType === "none"
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${form.warrantyType === "none"
                   ? "text-ink-faint bg-surface-muted border-line-soft"
                   : "text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20"}`}>
-                  <span className={`w-2 h-2 rounded-full ${form.warrantyType === "none" ? "bg-slate-400" : "bg-indigo-500"}`} />
+                  <span className={`h-2 w-2 rounded-full ${form.warrantyType === "none" ? "bg-slate-400" : "bg-indigo-500"}`} />
                   {form.warrantyType === "none" ? "غير مفعل" : "تحت الضمان الساري"}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+              <div className={cn("grid grid-cols-2 gap-2", form.warrantyType === "limited" ? "2xl:grid-cols-4" : "sm:grid-cols-3")}>
                 <LicenseCell label="مدة الضمان" value={form.warrantyType === "none" ? "بدون ضمان" : `${form.warrantyMonths} شهر (صيانة برمجية)`} />
                 {form.warrantyType === "limited" && (
                   <LicenseCell label="تاريخ البدء" value={form.warrantyStartDate ? new Date(form.warrantyStartDate).toLocaleDateString("ar-EG") : "غير محدد"} />
@@ -733,29 +947,27 @@ export function SettingsPage() {
                 </LicenseCell>
               </div>
             </section>
-          </CardBody>
-          <div className="px-6 py-3 bg-surface-muted border-t border-line flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-xs text-ink-faint dark:text-slate-400">
-              * هذه البيانات رسمية وموثقة من قبل <strong>Helpers Technologies</strong> ولا يمكن تعديلها من قبل المستخدم.
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-[10px] h-7 px-3 gap-1"
+
+            <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface-muted/45 p-2.5 lg:flex-row lg:items-center">
+              <button
+                type="button"
                 onClick={copyMachineCode}
+                title="نسخ كود الجهاز"
+                className="flex min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-ink-muted transition-colors hover:border-brand-300 hover:text-brand-600 lg:w-[28rem]"
               >
-                <Copy className="w-3 h-3" /> نسخ كود الجهاز
-              </Button>
-              <Button
-                size="sm"
-                className="text-[10px] h-7 px-3 gap-1"
-                onClick={() => setLicenseDialogOpen(true)}
-              >
-                <KeyRound className="w-3 h-3" /> تجديد / ترقية / تفعيل ضمان
-              </Button>
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-bold">
+                  <Copy className="h-3.5 w-3.5" /> كود الجهاز
+                </span>
+                <span dir="ltr" className="min-w-0 flex-1 truncate text-left font-mono text-[11px]">
+                  {licenseStatus?.machineCode ?? "—"}
+                </span>
+              </button>
+              <p className="flex-1 text-[11px] leading-5 text-ink-faint dark:text-slate-400">
+                بيانات رسمية موثقة من <strong>Helpers Technologies</strong> ولا يمكن تعديلها من داخل النظام.
+              </p>
             </div>
-          </div>
+          </CardBody>
         </Card>
 
         <Dialog
@@ -823,6 +1035,39 @@ export function SettingsPage() {
               </p>
             </div>
           </div>
+        </Dialog>
+
+        <Dialog
+          open={lockedFeature !== null}
+          onClose={() => setLockedFeature(null)}
+          title={lockedFeature ? `تفعيل ${lockedFeature.label}` : "تفعيل ميزة مدفوعة"}
+          subtitle="يمكنك طلبها كإضافة مستقلة أو ضمن ترقية الباقة"
+          width="md"
+          footer={
+            <>
+              <Button type="button" variant="outline" onClick={() => setLockedFeature(null)}>لاحقًا</Button>
+              <Button type="button" className="bg-emerald-600 hover:bg-emerald-700" onClick={openFeatureUpgradeWhatsapp}>
+                <MessageCircle className="w-4 h-4" /> التواصل مع المطوّر
+              </Button>
+            </>
+          }
+        >
+          {lockedFeature ? (
+            <div className="space-y-4" dir="rtl">
+              <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                  <Lock className="h-5 w-5" />
+                </span>
+                <div>
+                  <div className="font-bold text-amber-950 dark:text-amber-100">هذه الميزة غير مفعّلة في الترخيص الحالي</div>
+                  <p className="mt-1 text-sm leading-6 text-amber-900/80 dark:text-amber-200/80">{lockedFeature.description}</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-line bg-surface-muted/50 p-3 text-sm leading-7 text-ink-muted">
+                أرسل الطلب للمطوّر وسيصل معه اسم الميزة وكود الجهاز تلقائيًا. يمكنك اختيار شراء الميزة كـ Add-on أو ترقية الباقة، دون إعادة تثبيت النظام أو فقد البيانات.
+              </div>
+            </div>
+          ) : null}
         </Dialog>
 
         <Card className="lg:col-span-1">

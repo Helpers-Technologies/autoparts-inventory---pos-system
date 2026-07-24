@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { searchHelp, HELP_SECTIONS, type HelpSection } from "../../../src/lib/helpContent";
+import {
+  answerHelpQuestion,
+  searchHelp,
+  HELP_SECTIONS,
+  type HelpSection,
+} from "../../../src/lib/helpContent";
 
 const FIXTURE: HelpSection[] = [
   {
@@ -83,6 +88,58 @@ describe("searchHelp", () => {
   });
 });
 
+describe("answerHelpQuestion", () => {
+  it("returns a direct offline answer with its traceable source", () => {
+    const answer = answerHelpQuestion(HELP_SECTIONS, "السكانر بيكتب الرقم ومش بيضيف");
+
+    expect(answer).not.toBeNull();
+    expect(answer?.sectionId).toBe("scanning-pos");
+    expect(answer?.matchedQuestion).toContain("الاسكان");
+    expect(answer?.answer).toContain("الباركود");
+  });
+
+  it("returns null instead of inventing an answer", () => {
+    expect(answerHelpQuestion(HELP_SECTIONS, "ززز سؤال غير موجود نهائيا")).toBeNull();
+  });
+
+  it("respects the caller's feature-filtered knowledge base", () => {
+    const restricted = HELP_SECTIONS.filter((section) => section.id === "getting-started");
+    expect(answerHelpQuestion(restricted, "مطالبة ضمان")).toBeNull();
+  });
+
+  it("suggests a small set of distinct follow-up questions", () => {
+    const answer = answerHelpQuestion(HELP_SECTIONS, "نسيت كلمة المرور وعندي كود احتياطي");
+
+    expect(answer?.sectionId).toBe("backup-security");
+    expect(answer?.relatedQuestions.length).toBeLessThanOrEqual(3);
+    expect(new Set(answer?.relatedQuestions).size).toBe(answer?.relatedQuestions.length);
+    expect(answer?.relatedQuestions).not.toContain(answer?.matchedQuestion);
+  });
+
+  it("understands everyday questions about locked paid features", () => {
+    const answer = answerHelpQuestion(HELP_SECTIONS, "ازاي اقدر امنح مميزات مقفوله");
+
+    expect(answer?.sectionId).toBe("licensing-features-branches");
+    expect(answer?.matchedQuestion).toContain("ميزة مقفولة");
+    expect(answer?.to).toBe("/settings");
+  });
+
+  it("answers that every extra branch needs its own activation", () => {
+    const answer = answerHelpQuestion(HELP_SECTIONS, "عايز اضيف فرع تالت");
+
+    expect(answer?.sectionId).toBe("licensing-features-branches");
+    expect(answer?.answer).toContain("كودًا جديدًا");
+  });
+
+  it("understands stock transfer phrased with an Arabic dual", () => {
+    const answer = answerHelpQuestion(HELP_SECTIONS, "إزاي أنقل مخزون بين فرعين؟");
+
+    expect(answer?.sectionId).toBe("branches-pricing-purchasing");
+    expect(answer?.matchedQuestion).toContain("فرع لفرع");
+    expect(answer?.to).toBe("/branches");
+  });
+});
+
 describe("HELP_SECTIONS content integrity", () => {
   it("has sections, each with a unique id and at least one item", () => {
     expect(HELP_SECTIONS.length).toBeGreaterThan(0);
@@ -112,13 +169,16 @@ describe("HELP_SECTIONS content integrity", () => {
 
   it("covers the core AutoParts workflows with a substantial knowledge base", () => {
     const questionCount = HELP_SECTIONS.reduce((sum, section) => sum + section.items.length, 0);
-    expect(questionCount).toBeGreaterThanOrEqual(70);
-    expect(HELP_SECTIONS.map((section) => section.id)).toEqual(expect.arrayContaining([
-      "vehicle-fitment",
-      "oem-cross-reference",
-      "scanning-pos",
-      "garage-warranty",
-      "branches-pricing-purchasing",
-    ]));
+      expect(questionCount).toBeGreaterThanOrEqual(100);
+      expect(HELP_SECTIONS.map((section) => section.id)).toEqual(expect.arrayContaining([
+        "vehicle-fitment",
+        "oem-cross-reference",
+        "scanning-pos",
+        "garage-warranty",
+        "branches-pricing-purchasing",
+        "licensing-features-branches",
+        "users-permissions",
+        "data-files-printing",
+      ]));
   });
 });
