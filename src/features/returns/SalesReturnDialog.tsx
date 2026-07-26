@@ -6,6 +6,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../../components/ui/Table";
 import { useInvoicing } from "../../store/InvoicingContext";
 import { useSettings } from "../../store/SettingsContext";
 import { useToast } from "../../components/ui/Toast";
+import { useFeatures } from "../../lib/useFeatures";
 import type { SalesInvoice, ReturnLine } from "../../types";
 import { formatCurrency, formatDate } from "../../lib/format";
 import { todayISO, uid } from "../../lib/utils";
@@ -22,9 +23,16 @@ export function SalesReturnDialog({
   const { addSalesReturn, salesReturns } = useInvoicing();
   const { settings } = useSettings();
   const toast = useToast();
+  const { isEnabled } = useFeatures();
+  // Unchecked used to silently deduct from the customer's running balance
+  // even when "الدفع بالرصيد الدائن" is disabled — a shop that doesn't use
+  // credit balances at all shouldn't have refunds quietly feed one anyway,
+  // so refunds are always cash when the feature is off.
+  const creditPaymentEnabled = isEnabled("creditPayment");
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [refundCash, setRefundCash] = useState(false);
+  const [refundCashChoice, setRefundCashChoice] = useState(false);
+  const refundCash = creditPaymentEnabled ? refundCashChoice : true;
 
   // Return policy days limit verification
   const maxReturnDays = settings.maxReturnDays ?? 14;
@@ -199,19 +207,27 @@ export function SalesReturnDialog({
         </Table>
 
         <div className="bg-surface-muted border border-line rounded-lg p-4">
-          <label className="flex items-center gap-2 text-sm font-medium text-ink-muted">
-            <input
-              type="checkbox"
-              checked={refundCash}
-              disabled={isExpired}
-              onChange={(e) => setRefundCash(e.target.checked)}
-              className="rounded border-line text-brand-600 focus:ring-brand-500 disabled:opacity-50"
-            />
-            رد القيمة كاش (تسجيل حركة سحب من الخزينة)
-          </label>
-          <p className="text-xs text-ink-faint mt-1 mr-6">
-            إذا لم تقم بتحديد هذا الخيار، سيتم خصم القيمة من مديونية العميل وتحديث الفاتورة.
-          </p>
+          {creditPaymentEnabled ? (
+            <>
+              <label className="flex items-center gap-2 text-sm font-medium text-ink-muted">
+                <input
+                  type="checkbox"
+                  checked={refundCashChoice}
+                  disabled={isExpired}
+                  onChange={(e) => setRefundCashChoice(e.target.checked)}
+                  className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer"
+                />
+                رد القيمة كاش (تسجيل حركة سحب من الخزينة)
+              </label>
+              <p className="text-xs text-ink-faint mt-1 mr-6">
+                إذا لم تقم بتحديد هذا الخيار، سيتم خصم القيمة من مديونية العميل وتحديث الفاتورة.
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-ink-muted">
+              سيتم رد القيمة نقدًا (كاش) دائمًا — ميزة "الدفع بالرصيد الدائن" غير مفعّلة من الإعدادات.
+            </p>
+          )}
         </div>
       </div>
     </Dialog>
