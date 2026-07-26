@@ -36,8 +36,16 @@ jobs:
         shell: pwsh
         run: Copy-Item electron/license-public-key.example.cjs electron/license-public-key.cjs
 
+      # electron-builder auto-detects CI and tries to publish the artifact
+      # itself via its own GitHub integration, which needs GH_TOKEN and would
+      # duplicate the dedicated release step below — disable that with
+      # --publish never instead of running the shared dist:win script as-is.
       - name: Build Windows installer
-        run: npm run dist:win
+        shell: pwsh
+        run: |
+          node scripts/prepare-dist-win.cjs
+          npm run build
+          npx electron-builder --win nsis --publish never
 
       - name: Locate installer artifact
         id: find_installer
