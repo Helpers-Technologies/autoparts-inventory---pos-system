@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle, X, Globe } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { LockScreen } from "./LockScreen";
+import { PageLoading } from "./PageLoading";
 import { GlobalSearch } from "../GlobalSearch";
 import { useAuth } from "../../store/AuthContext";
 import { useSettings } from "../../store/SettingsContext";
@@ -179,7 +180,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-5 space-y-5">{children}</main>
+        <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-5 space-y-5">
+          <Suspense fallback={<PageLoading />}>
+            {children}
+          </Suspense>
+        </main>
 
         {showFooter && (
         <footer className="no-print shrink-0 py-6 px-5 border-t border-line bg-surface">

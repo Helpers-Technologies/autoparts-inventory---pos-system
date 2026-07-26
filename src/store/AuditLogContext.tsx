@@ -15,6 +15,7 @@ export interface AuditLogContextValue {
   auditLogs: AuditLog[];
   /** Restore a deleted invoice from its snapshot entry; false if not restorable. */
   restoreDeletedInvoice: (auditId: string) => boolean;
+  clearAuditLogs: (daysOlderThan?: number) => void;
   logAudit?: (action: AuditAction, entityLabel: string, details?: string, snapshot?: AuditSnapshot, overrideUser?: AppUser) => void;
 }
 

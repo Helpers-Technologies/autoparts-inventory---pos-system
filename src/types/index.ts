@@ -492,7 +492,7 @@ export type CashEntryType =
   | "manual-remove"
   | "adjustment";
 
-export type PaymentMethod = "cash" | "bank" | "vodafone" | "instapay" | "other" | "credit";
+export type PaymentMethod = "cash" | "bank" | "card" | "vodafone" | "instapay" | "other" | "credit";
 
 export interface PaymentLogEntry {
   id: ID;
@@ -558,6 +558,8 @@ export interface Settings {
   expiryAlertDays?: number;
   /** Days after purchase date within which sales returns are allowed (default 14). */
   maxReturnDays?: number;
+  /** Days after which old activity log entries are automatically pruned (0 = keep all). */
+  auditLogPruneDays?: number;
   /**
    * Owner-controlled per-module visibility. Keys are FeatureKey (see
    * lib/features.ts). Missing key ⇒ that module's default state. This is the

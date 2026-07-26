@@ -6,6 +6,7 @@ import { Button } from "../components/ui/Button";
 import { Field, Input, Select, Textarea } from "../components/ui/Input";
 import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
 import { useApp } from "../store/AppContext";
+import { useAuditLog } from "../store/AuditLogContext";
 import { useToast } from "../components/ui/Toast";
 import { lsGet } from "../lib/storage";
 import { FEATURES, FEATURE_CATEGORIES, FEATURE_CATEGORY_BY_KEY, defaultFeatureState, isAllowedByLicense, type FeatureDef, type FeatureKey } from "../lib/features";
@@ -69,7 +70,10 @@ function planDisplayLabel(license?: { plan?: string; features?: string[] } | nul
 export function SettingsPage() {
   const { settings, updateSettings, exportBackup, importBackup, backupToPath, exportToExcel, licenseStatus, activateLicense, currentUser } = useApp();
   const toast = useToast();
+  const { auditLogs, clearAuditLogs } = useAuditLog();
   const [form, setForm] = useState(settings);
+  const [clearLogsDialogOpen, setClearLogsDialogOpen] = useState(false);
+  const [clearLogsDays, setClearLogsDays] = useState<number>(0);
   const [licenseDialogOpen, setLicenseDialogOpen] = useState(false);
   const [newSerial, setNewSerial] = useState("");
   const [applyingSerial, setApplyingSerial] = useState(false);
@@ -517,6 +521,38 @@ export function SettingsPage() {
             ) : (
               <PaidFeatureNotice title="قفل الشاشة والأمان المتقدم" />
             )}
+
+            <Field
+              label="التنظيف التلقائي لسجل النشاط"
+              hint="تحديد مدة الاحتفاظ بسجل العمليات ومسح القديم تلقائياً"
+            >
+              <Select
+                value={String(form.auditLogPruneDays ?? 0)}
+                onChange={(e) => setForm({ ...form, auditLogPruneDays: Number(e.target.value) })}
+              >
+                <option value="0">الاحتفاظ بالجميع (معطّل)</option>
+                <option value="14">كل أسبوعين (14 يوم)</option>
+                <option value="30">كل شهر (30 يوم)</option>
+                <option value="90">كل 3 أشهر (90 يوم)</option>
+                <option value="180">كل 6 أشهر (180 يوم)</option>
+                <option value="365">كل سنة (365 يوم)</option>
+              </Select>
+            </Field>
+
+            <Field
+              label="مسح سجل النشاط يدوياً"
+              hint={`مسجل حالياً ${auditLogs.length.toLocaleString()} عملية نشاط`}
+            >
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full justify-center text-rose-600 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                onClick={() => setClearLogsDialogOpen(true)}
+              >
+                <Trash2 className="w-4 h-4 me-2 shrink-0" />
+                مسح سجل النشاط الآن
+              </Button>
+            </Field>
           </CardBody>
 
           {currentUser && mfaFeatureAllowed ? (
@@ -1434,6 +1470,52 @@ export function SettingsPage() {
           }
         }}
       />
+
+      <Dialog
+        open={clearLogsDialogOpen}
+        onClose={() => setClearLogsDialogOpen(false)}
+        title="مسح سجل النشاط والعمليات"
+      >
+        <div className="space-y-4 text-sm" dir="rtl">
+          <p className="text-ink-muted">
+            اختر النطاق الزمني للعمليات المراد حذفها نهائياً من سجل النشاط:
+          </p>
+
+          <Field label="نطاق المسح الزمني">
+            <Select
+              value={String(clearLogsDays)}
+              onChange={(e) => setClearLogsDays(Number(e.target.value))}
+            >
+              <option value="0">مسح السجل بالكامل (جميع العمليات)</option>
+              <option value="14">مسح العمليات الأقدم من أسبوعين (14 يوم)</option>
+              <option value="30">مسح العمليات الأقدم من شهر (30 يوم)</option>
+              <option value="90">مسح العمليات الأقدم من 3 أشهر (90 يوم)</option>
+              <option value="180">مسح العمليات الأقدم من 6 أشهر (180 يوم)</option>
+              <option value="365">مسح العمليات الأقدم من سنة (365 يوم)</option>
+            </Select>
+          </Field>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-line">
+            <Button variant="outline" onClick={() => setClearLogsDialogOpen(false)}>
+              إلغاء
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                clearAuditLogs(clearLogsDays);
+                setClearLogsDialogOpen(false);
+                const label = clearLogsDays === 0
+                  ? "تم مسح سجل النشاط بالكامل"
+                  : `تم مسح العمليات الأقدم من ${clearLogsDays} يوم`;
+                toast.success("تنظيف سجل النشاط", label);
+              }}
+            >
+              <Trash2 className="w-4 h-4 me-1.5 shrink-0" />
+              تأكيد المسح الآن
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </>
   );
 }

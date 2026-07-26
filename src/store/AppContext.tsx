@@ -2125,6 +2125,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const clearAuditLogs = useCallback((daysOlderThan?: number) => {
+    setAuditLogs((current) => {
+      if (!daysOlderThan || daysOlderThan <= 0) {
+        lsSet("auditLogs", []);
+        return [];
+      }
+      const cutoff = Date.now() - daysOlderThan * 86400000;
+      const filtered = current.filter((log) => new Date(log.timestamp).getTime() >= cutoff);
+      lsSet("auditLogs", filtered);
+      return filtered;
+    });
+  }, []);
+
+  // Automatic pruning of old audit logs based on settings.auditLogPruneDays
+  useEffect(() => {
+    const days = settings.auditLogPruneDays;
+    if (days && days > 0) {
+      clearAuditLogs(days);
+    }
+  }, [settings.auditLogPruneDays, clearAuditLogs]);
+
   // Shifts
   const activeShift = useMemo(() => {
     if (!currentUser) return null;
@@ -3426,9 +3447,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // every path that mutates invoices also appends an audit entry, so memoizing
   // on auditLogs alone always captures fresh state.
   const auditLogValue = useMemo(
-    () => ({ auditLogs, restoreDeletedInvoice, logAudit }),
+    () => ({ auditLogs, restoreDeletedInvoice, clearAuditLogs, logAudit }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [auditLogs, logAudit]
+    [auditLogs, logAudit, clearAuditLogs]
   );
   const authValue = useMemo(
     () => ({

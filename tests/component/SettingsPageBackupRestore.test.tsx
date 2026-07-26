@@ -56,6 +56,14 @@ vi.mock("../../src/store/AppContext", () => ({
   }),
 }));
 
+vi.mock("../../src/store/AuditLogContext", () => ({
+  useAuditLog: () => ({
+    auditLogs: [],
+    clearAuditLogs: vi.fn(),
+    restoreDeletedInvoice: vi.fn(),
+  }),
+}));
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const INTERNAL_BACKUP_BUTTON = "استعادة من النسخة التلقائية الداخلية";

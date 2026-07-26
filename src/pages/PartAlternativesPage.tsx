@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeftRight, Link2, PackageSearch, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { AutoPartsHero } from "../components/AutoPartsHero";
 import { Badge } from "../components/ui/Badge";
@@ -28,11 +28,9 @@ export function PartAlternativesPage() {
   const vehicleCatalog = useVehicleCatalog();
   const toast = useToast();
   const activeProducts = useMemo(() => products.filter((product) => !product.archived), [products]);
-  // The "original" side of a cross-reference link must be the genuine/agency part —
-  // alternatives (aftermarket, OEM, economy...) are what gets linked to it, not the other way around.
-  const genuineProducts = useMemo(() => activeProducts.filter((product) => product.qualityGrade === "genuine"), [activeProducts]);
+
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState(genuineProducts[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState(activeProducts[0]?.id ?? "");
   const [alternativeId, setAlternativeId] = useState("");
   const [relation, setRelation] = useState<PartAlternativeRelation>("equivalent");
   const [notes, setNotes] = useState("");
@@ -48,17 +46,8 @@ export function PartAlternativesPage() {
     [activeProducts, selectedId],
   );
 
-  // If the selection is no longer a genuine part (e.g. loaded from older data,
-  // or its quality grade changed), clear it rather than silently allow a
-  // non-genuine "original" side.
-  useEffect(() => {
-    if (selectedId && !genuineProducts.some((product) => product.id === selectedId)) {
-      setSelectedId("");
-    }
-  }, [genuineProducts, selectedId]);
-
   const searchResults = query.trim()
-    ? genuineProducts.filter((product) => productMatchesSearch(product, query)).slice(0, 20)
+    ? activeProducts.filter((product) => productMatchesSearch(product, query)).slice(0, 20)
     : [];
 
   // Index fitments by product once per change instead of re-scanning the full
@@ -167,11 +156,12 @@ export function PartAlternativesPage() {
         <Card>
           <CardHeader title="إضافة بديل" subtitle="الربط لا يغير المخزون أو الأسعار" />
           <CardBody className="space-y-4">
-            <Field label="القطعة الأصلية" hint="بيظهر هنا القطع المسجلة بدرجة جودة «أصلي توكيل» فقط — البدائل (تجاري/OEM/اقتصادي) بتتربط بيها من حقل «المنتج البديل» تحت.">
+            <Field label="القطعة الأصلية" hint="اختر القطعة المراد إضافة بديل لها، ثم اختر المنتج البديل في الخانة التالية.">
               <SearchableProductSelect
-                products={genuineProducts}
+                products={activeProducts}
                 value={selectedId}
                 onChange={setSelectedId}
+                defaultQualityGrade="genuine_oem"
                 placeholder="اختر القطعة الأصلية"
                 searchPlaceholder="ابحث برقم القطعة أو OEM أو الاسم..."
               />

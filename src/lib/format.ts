@@ -33,6 +33,7 @@ export function formatDateTime(iso: string): string {
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: "كاش",
   bank: "تحويل بنكي",
+  card: "فيزا / كارت",
   vodafone: "فودافون كاش",
   instapay: "انستاباي",
   other: "أخرى",

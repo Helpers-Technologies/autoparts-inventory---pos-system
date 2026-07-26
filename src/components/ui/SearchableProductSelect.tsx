@@ -20,6 +20,7 @@ interface SearchableProductSelectProps {
   dropUp?: boolean;
   showStock?: boolean;
   showPrices?: boolean;
+  defaultQualityGrade?: string;
 }
 
 export function SearchableProductSelect({
@@ -33,6 +34,7 @@ export function SearchableProductSelect({
   dropUp,
   showStock = true,
   showPrices = false,
+  defaultQualityGrade = "",
 }: SearchableProductSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -40,7 +42,13 @@ export function SearchableProductSelect({
   const [showFilters, setShowFilters] = useState(false);
   const [filterCategory, setFilterCategory] = useState("");
   const [filterBrand, setFilterBrand] = useState("");
-  const [filterQualityGrade, setFilterQualityGrade] = useState("");
+  const [selectedQualityGrades, setSelectedQualityGrades] = useState<string[]>(
+    () => (defaultQualityGrade === "genuine_oem" ? ["genuine", "oem"] : defaultQualityGrade ? [defaultQualityGrade] : [])
+  );
+  const [openCategoryDropdown, setOpenCategoryDropdown] = useState(false);
+  const [openBrandDropdown, setOpenBrandDropdown] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [brandSearch, setBrandSearch] = useState("");
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ar")),
@@ -50,12 +58,30 @@ export function SearchableProductSelect({
     () => [...new Set(products.map((p) => p.partBrand).filter((b): b is string => Boolean(b)))].sort((a, b) => a.localeCompare(b, "ar")),
     [products],
   );
-  const activeFilterCount = [filterCategory, filterBrand, filterQualityGrade].filter(Boolean).length;
+
+  const filteredCategoriesList = useMemo(
+    () => categories.filter((c) => c.toLowerCase().includes(categorySearch.trim().toLowerCase())),
+    [categories, categorySearch]
+  );
+
+  const filteredBrandsList = useMemo(
+    () => brands.filter((b) => b.toLowerCase().includes(brandSearch.trim().toLowerCase())),
+    [brands, brandSearch]
+  );
+
+  const activeFilterCount =
+    (filterCategory ? 1 : 0) +
+    (filterBrand ? 1 : 0) +
+    (selectedQualityGrades.length > 0 ? 1 : 0);
 
   function clearFilters() {
     setFilterCategory("");
     setFilterBrand("");
-    setFilterQualityGrade("");
+    setSelectedQualityGrades([]);
+    setOpenCategoryDropdown(false);
+    setOpenBrandDropdown(false);
+    setCategorySearch("");
+    setBrandSearch("");
   }
 
   const [popoverStyle, setPopoverStyle] = useState<{
@@ -64,7 +90,7 @@ export function SearchableProductSelect({
     right: number;
     width: number;
     maxHeight: number;
-  }>({ right: 0, width: 360, maxHeight: 300 });
+  }>({ right: 0, width: 380, maxHeight: 300 });
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -81,7 +107,9 @@ export function SearchableProductSelect({
     return products.filter((p) => {
       if (filterCategory && p.category !== filterCategory) return false;
       if (filterBrand && p.partBrand !== filterBrand) return false;
-      if (filterQualityGrade && p.qualityGrade !== filterQualityGrade) return false;
+      if (selectedQualityGrades.length > 0) {
+        if (!p.qualityGrade || !selectedQualityGrades.includes(p.qualityGrade)) return false;
+      }
       if (!q) return true;
       const searchTargets = [
         p.name,
@@ -95,7 +123,7 @@ export function SearchableProductSelect({
       ];
       return isFuzzyMatch(q, searchTargets);
     });
-  }, [products, query, filterCategory, filterBrand, filterQualityGrade]);
+  }, [products, query, filterCategory, filterBrand, selectedQualityGrades]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -116,7 +144,7 @@ export function SearchableProductSelect({
     const spaceBelow = window.innerHeight - rect.bottom;
     const spaceAbove = rect.top;
 
-    const width = Math.min(Math.max(rect.width, 380), window.innerWidth - 20);
+    const width = Math.min(Math.max(rect.width, 420), window.innerWidth - 20);
     let right = window.innerWidth - rect.right;
     if (right < 10) right = 10;
     if (right + width > window.innerWidth - 10) {
@@ -124,10 +152,10 @@ export function SearchableProductSelect({
     }
 
     const openUpward =
-      dropUp !== undefined ? dropUp : spaceBelow < 280 && spaceAbove > spaceBelow;
+      dropUp !== undefined ? dropUp : spaceBelow < 320 && spaceAbove > spaceBelow;
 
     if (openUpward) {
-      const maxHeight = Math.min(320, spaceAbove - 16);
+      const maxHeight = Math.min(480, spaceAbove - 16);
       setPopoverStyle({
         bottom: window.innerHeight - rect.top + 6,
         right,
@@ -135,7 +163,7 @@ export function SearchableProductSelect({
         maxHeight,
       });
     } else {
-      const maxHeight = Math.min(320, spaceBelow - 16);
+      const maxHeight = Math.min(480, spaceBelow - 16);
       setPopoverStyle({
         top: rect.bottom + 6,
         right,
@@ -222,13 +250,14 @@ export function SearchableProductSelect({
         bottom: popoverStyle.bottom,
         right: popoverStyle.right,
         width: popoverStyle.width,
+        maxHeight: popoverStyle.maxHeight,
         zIndex: 9999,
       }}
-      className="rounded-lg border border-line bg-surface shadow-2xl overflow-hidden flex flex-col dir-rtl"
+      className="rounded-2xl border border-line bg-surface shadow-2xl overflow-hidden flex flex-col dir-rtl text-ink"
       dir="rtl"
     >
       {/* Search Input Box Header */}
-      <div className="p-2.5 border-b border-line bg-surface-muted/60 shrink-0">
+      <div className="p-2.5 border-b border-line bg-surface-muted/40 shrink-0 space-y-2">
         <div className="relative flex items-center">
           <ScanLine className="w-4 h-4 text-cyan-600 dark:text-cyan-400 absolute right-3 pointer-events-none" />
           <input
@@ -236,22 +265,22 @@ export function SearchableProductSelect({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={searchPlaceholder}
-            className="w-full rounded-xl border border-line bg-surface pr-9 pl-16 py-2 text-sm text-ink placeholder:text-ink-faint outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+            className="w-full rounded-xl border border-line bg-surface pr-9 pl-16 py-2 text-sm text-ink placeholder:text-ink-faint outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all font-semibold"
           />
           <div className="absolute left-2 flex items-center gap-1">
             <button
               type="button"
               onClick={() => setShowFilters((v) => !v)}
               title="فلاتر متقدمة"
-              className={`relative p-1 rounded-md transition-colors ${
+              className={`relative p-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-bold ${
                 showFilters || activeFilterCount > 0
-                  ? "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10"
-                  : "text-ink-faint hover:text-ink hover:bg-surface-muted"
+                  ? "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 border border-cyan-500/30"
+                  : "text-ink-faint hover:text-ink hover:bg-surface-muted border border-transparent"
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               {activeFilterCount > 0 && (
-                <span className="absolute -top-1 -left-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-cyan-500 text-[9px] font-bold text-white">
+                <span className="grid h-4 min-w-[16px] px-1 place-items-center rounded-full bg-cyan-600 text-[10px] font-extrabold text-white">
                   {activeFilterCount}
                 </span>
               )}
@@ -269,38 +298,180 @@ export function SearchableProductSelect({
         </div>
 
         {showFilters && (
-          <div className="mt-2 grid grid-cols-3 gap-1.5">
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-cyan-500"
-            >
-              <option value="">كل الفئات</option>
-              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select
-              value={filterBrand}
-              onChange={(e) => setFilterBrand(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-cyan-500"
-            >
-              <option value="">كل الماركات</option>
-              {brands.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
-            <select
-              value={filterQualityGrade}
-              onChange={(e) => setFilterQualityGrade(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-cyan-500"
-            >
-              <option value="">كل درجات الجودة</option>
-              {QUALITY_GRADES.map((grade) => <option key={grade} value={grade}>{formatQualityGradeLabel(grade)}</option>)}
-            </select>
+          <div className="p-2 rounded-xl bg-surface border border-line space-y-2 animate-in fade-in duration-150">
+            {/* Quality Grade Compact Pills */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-bold text-ink-muted">
+                <span>تصفية حسب الجودة:</span>
+                {selectedQualityGrades.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedQualityGrades([])}
+                    className="text-[10px] text-rose-500 hover:text-rose-600 font-bold"
+                  >
+                    تحديد الكل
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-emerald-600 font-bold">(عرض الكل)</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {QUALITY_GRADES.map((grade) => {
+                  const isChecked = selectedQualityGrades.includes(grade);
+                  return (
+                    <button
+                      key={grade}
+                      type="button"
+                      onClick={() => {
+                        setSelectedQualityGrades((prev) =>
+                          prev.includes(grade)
+                            ? prev.filter((g) => g !== grade)
+                            : [...prev, grade]
+                        );
+                      }}
+                      className={`px-2 py-0.5 text-[11px] font-bold rounded-lg border transition-all flex items-center gap-1 select-none ${
+                        isChecked
+                          ? "bg-cyan-600 text-white border-cyan-600 shadow-sm"
+                          : "bg-surface text-ink-muted border-line hover:border-cyan-500/50"
+                      }`}
+                    >
+                      <span className={`w-3 h-3 rounded text-[9px] flex items-center justify-center ${isChecked ? "bg-white/20 text-white font-black" : "border border-line"}`}>
+                        {isChecked ? "✓" : ""}
+                      </span>
+                      <span>{formatQualityGradeLabel(grade)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Category & Brand Custom Dropdowns in 1 Row */}
+            <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-line/60">
+              {/* Custom Category Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenCategoryDropdown((v) => !v);
+                    setOpenBrandDropdown(false);
+                  }}
+                  className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink flex items-center justify-between font-bold hover:border-cyan-500/50 transition-colors"
+                >
+                  <span className="truncate">{filterCategory ? filterCategory : `كل الفئات (${categories.length})`}</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-ink-faint shrink-0 ml-0.5" />
+                </button>
+
+                {openCategoryDropdown && (
+                  <div className="absolute top-full right-0 left-0 mt-1 z-[10000] max-h-48 overflow-y-auto rounded-xl border border-line bg-surface shadow-2xl p-1 text-xs space-y-0.5 dir-rtl">
+                    <div className="p-1 border-b border-line/60 sticky top-0 bg-surface z-10">
+                      <input
+                        type="text"
+                        value={categorySearch}
+                        onChange={(e) => setCategorySearch(e.target.value)}
+                        placeholder="ابحث عن فئة..."
+                        className="w-full rounded-md border border-line bg-surface-muted px-2 py-1 text-[11px] text-ink outline-none focus:border-cyan-500 font-semibold"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFilterCategory("");
+                        setOpenCategoryDropdown(false);
+                        setCategorySearch("");
+                      }}
+                      className={`w-full text-right px-2 py-1 rounded-lg transition-colors font-bold ${
+                        !filterCategory ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400" : "hover:bg-surface-muted text-ink"
+                      }`}
+                    >
+                      كل الفئات ({categories.length})
+                    </button>
+                    {filteredCategoriesList.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => {
+                          setFilterCategory(c);
+                          setOpenCategoryDropdown(false);
+                          setCategorySearch("");
+                        }}
+                        className={`w-full text-right px-2 py-1 rounded-lg transition-colors truncate font-semibold ${
+                          filterCategory === c ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-bold" : "hover:bg-surface-muted text-ink"
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Custom Brand Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenBrandDropdown((v) => !v);
+                    setOpenCategoryDropdown(false);
+                  }}
+                  className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink flex items-center justify-between font-bold hover:border-cyan-500/50 transition-colors"
+                >
+                  <span className="truncate">{filterBrand ? filterBrand : `كل الماركات (${brands.length})`}</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-ink-faint shrink-0 ml-0.5" />
+                </button>
+
+                {openBrandDropdown && (
+                  <div className="absolute top-full right-0 left-0 mt-1 z-[10000] max-h-48 overflow-y-auto rounded-xl border border-line bg-surface shadow-2xl p-1 text-xs space-y-0.5 dir-rtl">
+                    <div className="p-1 border-b border-line/60 sticky top-0 bg-surface z-10">
+                      <input
+                        type="text"
+                        value={brandSearch}
+                        onChange={(e) => setBrandSearch(e.target.value)}
+                        placeholder="ابحث عن ماركة..."
+                        className="w-full rounded-md border border-line bg-surface-muted px-2 py-1 text-[11px] text-ink outline-none focus:border-cyan-500 font-semibold"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFilterBrand("");
+                        setOpenBrandDropdown(false);
+                        setBrandSearch("");
+                      }}
+                      className={`w-full text-right px-2 py-1 rounded-lg transition-colors font-bold ${
+                        !filterBrand ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400" : "hover:bg-surface-muted text-ink"
+                      }`}
+                    >
+                      كل الماركات ({brands.length})
+                    </button>
+                    {filteredBrandsList.map((b) => (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => {
+                          setFilterBrand(b);
+                          setOpenBrandDropdown(false);
+                          setBrandSearch("");
+                        }}
+                        className={`w-full text-right px-2 py-1 rounded-lg transition-colors truncate font-semibold ${
+                          filterBrand === b ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-bold" : "hover:bg-surface-muted text-ink"
+                        }`}
+                      >
+                        {b}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
-        <div className="flex items-center justify-between mt-2 px-1 text-[11px] text-ink-faint font-medium">
+        <div className="flex items-center justify-between px-1 text-[11px] text-ink-faint font-medium">
           <span>{filteredProducts.length} قطعة متوفرة</span>
           {activeFilterCount > 0 ? (
-            <button type="button" onClick={clearFilters} className="text-rose-500 hover:text-rose-600 font-semibold">
+            <button type="button" onClick={clearFilters} className="text-rose-500 hover:text-rose-600 font-bold">
               مسح الفلاتر ({activeFilterCount})
             </button>
           ) : (
@@ -312,7 +483,7 @@ export function SearchableProductSelect({
       {/* Product Items List */}
       <div
         ref={listRef}
-        style={{ maxHeight: Math.max(120, popoverStyle.maxHeight - 75) }}
+        style={{ maxHeight: Math.max(200, popoverStyle.maxHeight - (showFilters ? 120 : 60)) }}
         className="overflow-y-auto divide-y divide-line/40 p-1.5 flex-1"
       >
         {/* Clear / Unselect Option */}

@@ -18,18 +18,47 @@ import { formatCurrency, formatQualityGradeLabel } from "../lib/format";
 import { vehicleCountryLabel } from "../data/vehicleCountries";
 import { daysUntil } from "../lib/utils";
 import { ProductFormDialog } from "../features/products/ProductForm";
-import type { Product } from "../types";
+import type { Product, PartAlternativeRelation } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
 import { productMatchesSearch } from "../lib/partSearch";
 import { buildXlsx } from "../lib/xlsx";
+import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 
 type SortKey = "name" | "quantity" | "wholesalePrice" | "retailPrice" | "purchasePrice";
 
 export function ProductsPage() {
   const { products, suppliers, deleteProduct, archiveProduct, updateProduct } = useCatalog();
+  const vehicleCatalog = useVehicleCatalog();
   const { currentUser } = useAuth();
   const { settings } = useSettings();
+  const [stockAlternativeModal, setStockAlternativeModal] = useState<{
+    product: Product;
+    alternatives: { product: Product; relation: PartAlternativeRelation; notes?: string }[];
+  } | null>(null);
+
+  const alternativesByProductId = useMemo(() => {
+    const map = new Map<string, { product: Product; relation: PartAlternativeRelation; notes?: string }[]>();
+    const productById = new Map(products.map((p) => [p.id, p]));
+
+    for (const link of vehicleCatalog.productAlternatives) {
+      const p1 = productById.get(link.productId);
+      const p2 = productById.get(link.alternativeProductId);
+
+      if (p1 && p2) {
+        if (!map.has(link.productId)) map.set(link.productId, []);
+        map.get(link.productId)!.push({ product: p2, relation: link.relation, notes: link.notes });
+
+        if (!map.has(link.alternativeProductId)) map.set(link.alternativeProductId, []);
+        map.get(link.alternativeProductId)!.push({ product: p1, relation: link.relation, notes: link.notes });
+      }
+    }
+    return map;
+  }, [products, vehicleCatalog.productAlternatives]);
+
+  const supplierById = useMemo(() => {
+    return new Map(suppliers.map((s) => [s.id, s.name]));
+  }, [suppliers]);
   const { isEnabled } = useFeatures();
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const expiryTrackingEnabled = isEnabled("expiryTracking");
@@ -381,8 +410,8 @@ export function ProductsPage() {
           ) : undefined}
         />
         <CardBody className="space-y-3">
-          <div className="flex gap-2 items-end flex-wrap">
-            <Field label="بحث" className="w-56">
+          <div className="flex gap-2.5 items-end flex-wrap">
+            <Field label="بحث" className="flex-1 min-w-[200px]">
               <div className="relative">
                 <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint pointer-events-none" />
                 <Input
@@ -397,17 +426,16 @@ export function ProductsPage() {
             <Button
               type="button"
               variant="outline"
-              className="h-9 gap-1.5 self-end shrink-0 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/40 bg-cyan-50/50 dark:bg-cyan-500/10 hover:bg-cyan-100 dark:hover:bg-cyan-500/20"
-              title="مسح باركود بالاسكانر"
+              className="w-9 h-9 p-0 self-end shrink-0 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/40 bg-cyan-50/50 dark:bg-cyan-500/10 hover:bg-cyan-100 dark:hover:bg-cyan-500/20 flex items-center justify-center"
+              title="سكان بالباركود"
               onClick={() => {
                 searchInputRef.current?.focus();
                 toast.info("جاهز لقراءة الباركود (الاسكانر)", "وجّه الاسكانر على عبوة المنتج أو اكتب الباركود مباشرة في حقل البحث");
               }}
             >
               <ScanLine className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-              سكان بالباركود
             </Button>
-            <Field label="الفئة" className="w-36">
+            <Field label="الفئة" className="min-w-[130px]">
               <Select value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value="">كل الفئات</option>
                 {categories.map((c) => (
@@ -417,7 +445,7 @@ export function ProductsPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="المورد" className="w-44">
+            <Field label="المورد" className="min-w-[150px]">
               <SearchableSelect
                 value={supplier}
                 onChange={setSupplier}
@@ -427,7 +455,7 @@ export function ProductsPage() {
               />
             </Field>
             {expiryTrackingEnabled && (
-              <Field label="الصلاحية" className="w-36">
+              <Field label="الصلاحية" className="min-w-[120px]">
                 <Select
                   value={expiryFilter}
                   onChange={(e) => setExpiryFilter(e.target.value as typeof expiryFilter)}
@@ -438,7 +466,7 @@ export function ProductsPage() {
                 </Select>
               </Field>
             )}
-            <Field label="الكمية" className="w-36">
+            <Field label="الكمية" className="min-w-[120px]">
               <Select
                 value={stockFilter}
                 onChange={(e) => setStockFilter(e.target.value as typeof stockFilter)}
@@ -448,8 +476,8 @@ export function ProductsPage() {
                 <option value="out">نفذ</option>
               </Select>
             </Field>
-            <div className="flex items-end gap-1">
-              <Field label="ترتيب حسب" className="w-36">
+            <div className="flex items-end gap-1 min-w-[140px]">
+              <Field label="ترتيب حسب" className="w-full">
                 <Select
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortKey)}
@@ -604,13 +632,14 @@ export function ProductsPage() {
               </THead>
               <TBody>
                 {filtered.map((p) => {
-                  const supName = suppliers.find((s) => s.id === p.supplierId)?.name;
+                  const supName = p.supplierId ? supplierById.get(p.supplierId) : undefined;
                   const du = daysUntil(p.expiryDate);
                   const out = p.quantity <= 0;
                   const low = !out && p.quantity <= p.minStock;
                   const expired = p.hasExpiry && du !== null && du < 0;
                   const soon =
                     p.hasExpiry && du !== null && du >= 0 && du <= 14;
+                  const alts = alternativesByProductId.get(p.id) || [];
                   return (
                     <TR key={p.id}>
                       <TD>
@@ -634,7 +663,19 @@ export function ProductsPage() {
                       </TD>
                       <TD>
                         {out ? (
-                          <Badge tone="red">نفذ</Badge>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Badge tone="red">نفذ</Badge>
+                            {alts.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setStockAlternativeModal({ product: p, alternatives: alts })}
+                                className="px-2 py-0.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold shadow-sm transition-all animate-pulse"
+                                title="اضغط لعرض القطع البديلة المسجلة"
+                              >
+                                يوجد بديل ({alts.length})
+                              </button>
+                            )}
+                          </div>
                         ) : low ? (
                           <Badge tone="amber">قارب على النفاذ</Badge>
                         ) : (
@@ -886,6 +927,71 @@ export function ProductsPage() {
         variant="danger"
         confirmText="تأكيد الحذف/الأرشفة"
       />
+
+      {/* ── Alternative Parts Dialog ── */}
+      {stockAlternativeModal && (
+        <Dialog
+          open={Boolean(stockAlternativeModal)}
+          onClose={() => setStockAlternativeModal(null)}
+          title="القطع البديلة المسجلة"
+          subtitle={`بدائل القطعة: ${stockAlternativeModal.product.name} (${stockAlternativeModal.product.partNumber || stockAlternativeModal.product.code})`}
+        >
+          <div className="space-y-3" dir="rtl">
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs font-semibold">
+              القطعة الأصلية نفذت من المخزون. يمكنك الاعتماد على القطع البديلة التالية:
+            </div>
+
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {stockAlternativeModal.alternatives.map(({ product: alt, relation, notes }) => (
+                <div
+                  key={alt.id}
+                  className="p-3 rounded-xl border border-line bg-surface hover:border-cyan-500/50 transition-all flex items-center justify-between gap-3"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-cyan-600 dark:text-cyan-400" dir="ltr">
+                        {alt.partNumber || alt.code}
+                      </span>
+                      <Badge tone={relation === "economy" ? "amber" : relation === "premium" ? "indigo" : "green"}>
+                        {relation === "economy" ? "بديل اقتصادي" : relation === "premium" ? "بديل أعلى جودة" : "بديل مطابق"}
+                      </Badge>
+                      {alt.qualityGrade ? (
+                        <Badge tone="slate">{formatQualityGradeLabel(alt.qualityGrade)}</Badge>
+                      ) : null}
+                    </div>
+                    <div className="font-bold text-sm text-ink">{alt.name}</div>
+                    <div className="text-xs text-ink-muted flex items-center gap-2 flex-wrap">
+                      <span>الماركة: {alt.partBrand || "بدون"}</span>
+                      <span>•</span>
+                      <span>الفئة: {alt.category}</span>
+                      {alt.rackLocation && (
+                        <>
+                          <span>•</span>
+                          <span className="font-semibold text-brand-600">الرف: {alt.rackLocation}</span>
+                        </>
+                      )}
+                    </div>
+                    {notes && <div className="text-xs text-amber-700 dark:text-amber-400 italic">{notes}</div>}
+                  </div>
+
+                  <div className="text-left shrink-0 space-y-1">
+                    <Badge tone={alt.quantity > 0 ? "green" : "red"} className="text-xs">
+                      المتاح: {alt.quantity} {alt.unit}
+                    </Badge>
+                    <div className="font-bold text-sm text-brand-600">
+                      {formatCurrency(alt.retailPrice, settings.currency)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <Button onClick={() => setStockAlternativeModal(null)}>إغلاق</Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }

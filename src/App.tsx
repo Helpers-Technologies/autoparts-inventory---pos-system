@@ -1,77 +1,67 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./store/AuthContext";
 import { ProtectedShell } from "./components/layout/ProtectedShell";
 import { PageLoading } from "./components/layout/PageLoading";
 
-// Route-level code splitting — each page becomes its own chunk instead of all
-// ~50 pages (charts, xlsx export, etc. included) landing in one ~2.8MB bundle
-// that has to be parsed before the very first screen can render.
-function lazyPage<T extends Record<string, unknown>>(
-  loader: () => Promise<T>,
-  exportName: keyof T,
-) {
-  return lazy(() => loader().then((m) => ({ default: m[exportName] as React.ComponentType })));
-}
-
-const LoginPage = lazyPage(() => import("./pages/LoginPage"), "LoginPage");
-const ActivationPage = lazyPage(() => import("./pages/ActivationPage"), "ActivationPage");
-const FirstRunSetupPage = lazyPage(() => import("./pages/FirstRunSetupPage"), "FirstRunSetupPage");
-const DashboardPage = lazyPage(() => import("./pages/DashboardPage"), "DashboardPage");
-const ProductsPage = lazyPage(() => import("./pages/ProductsPage"), "ProductsPage");
-const ProductDetailPage = lazyPage(() => import("./pages/ProductDetailPage"), "ProductDetailPage");
-const InventoryPage = lazyPage(() => import("./pages/InventoryPage"), "InventoryPage");
-const SuppliersPage = lazyPage(() => import("./pages/SuppliersPage"), "SuppliersPage");
-const SupplierDetailPage = lazyPage(() => import("./pages/SupplierDetailPage"), "SupplierDetailPage");
-const CustomersPage = lazyPage(() => import("./pages/CustomersPage"), "CustomersPage");
-const CustomerDetailPage = lazyPage(() => import("./pages/CustomerDetailPage"), "CustomerDetailPage");
-const PurchaseInvoicesPage = lazyPage(() => import("./pages/PurchaseInvoicesPage"), "PurchaseInvoicesPage");
-const PurchaseInvoiceNewPage = lazyPage(() => import("./pages/PurchaseInvoiceNewPage"), "PurchaseInvoiceNewPage");
-const PurchaseInvoiceDetailPage = lazyPage(() => import("./pages/PurchaseInvoiceDetailPage"), "PurchaseInvoiceDetailPage");
-const PurchaseInvoiceEditPage = lazyPage(() => import("./pages/PurchaseInvoiceEditPage"), "PurchaseInvoiceEditPage");
-const PurchaseInvoicePrintPage = lazyPage(() => import("./pages/PurchaseInvoicePrintPage"), "PurchaseInvoicePrintPage");
-const ProductBarcodePrintPage = lazyPage(() => import("./pages/ProductBarcodePrintPage"), "ProductBarcodePrintPage");
-const SalesInvoicesPage = lazyPage(() => import("./pages/SalesInvoicesPage"), "SalesInvoicesPage");
-const SalesInvoiceNewPage = lazyPage(() => import("./pages/SalesInvoiceNewPage"), "SalesInvoiceNewPage");
-const SalesInvoiceEditPage = lazyPage(() => import("./pages/SalesInvoiceEditPage"), "SalesInvoiceEditPage");
-const SalesInvoiceDetailPage = lazyPage(() => import("./pages/SalesInvoiceDetailPage"), "SalesInvoiceDetailPage");
-const SalesInvoicePrintPage = lazyPage(() => import("./pages/SalesInvoicePrintPage"), "SalesInvoicePrintPage");
-const AlertsPage = lazyPage(() => import("./pages/AlertsPage"), "AlertsPage");
-const QuotationsPage = lazyPage(() => import("./pages/QuotationsPage"), "QuotationsPage");
-const StocktakesPage = lazyPage(() => import("./pages/StocktakesPage"), "StocktakesPage");
-const ImportPage = lazyPage(() => import("./pages/ImportPage"), "ImportPage");
-const StocktakeDetailPage = lazyPage(() => import("./pages/StocktakeDetailPage"), "StocktakeDetailPage");
-const QuotationNewPage = lazyPage(() => import("./pages/QuotationNewPage"), "QuotationNewPage");
-const QuotationEditPage = lazyPage(() => import("./pages/QuotationEditPage"), "QuotationEditPage");
-const QuotationDetailPage = lazyPage(() => import("./pages/QuotationDetailPage"), "QuotationDetailPage");
-const QuotationPrintPage = lazyPage(() => import("./pages/QuotationPrintPage"), "QuotationPrintPage");
-const CashboxPage = lazyPage(() => import("./pages/CashboxPage"), "CashboxPage");
-const DuesPage = lazyPage(() => import("./pages/DuesPage"), "DuesPage");
-const ReportsPage = lazyPage(() => import("./pages/ReportsPage"), "ReportsPage");
-const AdvancedAnalyticsPage = lazyPage(() => import("./pages/AdvancedAnalyticsPage"), "AdvancedAnalyticsPage");
-const EmployeeReportPage = lazyPage(() => import("./pages/EmployeeReportPage"), "EmployeeReportPage");
-const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage");
-const UsersPage = lazyPage(() => import("./pages/UsersPage"), "UsersPage");
-const ReturnsPage = lazyPage(() => import("./pages/ReturnsPage"), "ReturnsPage");
-const DriversPage = lazyPage(() => import("./pages/DriversPage"), "DriversPage");
-const EmployeeProfilePage = lazyPage(() => import("./pages/EmployeeProfilePage"), "EmployeeProfilePage");
-const HelpPage = lazyPage(() => import("./pages/HelpPage"), "HelpPage");
-const AuditLogPage = lazyPage(() => import("./pages/AuditLogPage"), "AuditLogPage");
-const CustomerStatementPrintPage = lazyPage(() => import("./pages/CustomerStatementPrintPage"), "CustomerStatementPrintPage");
-const SupplierStatementPrintPage = lazyPage(() => import("./pages/SupplierStatementPrintPage"), "SupplierStatementPrintPage");
-const POSPage = lazyPage(() => import("./pages/POSPage"), "POSPage");
-const SalesInvoiceReceiptPrintPage = lazyPage(() => import("./pages/SalesInvoiceReceiptPrintPage"), "SalesInvoiceReceiptPrintPage");
-const VehicleCatalogPage = lazyPage(() => import("./pages/VehicleCatalogPage"), "VehicleCatalogPage");
-const PartsFinderPage = lazyPage(() => import("./pages/PartsFinderPage"), "PartsFinderPage");
-const AutoPartsReportsPage = lazyPage(() => import("./pages/AutoPartsReportsPage"), "AutoPartsReportsPage");
-const CustomerGaragePage = lazyPage(() => import("./pages/CustomerGaragePage"), "CustomerGaragePage");
-const PartAlternativesPage = lazyPage(() => import("./pages/PartAlternativesPage"), "PartAlternativesPage");
-const WarrantyCenterPage = lazyPage(() => import("./pages/WarrantyCenterPage"), "WarrantyCenterPage");
-const PurchasingAssistantPage = lazyPage(() => import("./pages/PurchasingAssistantPage"), "PurchasingAssistantPage");
-const BranchesPage = lazyPage(() => import("./pages/BranchesPage"), "BranchesPage");
-const PricingRulesPage = lazyPage(() => import("./pages/PricingRulesPage"), "PricingRulesPage");
-const MarketingPage = lazyPage(() => import("./pages/MarketingPage"), "MarketingPage");
-const ShiftsPage = lazyPage(() => import("./pages/ShiftsPage"), "ShiftsPage");
+import { LoginPage } from "./pages/LoginPage";
+import { ActivationPage } from "./pages/ActivationPage";
+import { FirstRunSetupPage } from "./pages/FirstRunSetupPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { ProductsPage } from "./pages/ProductsPage";
+import { ProductDetailPage } from "./pages/ProductDetailPage";
+import { InventoryPage } from "./pages/InventoryPage";
+import { SuppliersPage } from "./pages/SuppliersPage";
+import { SupplierDetailPage } from "./pages/SupplierDetailPage";
+import { CustomersPage } from "./pages/CustomersPage";
+import { CustomerDetailPage } from "./pages/CustomerDetailPage";
+import { PurchaseInvoicesPage } from "./pages/PurchaseInvoicesPage";
+import { PurchaseInvoiceNewPage } from "./pages/PurchaseInvoiceNewPage";
+import { PurchaseInvoiceDetailPage } from "./pages/PurchaseInvoiceDetailPage";
+import { PurchaseInvoiceEditPage } from "./pages/PurchaseInvoiceEditPage";
+import { PurchaseInvoicePrintPage } from "./pages/PurchaseInvoicePrintPage";
+import { ProductBarcodePrintPage } from "./pages/ProductBarcodePrintPage";
+import { SalesInvoicesPage } from "./pages/SalesInvoicesPage";
+import { SalesInvoiceNewPage } from "./pages/SalesInvoiceNewPage";
+import { SalesInvoiceEditPage } from "./pages/SalesInvoiceEditPage";
+import { SalesInvoiceDetailPage } from "./pages/SalesInvoiceDetailPage";
+import { SalesInvoicePrintPage } from "./pages/SalesInvoicePrintPage";
+import { AlertsPage } from "./pages/AlertsPage";
+import { QuotationsPage } from "./pages/QuotationsPage";
+import { StocktakesPage } from "./pages/StocktakesPage";
+import { ImportPage } from "./pages/ImportPage";
+import { StocktakeDetailPage } from "./pages/StocktakeDetailPage";
+import { QuotationNewPage } from "./pages/QuotationNewPage";
+import { QuotationEditPage } from "./pages/QuotationEditPage";
+import { QuotationDetailPage } from "./pages/QuotationDetailPage";
+import { QuotationPrintPage } from "./pages/QuotationPrintPage";
+import { CashboxPage } from "./pages/CashboxPage";
+import { DuesPage } from "./pages/DuesPage";
+import { ReportsPage } from "./pages/ReportsPage";
+import { AdvancedAnalyticsPage } from "./pages/AdvancedAnalyticsPage";
+import { EmployeeReportPage } from "./pages/EmployeeReportPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { UsersPage } from "./pages/UsersPage";
+import { ReturnsPage } from "./pages/ReturnsPage";
+import { DriversPage } from "./pages/DriversPage";
+import { EmployeeProfilePage } from "./pages/EmployeeProfilePage";
+import { HelpPage } from "./pages/HelpPage";
+import { AuditLogPage } from "./pages/AuditLogPage";
+import { CustomerStatementPrintPage } from "./pages/CustomerStatementPrintPage";
+import { SupplierStatementPrintPage } from "./pages/SupplierStatementPrintPage";
+import { POSPage } from "./pages/POSPage";
+import { SalesInvoiceReceiptPrintPage } from "./pages/SalesInvoiceReceiptPrintPage";
+import { VehicleCatalogPage } from "./pages/VehicleCatalogPage";
+import { PartsFinderPage } from "./pages/PartsFinderPage";
+import { AutoPartsReportsPage } from "./pages/AutoPartsReportsPage";
+import { CustomerGaragePage } from "./pages/CustomerGaragePage";
+import { PartAlternativesPage } from "./pages/PartAlternativesPage";
+import { WarrantyCenterPage } from "./pages/WarrantyCenterPage";
+import { PurchasingAssistantPage } from "./pages/PurchasingAssistantPage";
+import { BranchesPage } from "./pages/BranchesPage";
+import { PricingRulesPage } from "./pages/PricingRulesPage";
+import { MarketingPage } from "./pages/MarketingPage";
+import { ShiftsPage } from "./pages/ShiftsPage";
 
 export default function App() {
   const { auth, isDesktop, licenseStatus, ownerExists, ownerCheckPending } = useAuth();
@@ -101,7 +91,6 @@ export default function App() {
   }
 
   return (
-    <Suspense fallback={<PageLoading />}>
     <Routes>
       <Route
         path="/login"
@@ -519,6 +508,5 @@ export default function App() {
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-    </Suspense>
   );
 }

@@ -316,7 +316,7 @@ export function POSPage() {
       const matchesCategory = selectedCategory === "الكل" || p.category === selectedCategory;
       const matchesSearch = productMatchesSearch(p, searchQuery);
       const fitmentStatus = productVehicleFitmentStatus(p.id, selectedVehicle, vehicleCatalog.productFitments);
-      const matchesVehicle = !selectedVehicle || !compatibilityOnly || fitmentStatus !== "incompatible";
+      const matchesVehicle = !selectedVehicle || !compatibilityOnly || fitmentStatus === "compatible";
       return matchesCategory && matchesSearch && matchesVehicle;
     });
   }, [compatibilityOnly, products, searchQuery, selectedCategory, selectedVehicle, vehicleCatalog.productFitments]);
@@ -714,31 +714,31 @@ export function POSPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden gap-3" dir="rtl">
+    <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden gap-2" dir="rtl">
       {/* Shift Status Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-surface p-3 rounded-xl border border-line shadow-sm shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-surface py-2 px-3 rounded-xl border border-line shadow-sm shrink-0">
+        <div className="flex items-center gap-2">
           {activeShift ? (
             <>
-              <Badge tone="green" className="py-1 px-3 text-xs font-semibold flex items-center gap-1.5">
+              <Badge tone="green" className="py-0.5 px-2.5 text-xs font-semibold flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 وردية نشطة #{activeShift.shiftNumber}
               </Badge>
-              <div className="text-xs text-ink-muted hidden sm:flex items-center gap-3">
+              <div className="text-xs text-ink-muted hidden sm:flex items-center gap-2">
                 <span>الكاشير: <strong className="text-ink">{activeShift.cashierName}</strong></span>
                 <span className="text-line">|</span>
                 <span>وقت الفتح: <strong className="text-ink">{formatDateTime(activeShift.openedAt)}</strong></span>
               </div>
             </>
           ) : (
-            <Badge tone="amber" className="py-1 px-3 text-xs font-semibold flex items-center gap-1.5">
+            <Badge tone="amber" className="py-0.5 px-2.5 text-xs font-semibold flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-amber-500" />
               الوردية مغلقة
             </Badge>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {activeShift ? (
             <>
               {canAddReturn && (
@@ -747,9 +747,10 @@ export function POSPage() {
                   size="sm"
                   onClick={() => setIsReturnLookupOpen(true)}
                   title="مرتجع مبيعات سريع (F9)"
+                  className="h-8 text-xs px-2.5"
                 >
-                  <RotateCcw className="w-4 h-4 ml-1.5 text-amber-600" />
-                  مرتجع
+                  <RotateCcw className="w-3.5 h-3.5 ml-1 text-amber-600" />
+                  مرتجع (F9)
                 </Button>
               )}
 
@@ -760,9 +761,10 @@ export function POSPage() {
                   setSelectedShiftForReport(activeShift);
                   setIsShiftReportOpen(true);
                 }}
+                className="h-8 text-xs px-2.5"
               >
-                <FileText className="w-4 h-4 ml-1.5 text-brand-600" />
-                تقرير الوردية (X-Report)
+                <FileText className="w-3.5 h-3.5 ml-1 text-brand-600" />
+                تقرير الوردية
               </Button>
 
               <Button
@@ -771,9 +773,10 @@ export function POSPage() {
                 onClick={() => setIsCloseShiftOpen(true)}
                 disabled={!canCloseShift}
                 title={!canCloseShift ? "يتطلب صلاحية إغلاق وردية الكاشير" : undefined}
+                className="h-8 text-xs px-2.5"
               >
-                <Lock className="w-4 h-4 ml-1.5" />
-                تقفيل وإغلاق الوردية
+                <Lock className="w-3.5 h-3.5 ml-1" />
+                إغلاق الوردية
               </Button>
             </>
           ) : (
@@ -783,9 +786,10 @@ export function POSPage() {
               onClick={() => setIsOpenShiftOpen(true)}
               disabled={!canOpenShift}
               title={!canOpenShift ? "يتطلب صلاحية فتح وردية كاشير جديدة" : undefined}
+              className="h-8 text-xs px-2.5"
             >
-              <PlayCircle className="w-4 h-4 ml-1.5" />
-              فتح وردية كاشير جديدة
+              <PlayCircle className="w-3.5 h-3.5 ml-1" />
+              فتح وردية
             </Button>
           )}
         </div>
@@ -800,132 +804,138 @@ export function POSPage() {
         {/* Cart & payment panel (right in RTL) — resizable width */}
         <div className="w-full lg:w-[var(--pos-cart-w)] lg:shrink-0 flex flex-col min-h-0 bg-surface border border-line rounded-xl shadow-sm overflow-hidden">
           {/* Cart Header with Customer & Barcode */}
-          <div className="p-4 border-b border-line bg-surface-muted/30 space-y-3 shrink-0">
-            {/* Branch indicator/selector — restricted employees see a fixed
-                badge; unrestricted users (owner, or an employee with no fixed
-                branch) get a real switcher when more than one branch exists. */}
-            {pro.branches.filter((b) => b.active).length > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-ink-muted shrink-0 flex items-center gap-1">
-                  <Building2 className="w-3.5 h-3.5" /> الفرع:
+          <div className="p-2.5 border-b border-line bg-surface-muted/30 space-y-2 shrink-0">
+            {/* Top row: Customer & Vehicle side-by-side */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {/* Customer select */}
+              <div className="flex items-center gap-1 min-w-0">
+                <span className="text-[11px] font-semibold text-ink-muted shrink-0 flex items-center gap-0.5">
+                  <User className="w-3.5 h-3.5 text-brand-600" /> العميل:
                 </span>
-                {currentUser?.branchId || pro.branches.filter((b) => b.active).length <= 1 ? (
-                  <span className="flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-ink">
-                    {selectedBranch?.name ?? "—"}
+                <SearchableSelect
+                  value={customerId}
+                  onChange={setCustomerId}
+                  options={customers.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                    searchText: `${c.code ?? ""} ${c.phone ?? ""}`,
+                  }))}
+                  placeholder="اختر العميل..."
+                  searchPlaceholder="ابحث باسم العميل..."
+                  minChars={0}
+                  className="flex-1 min-w-0 text-xs"
+                  onCreate={(query) => {
+                    setPendingCustomerName(query);
+                    setIsCustomerDialogOpen(true);
+                  }}
+                  createLabel={`أضف عميل: "${pendingCustomerName}"`}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingCustomerName("");
+                    setIsCustomerDialogOpen(true);
+                  }}
+                  className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
+                  title="إضافة عميل جديد"
+                >
+                  <Plus className="w-3.5 h-3.5 text-brand-600" />
+                </button>
+                <CustomerFormDialog
+                  open={isCustomerDialogOpen}
+                  onClose={() => setIsCustomerDialogOpen(false)}
+                  initialName={pendingCustomerName}
+                  onCreated={(created) => {
+                    setCustomerId(created.id);
+                    setIsCustomerDialogOpen(false);
+                  }}
+                />
+              </div>
+
+              {/* Vehicle select */}
+              <div className="flex items-center gap-1 min-w-0">
+                <span className="text-[11px] font-semibold text-ink-muted shrink-0 flex items-center gap-0.5">
+                  <CarFront className="w-3.5 h-3.5 text-cyan-600" /> السيارة:
+                </span>
+                <SearchableSelect
+                  value={selectedVehicleId}
+                  onChange={setSelectedVehicleId}
+                  options={customerVehicles.map((vehicle) => {
+                    const make = vehicleCatalog.vehicleMakes.find((m) => m.id === vehicle.makeId);
+                    const label = vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels);
+                    return {
+                      value: vehicle.id,
+                      label,
+                      image: make?.logoPath || (make?.slug ? `/vehicle-logos/${make.slug}.png` : undefined),
+                      searchText: `${label} ${vehicle.plateNumber ?? ""}`,
+                    };
+                  })}
+                  placeholder="بدون تحديد سيارة"
+                  searchPlaceholder="ابحث عن سيارة العميل..."
+                  minChars={0}
+                  className="flex-1 min-w-0 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsVehicleDialogOpen(true)}
+                  className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
+                  title="إضافة سيارة جديدة"
+                >
+                  <Plus className="w-3.5 h-3.5 text-cyan-600" />
+                </button>
+                <CustomerVehicleFormDialog
+                  open={isVehicleDialogOpen}
+                  onClose={() => setIsVehicleDialogOpen(false)}
+                  initialCustomerId={customerId}
+                  onCreated={(newVehicleId) => {
+                    setSelectedVehicleId(newVehicleId);
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Branch selector if active */}
+            {pro.branches.filter((b) => b.active).length > 0 && (
+              currentUser?.branchId ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-ink-muted shrink-0 flex items-center gap-1">
+                    <Building2 className="w-3 h-3" /> الفرع:
                   </span>
-                ) : (
+                  <span className="text-xs font-semibold text-brand-600 bg-brand-50 dark:bg-brand-950/30 px-2 py-0.5 rounded border border-brand-200 dark:border-brand-900">
+                    {pro.branches.find((b) => b.id === currentUser.branchId)?.name || "فرع محدد"}
+                  </span>
+                </div>
+              ) : pro.branches.filter((b) => b.active).length > 1 ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-ink-muted shrink-0 flex items-center gap-1">
+                    <Building2 className="w-3 h-3" /> الفرع:
+                  </span>
                   <Select
                     value={selectedBranchId}
                     onChange={(e) => setSelectedBranchId(e.target.value)}
-                    className="flex-1"
+                    className="flex-1 h-7 text-xs py-0"
                   >
                     {pro.branches.filter((b) => b.active).map((b) => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
                   </Select>
-                )}
-              </div>
+                </div>
+              ) : null
             )}
-            {/* Customer select */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-ink-muted shrink-0 flex items-center gap-1">
-                <User className="w-3.5 h-3.5" /> العميل:
-              </span>
-              <SearchableSelect
-                value={customerId}
-                onChange={setCustomerId}
-                options={customers.map((c) => ({
-                  value: c.id,
-                  label: c.name,
-                  searchText: `${c.code ?? ""} ${c.phone ?? ""}`,
-                }))}
-                placeholder="اختر العميل..."
-                searchPlaceholder="ابحث باسم العميل أو الكود أو الهاتف..."
-                minChars={0}
-                className="flex-1"
-                onCreate={(query) => {
-                  setPendingCustomerName(query);
-                  setIsCustomerDialogOpen(true);
-                }}
-                createLabel={`أضف عميل جديد: "${pendingCustomerName}"`}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setPendingCustomerName("");
-                  setIsCustomerDialogOpen(true);
-                }}
-                className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
-                title="إضافة عميل جديد"
-              >
-                <Plus className="w-4 h-4 text-brand-600" />
-              </button>
-              <CustomerFormDialog
-                open={isCustomerDialogOpen}
-                onClose={() => setIsCustomerDialogOpen(false)}
-                initialName={pendingCustomerName}
-                onCreated={(created) => {
-                  setCustomerId(created.id);
-                  setIsCustomerDialogOpen(false);
-                }}
-              />
-            </div>
-
-            <div className="flex items-center gap-1">
-              <SearchableSelect
-                value={selectedVehicleId}
-                onChange={setSelectedVehicleId}
-                options={customerVehicles.map((vehicle) => {
-                  const make = vehicleCatalog.vehicleMakes.find((m) => m.id === vehicle.makeId);
-                  const label = vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels);
-                  return {
-                    value: vehicle.id,
-                    label,
-                    image: make?.logoPath || (make?.slug ? `/vehicle-logos/${make.slug}.png` : undefined),
-                    searchText: label,
-                  };
-                })}
-                placeholder="بدون تحديد سيارة"
-                searchPlaceholder="ابحث عن سيارة العميل..."
-                minChars={0}
-                className="flex-1 text-xs"
-              />
-              <button
-                type="button"
-                onClick={() => setIsVehicleDialogOpen(true)}
-                className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
-                title="إضافة سيارة جديدة"
-              >
-                <Plus className="w-4 h-4 text-cyan-600" />
-              </button>
-            </div>
-            <CustomerVehicleFormDialog
-              open={isVehicleDialogOpen}
-              onClose={() => setIsVehicleDialogOpen(false)}
-              initialCustomerId={customerId}
-              onCreated={(newVehicleId) => {
-                setSelectedVehicleId(newVehicleId);
-              }}
-            />
-            {customerId && customerVehicles.length === 0 ? (
-              <button type="button" onClick={() => setIsVehicleDialogOpen(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-cyan-300 bg-cyan-50/60 px-3 py-2 text-xs font-semibold text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300">
-                <CarFront className="h-4 w-4" /> سجل سيارة العميل لتفعيل منع أخطاء التوافق
-              </button>
-            ) : null}
 
             {/* Barcode scanner box */}
-            <form onSubmit={handleBarcodeScan} className="flex gap-2">
+            <form onSubmit={handleBarcodeScan} className="flex gap-1.5">
               <div className="relative flex-1">
-                <Scan className="absolute right-3 top-2.5 w-4 h-4 text-ink-faint" />
+                <Scan className="absolute right-2.5 top-2 w-4 h-4 text-ink-faint" />
                 <Input
                   ref={barcodeInputRef}
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   placeholder="امسح الباركود / Part No. / OEM..."
-                  className="pr-10"
+                  className="pr-9 h-8 text-xs"
                 />
               </div>
-              <Button type="submit" size="sm" className="px-4">
+              <Button type="submit" size="sm" className="px-3 h-8 text-xs font-semibold">
                 إضافة
               </Button>
             </form>
@@ -956,14 +966,14 @@ export function POSPage() {
                     if (!product) return null;
                     return (
                       <tr key={line.id} className="border-b border-line/60 hover:bg-surface-muted/20">
-                        <td className="py-3 px-1">
-                          <p className="font-semibold text-ink leading-tight">{product.name}</p>
+                        <td className="py-2 px-1">
+                          <p className="font-semibold text-ink text-xs leading-snug">{product.name}</p>
                           <span className="text-[10px] text-ink-faint font-mono" dir="ltr">{product.partNumber || product.code}{product.partBrand ? ` · ${product.partBrand}` : ""}</span>
                         </td>
                         
                         {multiSalePricesEnabled && (
-                          <td className="py-3 px-1 text-center">
-                            <div ref={priceMenuRef} className="relative inline-block w-full max-w-[160px] text-right text-sm">
+                          <td className="py-2 px-1 text-center">
+                            <div ref={priceMenuRef} className="relative inline-block w-full max-w-[140px] text-right text-xs">
                               <button
                                 type="button"
                                 onClick={() =>
@@ -971,7 +981,7 @@ export function POSPage() {
                                     current === line.id ? null : line.id
                                   )
                                 }
-                                className="flex h-10 w-full items-center justify-between rounded-full border border-line bg-surface px-3 text-right text-sm text-ink shadow-sm transition hover:border-brand-400 hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-brand-100"
+                                className="flex h-8 w-full items-center justify-between rounded-lg border border-line bg-surface px-2 text-right text-xs text-ink shadow-sm transition hover:border-brand-400 hover:bg-surface-muted focus:outline-none"
                               >
                                 <span className="truncate text-right">
                                   {line.priceType === "retail" && product.retailPrice
@@ -981,14 +991,14 @@ export function POSPage() {
                               </button>
 
                               {openPriceMenuLineId === line.id && (
-                                <div className="absolute right-0 z-20 mt-2 w-full overflow-hidden rounded-2xl border border-line bg-surface shadow-lg">
+                                <div className="absolute right-0 z-20 mt-1 w-full overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
                                   <button
                                     type="button"
                                     onClick={() => {
                                       changePriceType(line.id, "wholesale");
                                       setOpenPriceMenuLineId(null);
                                     }}
-                                    className="w-full px-3 py-3 text-right text-sm text-ink transition hover:bg-surface-muted"
+                                    className="w-full px-2.5 py-2 text-right text-xs text-ink transition hover:bg-surface-muted"
                                   >
                                     جملة ({formatCurrency(product.wholesalePrice)})
                                   </button>
@@ -999,7 +1009,7 @@ export function POSPage() {
                                         changePriceType(line.id, "retail");
                                         setOpenPriceMenuLineId(null);
                                       }}
-                                      className="w-full px-3 py-3 text-right text-sm text-ink transition hover:bg-surface-muted"
+                                      className="w-full px-2.5 py-2 text-right text-xs text-ink transition hover:bg-surface-muted"
                                     >
                                       تجزئة ({formatCurrency(product.retailPrice)})
                                     </button>
@@ -1010,12 +1020,12 @@ export function POSPage() {
                           </td>
                         )}
 
-                        <td className="py-3 px-1 text-center">
+                        <td className="py-2 px-1 text-center">
                           <div className="inline-flex items-center border border-line rounded-lg bg-surface">
                             <button
                               type="button"
                               onClick={() => updateLineQty(line.id, line.quantity - 1, true)}
-                              className="w-8 h-8 flex items-center justify-center text-ink-muted hover:bg-surface-muted active:bg-line transition-colors rounded-r-lg"
+                              className="w-7 h-7 flex items-center justify-center text-ink-muted hover:bg-surface-muted active:bg-line transition-colors rounded-r-lg"
                             >
                               <Minus className="w-3 h-3" />
                             </button>
@@ -1023,29 +1033,29 @@ export function POSPage() {
                               type="number"
                               value={line.quantity}
                               onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) updateLineQty(line.id, v); }}
-                              className="w-10 h-8 text-center text-sm font-semibold border-x border-line focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              className="w-9 h-7 text-center text-xs font-semibold border-x border-line focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                             <button
                               type="button"
                               onClick={() => updateLineQty(line.id, line.quantity + 1, true)}
-                              className="w-8 h-8 flex items-center justify-center text-ink-muted hover:bg-surface-muted active:bg-line transition-colors rounded-l-lg"
+                              className="w-7 h-7 flex items-center justify-center text-ink-muted hover:bg-surface-muted active:bg-line transition-colors rounded-l-lg"
                             >
                               <Plus className="w-3 h-3" />
                             </button>
                           </div>
                         </td>
 
-                        <td className="py-3 px-1 text-left font-bold text-ink">
+                        <td className="py-2 px-1 text-left font-bold text-xs text-ink">
                           {formatCurrency(line.quantity * line.price)}
                         </td>
 
-                        <td className="py-3 px-1 text-left">
+                        <td className="py-2 px-1 text-left">
                           <button
                             type="button"
                             onClick={() => removeLine(line.id)}
-                            className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                            className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </td>
                       </tr>
@@ -1057,13 +1067,13 @@ export function POSPage() {
           </div>
 
           {/* Cart Footer & Payment Controls */}
-          <div className="p-4 border-t border-line bg-surface-muted/20 shrink-0 space-y-4">
-            {/* Totals panel */}
-            <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="p-3 border-t border-line bg-surface-muted/20 shrink-0 space-y-2.5">
+            {/* Totals compact summary */}
+            <div className="grid grid-cols-2 gap-2 text-sm bg-surface p-2.5 rounded-xl border border-line">
               <div className="space-y-1">
                 <div className="flex justify-between text-ink-muted">
                   <span>الإجمالي:</span>
-                  <span>{formatCurrency(gross)}</span>
+                  <span className="font-bold">{formatCurrency(gross)}</span>
                 </div>
                 <div className="flex justify-between items-center text-ink-muted">
                   <span>الخصم:</span>
@@ -1071,57 +1081,54 @@ export function POSPage() {
                     type="number"
                     value={discount}
                     onChange={(e) => setDiscount(Math.max(0, parseFloat(e.target.value) || 0))}
-                    className="w-20 text-left border border-line rounded-xl px-3 py-1.5 bg-surface text-ink text-sm font-semibold shadow-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-20 text-left border border-line rounded-lg px-2 py-0.5 bg-surface text-ink text-sm font-bold shadow-sm focus:border-brand-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 {creditPaymentEnabled && creditAvailable > 0 && (
-                  <label className="flex items-center gap-2 text-xs font-semibold text-brand-600 mt-2 cursor-pointer select-none">
+                  <label className="flex items-center gap-1.5 text-[10px] font-semibold text-brand-600 mt-1 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={useCredit}
                       onChange={(e) => setUseCredit(e.target.checked)}
-                      className="rounded text-brand-600 focus:ring-brand-500 w-3.5 h-3.5"
+                      className="rounded text-brand-600 focus:ring-brand-500 w-3 h-3"
                     />
-                    استخدام رصيد دائن ({formatCurrency(creditAvailable)})
+                    رصيد دائن ({formatCurrency(creditAvailable)})
                   </label>
                 )}
               </div>
 
-              <div className="space-y-2 border-r border-line pr-3">
-                <div className="flex justify-between font-bold text-base text-ink">
+              <div className="space-y-1 border-r border-line pr-2.5">
+                <div className="flex justify-between font-bold text-sm text-ink">
                   <span>الصافي:</span>
-                  <span>{formatCurrency(invoiceNet)}</span>
+                  <span className="text-brand-600 text-base">{formatCurrency(invoiceNet)}</span>
                 </div>
-                
                 <div className="flex justify-between items-center font-semibold text-emerald-700 dark:text-emerald-400">
                   <span>المدفوع:</span>
                   <input
                     type="number"
                     value={amountReceived}
                     onChange={(e) => setAmountReceived(Math.max(0, parseFloat(e.target.value) || 0))}
-                    className="w-24 text-left border border-line rounded-xl px-3 py-1.5 bg-surface text-emerald-700 dark:text-emerald-400 font-semibold shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-24 text-left border border-line rounded-lg px-2 py-1 bg-surface text-emerald-700 dark:text-emerald-400 text-sm font-bold shadow-sm focus:border-emerald-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
-
-                <div className="flex justify-between font-semibold text-brand-600">
+                <div className="flex justify-between font-semibold text-sm text-ink-muted">
                   <span>الباقي:</span>
-                  <span>{formatCurrency(customerChange)}</span>
+                  <span className={customerChange > 0 ? "text-emerald-600 font-bold" : "text-amber-600 font-bold"}>
+                    {formatCurrency(customerChange)}
+                  </span>
                 </div>
               </div>
             </div>
 
             {/* Payment method & Checkout */}
             <div className="space-y-2">
-              <div className="flex gap-2 text-xs">
+              <div className="flex gap-1.5 text-xs">
                 <button
                   type="button"
-                  onClick={() => {
-                    setPaymentType("cash");
-                    setPaymentMethod("cash");
-                  }}
-                  className={`flex-1 py-2 font-bold rounded-lg border text-center transition-all ${
+                  onClick={() => { setPaymentType("cash"); setPaymentMethod("cash"); }}
+                  className={`flex-1 py-1.5 font-bold rounded-lg border text-center text-xs transition-all ${
                     paymentType === "cash" && paymentMethod === "cash"
-                      ? "bg-emerald-600 text-white border-emerald-600 shadow-md scale-[1.02]"
+                      ? "bg-emerald-600 text-white border-emerald-600 shadow"
                       : "bg-surface text-ink-muted border-line hover:bg-surface-muted/50"
                   }`}
                 >
@@ -1129,41 +1136,44 @@ export function POSPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setPaymentType("cash");
-                    setPaymentMethod("instapay");
-                  }}
-                  className={`flex-1 py-2 font-bold rounded-lg border text-center transition-all ${
+                  onClick={() => { setPaymentType("cash"); setPaymentMethod("card"); }}
+                  className={`flex-1 py-1.5 font-bold rounded-lg border text-center text-xs transition-all ${
+                    paymentType === "cash" && paymentMethod === "card"
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow"
+                      : "bg-surface text-ink-muted border-line hover:bg-surface-muted/50"
+                  }`}
+                >
+                  فيزا / كارت
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPaymentType("cash"); setPaymentMethod("vodafone"); }}
+                  className={`flex-1 py-1.5 font-bold rounded-lg border text-center text-xs transition-all ${
+                    paymentType === "cash" && paymentMethod === "vodafone"
+                      ? "bg-red-600 text-white border-red-600 shadow"
+                      : "bg-surface text-ink-muted border-line hover:bg-surface-muted/50"
+                  }`}
+                >
+                  فودافون كاش
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPaymentType("cash"); setPaymentMethod("instapay"); }}
+                  className={`flex-1 py-1.5 font-bold rounded-lg border text-center text-xs transition-all ${
                     paymentType === "cash" && paymentMethod === "instapay"
-                      ? "bg-blue-600 text-white border-blue-600 shadow-md scale-[1.02]"
+                      ? "bg-blue-600 text-white border-blue-600 shadow"
                       : "bg-surface text-ink-muted border-line hover:bg-surface-muted/50"
                   }`}
                 >
                   انستاباي
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPaymentType("cash");
-                    setPaymentMethod("other");
-                  }}
-                  className={`flex-1 py-2 font-bold rounded-lg border text-center transition-all ${
-                    paymentType === "cash" && paymentMethod === "other"
-                      ? "bg-purple-600 text-white border-purple-600 shadow-md scale-[1.02]"
-                      : "bg-surface text-ink-muted border-line hover:bg-surface-muted/50"
-                  }`}
-                >
-                  أخرى
-                </button>
                 {creditSalesEnabled && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setPaymentType("account");
-                    }}
-                    className={`flex-1 py-2 font-bold rounded-lg border text-center transition-all ${
+                    onClick={() => { setPaymentType("account"); }}
+                    className={`flex-1 py-1.5 font-bold rounded-lg border text-center text-xs transition-all ${
                       paymentType === "account"
-                        ? "bg-amber-600 text-white border-amber-600 shadow-md scale-[1.02]"
+                        ? "bg-amber-600 text-white border-amber-600 shadow"
                         : "bg-surface text-ink-muted border-line hover:bg-surface-muted/50"
                     }`}
                   >
@@ -1172,42 +1182,40 @@ export function POSPage() {
                 )}
               </div>
 
-              {/* Hold / Resume row */}
-              <div className="flex gap-2">
+              {/* Hold / Resume & Checkout Row */}
+              <div className="flex gap-2 items-center">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={holdCurrentInvoice}
                   disabled={lines.length === 0}
-                  className="flex-1 h-10 text-xs font-bold rounded-xl"
+                  className="h-10 text-xs font-bold rounded-xl px-3"
                   title="تعليق الفاتورة الحالية (F8)"
                 >
-                  <Pause className="w-4 h-4 ml-1" /> تعليق (F8)
+                  <Pause className="w-3.5 h-3.5 ml-1" /> تعليق (F8)
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setIsHeldListOpen(true)}
-                  className="flex-1 h-10 text-xs font-bold rounded-xl relative"
+                  className="h-10 text-xs font-bold rounded-xl px-3 relative"
                   title="الفواتير المعلّقة"
                 >
-                  <Play className="w-4 h-4 ml-1" /> المعلّقة
+                  <Play className="w-3.5 h-3.5 ml-1" /> المعلّقة
                   {heldInvoices.length > 0 && (
                     <span className="absolute -top-1.5 -left-1.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold px-1 shadow">
                       {heldInvoices.length}
                     </span>
                   )}
                 </Button>
+                <Button
+                  type="button"
+                  onClick={submitSale}
+                  className="flex-1 h-10 bg-blue-600 text-white hover:bg-blue-700 text-sm font-bold shadow-md rounded-xl"
+                >
+                  <DollarSign className="w-4 h-4 ml-1" /> إتمام البيع وحفظ (F10)
+                </Button>
               </div>
-
-              {/* Big Checkout Button */}
-              <Button
-                type="button"
-                onClick={submitSale}
-                className="w-full h-12 bg-emerald-600 text-white hover:bg-emerald-700 text-base font-bold shadow-md rounded-xl"
-              >
-                <DollarSign className="w-5 h-5" /> إتمام البيع وحفظ الفاتورة (F10)
-              </Button>
             </div>
           </div>
         </div>
@@ -1228,26 +1236,26 @@ export function POSPage() {
         {/* Product grid catalog (left in RTL) — fills the remaining width */}
         <div className="w-full lg:flex-1 lg:min-w-0 flex flex-col min-h-0 bg-surface border border-line rounded-xl shadow-sm overflow-hidden">
           {/* Search & Category Header */}
-          <div className="p-4 border-b border-line bg-surface-muted/20 space-y-3 shrink-0">
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="absolute right-3 top-2.5 w-4 h-4 text-ink-faint" />
+          <div className="p-3 border-b border-line bg-surface-muted/20 space-y-2 shrink-0">
+            {/* Search Input on top */}
+            <div className="relative w-full">
+              <Search className="absolute right-2.5 top-2.5 w-4 h-4 text-ink-faint" />
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="ابحث عن منتج بالاسم أو الرمز..."
-                className="pr-10"
+                className="pr-9 h-8 text-xs w-full"
               />
             </div>
 
-            {/* Category tabs */}
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            {/* Category tabs underneath */}
+            <div className="flex gap-1 overflow-x-auto pb-0.5 scrollbar-thin w-full">
               {categories.map((cat) => (
                 <button
                   key={cat}
                   type="button"
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1 text-xs font-bold rounded-full transition-colors whitespace-nowrap ${
+                  className={`px-2.5 py-1 text-xs font-bold rounded-full transition-colors whitespace-nowrap ${
                     selectedCategory === cat
                       ? "bg-brand-600 text-white"
                       : "bg-surface-muted text-ink-muted hover:bg-line"
@@ -1257,40 +1265,57 @@ export function POSPage() {
                 </button>
               ))}
             </div>
+
             {selectedVehicle ? (
-              <label className="flex cursor-pointer items-center justify-between rounded-xl border border-cyan-200 bg-cyan-50/60 px-3 py-2 text-xs font-semibold text-cyan-900 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300">
-                <span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> عرض القطع المتوافقة والمجهولة فقط</span>
-                <input type="checkbox" checked={compatibilityOnly} onChange={(event) => setCompatibilityOnly(event.target.checked)} className="h-4 w-4 rounded" />
+              <label className="flex cursor-pointer items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50/60 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-900 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300">
+                <span className="flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> عرض القطع المتوافقة فقط</span>
+                <input type="checkbox" checked={compatibilityOnly} onChange={(event) => setCompatibilityOnly(event.target.checked)} className="h-3.5 w-3.5 rounded" />
               </label>
             ) : null}
           </div>
 
           {/* Grid list of Products */}
-          <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
+          <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
             {filteredProducts.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-ink-faint">
+              <div className="h-full flex items-center justify-center text-ink-faint text-xs">
                 لا توجد منتجات مطابقة للبحث
               </div>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
                 {filteredProducts.map((prod) => {
                   const availableStock = branchAvailableAsBaseUnits(prod);
                   const isOutOfStock = availableStock <= 0;
                   const fitmentStatus = productVehicleFitmentStatus(prod.id, selectedVehicle, vehicleCatalog.productFitments);
+                  const alternatives = isOutOfStock ? findAlternativesFor(prod) : [];
+                  const hasAlternatives = alternatives.length > 0;
                   return (
                     <button
                       key={prod.id}
-                      onClick={() => !isOutOfStock && addProductToCart(prod)}
-                      disabled={isOutOfStock}
-                      className={`flex flex-col text-right justify-between p-3 border rounded-xl bg-surface transition-all select-none ${
+                      onClick={() => {
+                        if (isOutOfStock && hasAlternatives) {
+                          setStockAlternative({ product: prod, alternatives });
+                        } else if (!isOutOfStock) {
+                          addProductToCart(prod);
+                        }
+                      }}
+                      disabled={isOutOfStock && !hasAlternatives}
+                      className={`flex flex-col text-right justify-between p-2.5 border rounded-xl bg-surface transition-all select-none relative ${
                         isOutOfStock
-                          ? "opacity-50 cursor-not-allowed border-line bg-surface-muted/30"
+                          ? hasAlternatives
+                            ? "opacity-80 cursor-pointer border-amber-500/50 hover:border-amber-500 hover:shadow-md"
+                            : "opacity-50 cursor-not-allowed border-line bg-surface-muted/30"
                           : "border-line hover:border-brand-500 hover:shadow-md hover:scale-[1.01] cursor-pointer"
                       }`}
                     >
+                      {/* "يوجد بديل" badge for out-of-stock items with alternatives */}
+                      {isOutOfStock && hasAlternatives && (
+                        <span className="absolute -top-2 -right-2 z-10 bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow whitespace-nowrap">
+                          يوجد بديل
+                        </span>
+                      )}
                       <div className="space-y-1">
                         <div className="flex justify-between items-start gap-1">
-                          <span className="text-[10px] bg-surface-muted px-1.5 py-0.5 rounded text-ink-muted font-bold font-mono truncate max-w-[60px]">
+                          <span className="text-[10px] bg-surface-muted px-1.5 py-0.5 rounded text-ink-muted font-bold font-mono truncate max-w-[55px]" title={prod.code}>
                             {prod.code}
                           </span>
                           <Badge
@@ -1301,16 +1326,16 @@ export function POSPage() {
                           </Badge>
                         </div>
                         {selectedVehicle ? <Badge tone={fitmentStatus === "compatible" ? "green" : fitmentStatus === "incompatible" ? "red" : "amber"} className="text-[9px]">{fitmentStatus === "compatible" ? "متوافق" : fitmentStatus === "incompatible" ? "غير متوافق" : "يلزم مطابقة"}</Badge> : null}
-                        <h3 className="font-semibold text-xs text-ink leading-tight line-clamp-2">
+                        <h3 className="font-semibold text-xs text-ink leading-snug line-clamp-2" title={prod.name}>
                           {prod.name}
                         </h3>
                       </div>
                       
-                      <div className="mt-3 border-t border-line/60 pt-2 flex justify-between items-center">
-                        <span className="text-[10px] text-ink-faint">
+                      <div className="mt-2 border-t border-line/60 pt-1.5 flex justify-between items-center">
+                        <span className="text-[10px] text-ink-faint truncate max-w-[45px]">
                           {prod.unit}
                         </span>
-                        <span className="font-bold text-sm text-brand-600">
+                        <span className="font-bold text-xs text-brand-600">
                           {formatCurrency(getProductPrice(prod, DEFAULT_PRICE_TYPE))}
                         </span>
                       </div>
