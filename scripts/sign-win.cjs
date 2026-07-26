@@ -80,12 +80,9 @@ exports.default = async function sign(configuration) {
   const signtool = findSigntool();
   const baseName = path.basename(file);
 
-  // No signtool/certificate on this machine — e.g. a CI runner that isn't the
-  // developer's own box. The fuse flip + integrity hash above still ran, so
-  // the package is fully functional; it's just unsigned (Windows SmartScreen
-  // will show the standard "unknown publisher" prompt on an unsigned .exe).
+  // No signtool binary at all on this machine.
   if (!signtool) {
-    console.warn(`[sign-win] signtool.exe/certificate not found — skipping signature for ${baseName} (unsigned build)`);
+    console.warn(`[sign-win] signtool.exe not found — skipping signature for ${baseName} (unsigned build)`);
     return;
   }
 
@@ -97,7 +94,7 @@ exports.default = async function sign(configuration) {
       execFileSync(
         signtool,
         ["sign", "/sha1", CERT_SHA1, "/fd", "sha256", "/tr", tsUrl, "/td", "sha256", file],
-        { stdio: "inherit" }
+        { stdio: "pipe" }
       );
       timestamped = true;
       console.log(`[sign-win] signed ${baseName} (timestamped via ${tsUrl})`);
@@ -108,14 +105,25 @@ exports.default = async function sign(configuration) {
   }
 
   if (!timestamped) {
-    execFileSync(
-      signtool,
-      ["sign", "/sha1", CERT_SHA1, "/fd", "sha256", file],
-      { stdio: "inherit" }
-    );
-    console.warn(
-      `[sign-win] signed ${baseName} WITHOUT a timestamp (no TSA reachable) — ` +
-        `signature stops validating once the certificate expires.`
-    );
+    try {
+      execFileSync(
+        signtool,
+        ["sign", "/sha1", CERT_SHA1, "/fd", "sha256", file],
+        { stdio: "pipe" }
+      );
+      console.warn(
+        `[sign-win] signed ${baseName} WITHOUT a timestamp (no TSA reachable) — ` +
+          `signature stops validating once the certificate expires.`
+      );
+    } catch (error) {
+      // signtool.exe exists (e.g. it ships with the Windows SDK on GitHub's
+      // windows-latest runners) but the certificate itself isn't in this
+      // machine's store — e.g. any machine that isn't the developer's own.
+      // The fuse flip + integrity hash above already ran, so the package is
+      // fully functional; it's just unsigned (Windows SmartScreen will show
+      // the standard "unknown publisher" prompt on an unsigned .exe).
+      const detail = error && error.stderr ? error.stderr.toString().trim() : String(error);
+      console.warn(`[sign-win] signing certificate not available — skipping signature for ${baseName} (unsigned build). signtool said: ${detail}`);
+    }
   }
 };
