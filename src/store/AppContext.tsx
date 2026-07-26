@@ -38,7 +38,7 @@ import type {
   OfflineEmployeeTransactionType,
   CashierShift,
 } from "../types";
-import { lsClearAll, lsGet, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, reloadStorageCache } from "../lib/storage";
+import { lsClearAll, lsGet, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, reloadStorageCache, pruneStorageMemoryCache } from "../lib/storage";
 import { hashPassword, verifyFallbackPassword } from "../lib/auth";
 import { normalizeUser } from "../lib/permissions";
 import { FEATURES, isAllowedByLicense, isFeatureEnabled } from "../lib/features";
@@ -2145,6 +2145,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearAuditLogs(days);
     }
   }, [settings.auditLogPruneDays, clearAuditLogs]);
+
+  // Periodic pruning of auto-backup history to max 5 records & memory cache cleanup
+  useEffect(() => {
+    try {
+      const history = lsGet<Array<{ id: string; timestamp: string }>>("inventory_auto_backups_history", []);
+      if (Array.isArray(history) && history.length > 5) {
+        const pruned = history.slice(0, 5);
+        lsSet("inventory_auto_backups_history", pruned);
+      }
+      pruneStorageMemoryCache(1000);
+    } catch {
+      /* ignore storage pruning errors */
+    }
+  }, []);
 
   // Shifts
   const activeShift = useMemo(() => {

@@ -85,6 +85,15 @@ export function SalesInvoicesPage() {
     return [...list].sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [salesInvoices, customerCodeMap, customerPhoneMap, q, customerId, status, payment, from, to]);
 
+  const [page, setPage] = useState(0);
+
+  const PAGE_SIZE = 30;
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE) || 1;
+  const paginatedInvoices = useMemo(
+    () => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [filtered, page]
+  );
+
   const totals = useMemo(() => {
     const total = filtered.reduce((a, s) => a + (s.cancelled ? 0 : s.total), 0);
     const received = filtered.reduce(
@@ -217,7 +226,7 @@ export function SalesInvoicesPage() {
                 </TR>
               </THead>
               <TBody>
-                {filtered.map((s) => (
+                {paginatedInvoices.map((s) => (
                   <TR key={s.id}>
                     <TD className="font-mono text-xs">
                       <Link to={`/sales/${s.id}`} className="text-brand-700 hover:underline">
@@ -297,6 +306,37 @@ export function SalesInvoicesPage() {
                 ))}
               </TBody>
             </Table>
+          )}
+
+          {filtered.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-3 border-t border-line text-xs">
+              <span className="text-ink-muted">
+                عرض الصف {page * PAGE_SIZE + 1} إلى {Math.min((page + 1) * PAGE_SIZE, filtered.length)} من إجمالي {filtered.length} فاتورة
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 0}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  className="h-8 px-2.5"
+                >
+                  <ChevronRight className="w-4 h-4 me-1" /> السابق
+                </Button>
+                <span className="px-2 font-medium text-ink">
+                  صفحة {page + 1} من {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  className="h-8 px-2.5"
+                >
+                  التالي <ChevronLeft className="w-4 h-4 ms-1" />
+                </Button>
+              </div>
+            </div>
           )}
         </CardBody>
       </Card>

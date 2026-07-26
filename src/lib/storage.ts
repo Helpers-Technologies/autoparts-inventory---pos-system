@@ -210,3 +210,19 @@ export function lsClearAll(): void {
   }
   keys.forEach((k) => localStorage.removeItem(k));
 }
+
+/**
+ * Prunes the in-memory cache to release memory if key count exceeds target limit.
+ */
+export function pruneStorageMemoryCache(maxKeys = 1000): void {
+  if (_cache.size <= maxKeys) return;
+  // Retain prefixed active keys and remove extraneous entries
+  const keys = [..._cache.keys()];
+  const excess = _cache.size - maxKeys;
+  for (let i = 0; i < excess; i++) {
+    const k = keys[i];
+    if (k && !k.includes("settings") && !k.includes("currentUser")) {
+      _cache.delete(k);
+    }
+  }
+}
