@@ -24,6 +24,7 @@
  * ConfirmDialog appeared instead) -> confirm -> importBackup WAS called.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { screen, waitFor, cleanup } from "@testing-library/react";
 import { SettingsPage } from "../../src/pages/SettingsPage";
