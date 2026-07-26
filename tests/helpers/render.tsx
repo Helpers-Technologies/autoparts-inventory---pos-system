@@ -1,6 +1,6 @@
 import React from "react";
 import { render, type RenderOptions } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, type InitialEntry } from "react-router-dom";
 import { ToastProvider } from "../../src/components/ui/Toast";
 
 /**
@@ -12,7 +12,7 @@ import { ToastProvider } from "../../src/components/ui/Toast";
  */
 export function renderWithProviders(
   ui: React.ReactElement,
-  options?: Omit<RenderOptions, "wrapper"> & { initialEntries?: string[] }
+  options?: Omit<RenderOptions, "wrapper"> & { initialEntries?: InitialEntry[] }
 ) {
   const { initialEntries = ["/"], ...rest } = options ?? {};
 
