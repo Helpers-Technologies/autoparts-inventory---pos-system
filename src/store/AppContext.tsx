@@ -69,6 +69,7 @@ import {
   settlePurchaseInvoiceReturn,
   quotationConversionFields,
   employeeCollectedCash,
+  employeeCollectedCashBatch,
   recomputeSalesInvoiceAfterEdit,
   recomputePurchaseInvoiceAfterEdit,
   adjustStockCartonDelta,
@@ -124,7 +125,7 @@ interface AppActions {
   updateSettings: (patch: Partial<Settings>) => void;
 
   // Shifts
-  openShift: (opts: { openingCash: number; note?: string }) => CashierShift;
+  openShift: (opts: { openingCash: number; note?: string; branchId?: string; branchName?: string }) => CashierShift;
   closeShift: (shiftId: ID, closingCashActual: number, note?: string) => CashierShift;
   getShiftSummary: (shiftId: ID) => CashierShift;
 
@@ -276,6 +277,16 @@ interface AppActions {
     totalEarnings: number;
     monthLabel: string;
   };
+  /** Batched employeeSalesStats — call once with every userId instead of once per employee (avoids re-scanning invoices/cash entries per employee). */
+  employeeSalesStatsBatch: (userIds: ID[], month: string) => Map<ID, {
+    totalCollected: number;
+    commissionEarned: number;
+    commissionPct: number;
+    target: number;
+    salary: number;
+    totalEarnings: number;
+    monthLabel: string;
+  }>;
 
   // Backup & Import
   // `passphrase` (optional) protects a MANUAL export with a user secret (v2
@@ -729,16 +740,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!advancedSecurityEnabled || !s.settings.autoBackupEnabled) return;
 
       const now = new Date();
-      const lastBackup = s.settings.lastBackupDate;
-      let shouldBackup = false;
-      if (!lastBackup) {
-        shouldBackup = true;
-      } else {
-        const diffDays = (now.getTime() - new Date(lastBackup).getTime()) / (1000 * 60 * 60 * 24);
-        if (s.settings.autoBackupFrequency === "daily" && diffDays >= 1) shouldBackup = true;
-        if (s.settings.autoBackupFrequency === "weekly" && diffDays >= 7) shouldBackup = true;
-        if (s.settings.autoBackupFrequency === "monthly" && diffDays >= 30) shouldBackup = true;
-      }
+      // Same due-check as the external (to-folder) auto backup below — kept in
+      // one place (isAutoBackupDue) instead of two independently-maintained
+      // day-diffing implementations that could silently drift apart.
+      const shouldBackup = isAutoBackupDue({
+        enabled: true,
+        backupPath: "internal", // this path always has a destination (localStorage)
+        frequency: s.settings.autoBackupFrequency,
+        lastBackupDate: s.settings.lastInternalBackupDate ?? "",
+        now: now.getTime(),
+      });
 
       if (shouldBackup) {
         const safeUsers = redactUserPasswordHashes(s.users);
@@ -747,8 +758,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           timestamp: now.toISOString(),
           state: { ...s, users: safeUsers },
         };
-        lsSet("inventory_auto_backup_internal", data);
-        setSettings((current) => ({ ...current, lastBackupDate: now.toISOString() }));
+        try {
+          lsSet("inventory_auto_backup_internal", data);
+          // Use a separate timestamp so the internal (localStorage) backup
+          // doesn't overwrite the external backup date shown to the user.
+          setSettings((current) => ({ ...current, lastInternalBackupDate: now.toISOString() }));
+        } catch (err) {
+          logAudit("backup_failed", "فشل النسخ الاحتياطي التلقائي الداخلي", err instanceof Error ? err.message : String(err));
+        }
       }
     }
 
@@ -1057,9 +1074,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     setUsers((list) => [user, ...list]);
+    logAudit("user_created", user.name, `اسم الدخول: ${user.username} — الدور: ${user.role === "owner" ? "مالك" : "موظف"}`);
     return user;
   };
   const updateUser: AppActions["updateUser"] = (id, patch) => {
+    const before = users.find((u) => u.id === id);
     setUsers((list) =>
       list.map((u) =>
         u.id === id
@@ -1067,6 +1086,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : u
       )
     );
+    if (before) {
+      const permissionsChanged =
+        patch.permissions !== undefined &&
+        JSON.stringify(patch.permissions) !== JSON.stringify(before.permissions);
+      if (permissionsChanged) {
+        logAudit("user_permissions_updated", patch.name || before.name, "تم تعديل صلاحيات المستخدم");
+      } else {
+        logAudit("user_updated", patch.name || before.name, "تعديل بيانات مستخدم");
+      }
+    }
   };
   const updateCurrentUserProfile: AppActions["updateCurrentUserProfile"] = useCallback(async ({
     name,
@@ -1159,8 +1188,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentUser]);
   const deleteUser: AppActions["deleteUser"] = (id) => {
     const u = users.find((x) => x.id === id);
-    if (u?.role === "owner") return false;
+    if (!u || u.role === "owner") return false;
+    const hasShifts = shifts.some((shift) => shift.cashierId === id);
+    const hasInvoices = salesInvoices.some((inv) => inv.createdByUserId === id);
+    if (hasShifts || hasInvoices) return false;
     setUsers((list) => list.filter((x) => x.id !== id));
+    logAudit("user_deleted", u.name, `اسم الدخول: ${u.username}`);
     return true;
   };
 
@@ -1489,6 +1522,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const totalQty = matchingLines.reduce((sum, l) => sum + l.quantity, 0);
         const addedValue = matchingLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
         const lastExpiry = matchingLines.filter((l) => l.expiryDate).pop()?.expiryDate;
+        const latestPrice = matchingLines.filter((l) => l.price > 0).pop()?.price;
         const patch: Partial<Product> = {
           quantity: p.quantity + totalQty,
           avgCost: applyWeightedAverageCostDelta({
@@ -1498,6 +1532,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             addValue: addedValue,
           }),
         };
+        if (latestPrice && latestPrice > 0) patch.purchasePrice = latestPrice;
         if (lastExpiry && p.hasExpiry) patch.expiryDate = lastExpiry;
         return { ...p, ...patch };
       })
@@ -1559,8 +1594,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         const lastNewExpiry = newLines.filter((l) => l.expiryDate).pop()?.expiryDate;
         const expiryDate = lastNewExpiry && p.hasExpiry ? lastNewExpiry : p.expiryDate;
-        return qty !== p.quantity || avgCost !== p.avgCost || expiryDate !== p.expiryDate
-          ? { ...p, quantity: qty, avgCost, expiryDate }
+        const latestNewPrice = newLines.filter((l) => l.price > 0).pop()?.price;
+        const purchasePrice = latestNewPrice && latestNewPrice > 0 ? latestNewPrice : p.purchasePrice;
+        return qty !== p.quantity || avgCost !== p.avgCost || expiryDate !== p.expiryDate || purchasePrice !== p.purchasePrice
+          ? { ...p, quantity: qty, avgCost, expiryDate, purchasePrice }
           : p;
       })
     );
@@ -2127,6 +2164,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         totalExpenses: 0,
         salesInvoiceIds: [],
         note: opts.note?.trim(),
+        branchId: opts.branchId,
+        branchName: opts.branchName,
       };
 
       setShifts((prev) => [newShift, ...prev]);
@@ -2392,10 +2431,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (item.countedQty === null && item.countedLoose == null) return;
       const prod = products.find((p) => p.id === item.productId);
       if (!prod) return;
-      const delta = item.countedQty !== null ? item.countedQty - prod.quantity : 0;
+      const delta = item.countedQty !== null ? item.countedQty - item.systemQty : 0;
       const looseDelta =
         prod.piecesPerUnit && item.countedLoose != null
-          ? item.countedLoose - (prod.looseQuantity ?? 0)
+          ? item.countedLoose - (item.systemLoose ?? 0)
           : 0;
       if (delta === 0 && looseDelta === 0) return;
       adjustStock(item.productId, delta, `جرد دوري ${stk.date}`, looseDelta !== 0 ? looseDelta : undefined);
@@ -2815,6 +2854,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [users, salesInvoices, salesReturns, cashEntries]
   );
 
+  // Batched counterpart of employeeSalesStats — a report page listing every
+  // employee for a month should call this once, not employeeSalesStats once
+  // per employee (see employeeCollectedCashBatch for why that was slow).
+  const employeeSalesStatsBatch: AppActions["employeeSalesStatsBatch"] = useCallback(
+    (userIds, month) => {
+      const [yearStr, monStr] = month.split("-");
+      const year = parseInt(yearStr, 10);
+      const mon = parseInt(monStr, 10);
+      const monthStart = localISODate(new Date(year, mon - 1, 1));
+      const monthEnd = localISODate(new Date(year, mon, 0));
+      const MONTH_NAMES = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+      const monthLabel = `${MONTH_NAMES[mon - 1]} ${year}`;
+
+      const collectedByUser = employeeCollectedCashBatch(
+        salesInvoices,
+        salesReturns,
+        cashEntries,
+        userIds,
+        monthStart,
+        monthEnd,
+      );
+
+      const result = new Map<string, ReturnType<AppActions["employeeSalesStats"]>>();
+      for (const userId of userIds) {
+        const employee = users.find((u) => u.id === userId);
+        const totalCollected = collectedByUser.get(userId) ?? 0;
+        const monthConfig = employee?.monthlyConfigs?.[month];
+        const commissionPct = monthConfig?.commissionPct ?? employee?.salesCommissionPct ?? 0;
+        const target = monthConfig?.target ?? employee?.monthlySalesTarget ?? 0;
+        const commissionEarned = (totalCollected * commissionPct) / 100;
+        const salary = employee?.monthlySalary ?? 0;
+        result.set(userId, {
+          totalCollected,
+          commissionEarned,
+          commissionPct,
+          target,
+          salary,
+          totalEarnings: salary + commissionEarned,
+          monthLabel,
+        });
+      }
+      return result;
+    },
+    [users, salesInvoices, salesReturns, cashEntries]
+  );
+
   // --- Backup & Export ---
 
   const buildBackupData = useCallback(() => {
@@ -2910,7 +2995,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     if (!due) return;
     autoBackupRanRef.current = true;
-    void backupToPath();
+    void backupToPath().then((result) => {
+      if (!result.ok) {
+        logAudit("backup_failed", "فشل النسخ الاحتياطي التلقائي إلى المجلد الخارجي", result.error ?? "unknown_error");
+      }
+    });
   }, [
     isDesktop,
     currentUser,
@@ -3282,6 +3371,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       auditLogs,
       calculateSupplierCommission,
       employeeSalesStats,
+      employeeSalesStatsBatch,
       exportBackup,
       importBackup,
       backupToPath,
@@ -3321,6 +3411,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       calculateSupplierCommission,
       settleAllDues,
       employeeSalesStats,
+      employeeSalesStatsBatch,
       exportBackup,
       importBackup,
       backupToPath,
@@ -3389,8 +3480,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // F3-6: Reporting slice — derived selectors only (all are stable useCallbacks).
   const reportingValue = useMemo(
-    () => ({ customerBalance, customerCredit, supplierBalance, supplierCredit, calculateSupplierCommission, employeeSalesStats, exportToExcel }),
-    [customerBalance, customerCredit, supplierBalance, supplierCredit, calculateSupplierCommission, employeeSalesStats, exportToExcel]
+    () => ({ customerBalance, customerCredit, supplierBalance, supplierCredit, calculateSupplierCommission, employeeSalesStats, employeeSalesStatsBatch, exportToExcel }),
+    [customerBalance, customerCredit, supplierBalance, supplierCredit, calculateSupplierCommission, employeeSalesStats, employeeSalesStatsBatch, exportToExcel]
   );
 
   // F3-6: Invoicing slice — sales/purchase invoices, returns, cashbox, stock movements + actions.

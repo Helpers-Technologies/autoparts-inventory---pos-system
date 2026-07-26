@@ -15,6 +15,7 @@ import { uid } from "../lib/utils";
 import type { InvoiceLine } from "../types";
 import { formatCurrency } from "../lib/format";
 import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
+import { useFeatures } from "../lib/useFeatures";
 
 interface LineDraft {
   id: string;
@@ -31,6 +32,8 @@ export function PurchaseInvoiceEditPage() {
   const { purchaseInvoices, updatePurchaseInvoice } = useInvoicing();
   const { products } = useCatalog();
   const { settings } = useSettings();
+  const { isEnabled } = useFeatures();
+  const expiryTrackingEnabled = isEnabled("expiryTracking");
 
   const inv = purchaseInvoices.find((i) => i.id === id);
 
@@ -74,6 +77,14 @@ export function PurchaseInvoiceEditPage() {
     [lines]
   );
 
+  function getLatestPurchasePrice(p: import("../types").Product): number {
+    const lastLine = purchaseInvoices
+      .flatMap((inv) => inv.lines)
+      .filter((l) => l.productId === p.id && l.price > 0)
+      .pop();
+    return lastLine?.price ?? p.purchasePrice ?? 0;
+  }
+
   function addLine() {
     setLines((l) => [...l, { id: uid("line"), productId: "", quantity: 1, price: 0 }]);
   }
@@ -86,7 +97,7 @@ export function PurchaseInvoiceEditPage() {
         if (patch.productId !== undefined) {
           const p = products.find((x) => x.id === patch.productId);
           if (p) {
-            next.price = p.purchasePrice;
+            next.price = getLatestPurchasePrice(p);
             next.expiryDate = p.expiryDate;
           }
         }
@@ -212,7 +223,7 @@ export function PurchaseInvoiceEditPage() {
                   <TH>المنتج</TH>
                   <TH className="w-24">الكمية</TH>
                   <TH className="w-28">سعر الشراء</TH>
-                  <TH className="w-40">تاريخ صلاحية (اختياري)</TH>
+                  {expiryTrackingEnabled && <TH className="w-40">تاريخ صلاحية (اختياري)</TH>}
                   <TH className="w-28 text-end">الإجمالي</TH>
                   <TH className="w-10"></TH>
                 </TR>
@@ -248,17 +259,19 @@ export function PurchaseInvoiceEditPage() {
                           onChange={(e) => updateLine(l.id, { price: Number(e.target.value) })}
                         />
                       </TD>
-                      <TD>
-                        <Input
-                          type="date"
-                          value={l.expiryDate ?? ""}
-                          onChange={(e) =>
-                            updateLine(l.id, { expiryDate: e.target.value || undefined })
-                          }
-                          disabled={!p?.hasExpiry}
-                          title={!p?.hasExpiry ? "هذا المنتج بدون صلاحية" : ""}
-                        />
-                      </TD>
+                      {expiryTrackingEnabled && (
+                        <TD>
+                          <Input
+                            type="date"
+                            value={l.expiryDate ?? ""}
+                            onChange={(e) =>
+                              updateLine(l.id, { expiryDate: e.target.value || undefined })
+                            }
+                            disabled={!p?.hasExpiry}
+                            title={!p?.hasExpiry ? "هذا المنتج بدون صلاحية" : ""}
+                          />
+                        </TD>
+                      )}
                       <TD className="text-end font-medium">
                         {formatCurrency(l.quantity * l.price, settings.currency)}
                       </TD>

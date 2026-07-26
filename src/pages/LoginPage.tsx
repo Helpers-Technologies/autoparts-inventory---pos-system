@@ -21,7 +21,7 @@ import { Button } from "../components/ui/Button";
 import { Field, Input } from "../components/ui/Input";
 import { useToast } from "../components/ui/Toast";
 import type { LoginResult } from "../types";
-import sportHeroBackground from "../assets/autoparts-sport-hero-v1.png";
+import sportHeroBackground from "../assets/autoparts-sport-hero-v1.webp";
 import { OtpQrCode } from "../components/security/OtpQrCode";
 import { downloadRecoveryCodes } from "../lib/recoveryCodes";
 

@@ -21,6 +21,7 @@ import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
+import { Select } from "../components/ui/Input";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ProductFormDialog } from "../features/products/ProductForm";
@@ -127,10 +128,13 @@ export function ProductDetailPage() {
     return { cost, units, invoiceCount: invoiceIds.size };
   }, [purchaseInvoices, product]);
 
-  const movements = useMemo(
-    () => (product ? stockMovements.filter((m) => m.productId === product.id).slice(0, 50) : []),
+  const [movementsPageSize, setMovementsPageSize] = useState(5);
+  const [movementsLimit, setMovementsLimit] = useState(5);
+  const allMovements = useMemo(
+    () => (product ? stockMovements.filter((m) => m.productId === product.id) : []),
     [stockMovements, product]
   );
+  const movements = useMemo(() => allMovements.slice(0, movementsLimit), [allMovements, movementsLimit]);
   const fitments = useMemo(
     () => (product ? vehicleCatalog.productFitments.filter((f) => f.productId === product.id) : []),
     [vehicleCatalog.productFitments, product]
@@ -305,7 +309,7 @@ export function ProductDetailPage() {
           <CardHeader title="التسعير والأرباح" />
           <CardBody className="space-y-2">
             <PriceRow label="سعر الشراء" value={formatCurrency(product.purchasePrice, settings.currency)} />
-            <PriceRow label="سعر الجملة" value={formatCurrency(product.wholesalePrice, settings.currency)} />
+            <PriceRow label={multiSalePricesEnabled ? "سعر الجملة" : "سعر البيع"} value={formatCurrency(product.wholesalePrice, settings.currency)} />
             {multiSalePricesEnabled ? (
               <PriceRow
                 label={product.piecesPerUnit ? `سعر ${product.retailUnit ?? "القطعة"}` : "سعر التجزئة"}
@@ -449,35 +453,69 @@ export function ProductDetailPage() {
 
       {/* Stock movement log */}
       <Card>
-        <CardHeader title="سجل حركات المخزون" subtitle={movements.length > 0 ? `آخر ${movements.length} حركة` : undefined} />
+        <CardHeader
+          title="سجل حركات المخزون"
+          subtitle={allMovements.length > 0 ? `عرض ${movements.length} من ${allMovements.length} حركة` : undefined}
+          actions={
+            allMovements.length > 0 ? (
+              <Select
+                value={movementsPageSize}
+                onChange={(e) => {
+                  const size = Number(e.target.value);
+                  setMovementsPageSize(size);
+                  setMovementsLimit(size);
+                }}
+                className="!w-auto"
+              >
+                <option value={5}>آخر 5 حركات</option>
+                <option value={10}>آخر 10 حركات</option>
+                <option value={20}>آخر 20 حركة</option>
+                <option value={50}>آخر 50 حركة</option>
+              </Select>
+            ) : undefined
+          }
+        />
         <CardBody>
           {movements.length === 0 ? (
             <EmptyState icon={<Activity className="w-5 h-5" />} title="لا توجد حركات" description="سيظهر هنا سجل كل حركة شراء / بيع / تعديل." />
           ) : (
-            <Table>
-              <THead>
-                <TR>
-                  <TH>التاريخ</TH>
-                  <TH>النوع</TH>
-                  <TH className="text-end">الكمية</TH>
-                  <TH>السبب / المرجع</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {movements.map((m) => (
-                  <TR key={m.id}>
-                    <TD>{formatDate(m.date)}</TD>
-                    <TD><MovementBadge type={m.type} /></TD>
-                    <TD className={`text-end font-medium ${m.quantity >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>
-                      {m.quantity > 0 ? "+" : ""}{m.quantity}
-                    </TD>
-                    <TD className="text-xs text-ink-faint">
-                      {formatStockMovementReference(m, { salesInvoices, purchaseInvoices, salesReturns, purchaseReturns })}
-                    </TD>
+            <>
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>التاريخ</TH>
+                    <TH>النوع</TH>
+                    <TH className="text-end">الكمية</TH>
+                    <TH>السبب / المرجع</TH>
                   </TR>
-                ))}
-              </TBody>
-            </Table>
+                </THead>
+                <TBody>
+                  {movements.map((m) => (
+                    <TR key={m.id}>
+                      <TD>{formatDate(m.date)}</TD>
+                      <TD><MovementBadge type={m.type} /></TD>
+                      <TD className={`text-end font-medium ${m.quantity >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>
+                        {m.quantity > 0 ? "+" : ""}{m.quantity}
+                      </TD>
+                      <TD className="text-xs text-ink-faint">
+                        {formatStockMovementReference(m, { salesInvoices, purchaseInvoices, salesReturns, purchaseReturns })}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+              {allMovements.length > movements.length ? (
+                <div className="mt-3 flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMovementsLimit((limit) => limit + movementsPageSize)}
+                  >
+                    عرض المزيد ({allMovements.length - movements.length} حركة متبقية)
+                  </Button>
+                </div>
+              ) : null}
+            </>
           )}
         </CardBody>
       </Card>

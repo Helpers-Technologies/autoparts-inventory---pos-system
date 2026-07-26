@@ -31,7 +31,7 @@ function buildMonthOptions(): { value: string; label: string }[] {
 
 export function EmployeeReportPage() {
   const { users } = useUsers();
-  const { employeeSalesStats } = useReporting();
+  const { employeeSalesStatsBatch } = useReporting();
   const { settings } = useSettings();
   const navigate = useNavigate();
   const [month, setMonth] = useState(currentMonth);
@@ -40,6 +40,13 @@ export function EmployeeReportPage() {
   const employees = useMemo(
     () => users.filter((user) => user.role === "employee"),
     [users]
+  );
+
+  // One indexed pass over invoices/cash entries for every employee, instead
+  // of employeeSalesStats re-scanning them once per employee in the loop below.
+  const statsByEmployee = useMemo(
+    () => employeeSalesStatsBatch(employees.map((e) => e.id), month),
+    [employeeSalesStatsBatch, employees, month]
   );
 
   return (
@@ -85,7 +92,7 @@ export function EmployeeReportPage() {
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {employees.map((employee) => {
-            const stats = employeeSalesStats(employee.id, month);
+            const stats = statsByEmployee.get(employee.id)!;
 
             return (
               <Card key={employee.id}>
@@ -113,6 +120,16 @@ export function EmployeeReportPage() {
                       tone="green"
                       strong
                     />
+                  </div>
+                  <div className="pt-2 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => navigate(`/employees/${employee.id}`)}
+                    >
+                      <UserRound className="w-4 h-4 ml-1.5" />
+                      عرض الملف والأداء والصلاحيات
+                    </Button>
                   </div>
                 </CardBody>
               </Card>

@@ -2,6 +2,7 @@ import { useToast } from './Toast';
 import { Info } from 'lucide-react';
 ﻿import {
   forwardRef,
+  useRef,
   useState,
   type ChangeEvent,
   type FocusEvent,
@@ -9,7 +10,10 @@ import { Info } from 'lucide-react';
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../../lib/utils";
+
+const HINT_TOOLTIP_WIDTH = 256;
 
 function isZeroLikeInputValue(value: InputHTMLAttributes<HTMLInputElement>["value"]) {
   if (value === 0) return true;
@@ -106,7 +110,7 @@ export const Select = forwardRef<
   <select
     ref={ref}
     className={cn(
-      "w-full h-9 px-3 text-sm rounded-lg border border-line bg-surface text-ink text-center [text-align-last:center]",
+      "w-full h-9 px-3 text-sm rounded-lg border border-line bg-surface text-ink text-center [text-align-last:center] cursor-pointer shadow-sm transition-colors hover:border-brand-400/50",
       "focus-ring",
       className
     )}
@@ -116,6 +120,66 @@ export const Select = forwardRef<
   </select>
 ));
 Select.displayName = "Select";
+
+export function HintIcon({ hint, label }: { hint: string; label?: React.ReactNode }) {
+  let toast: any = null;
+  try {
+    toast = useToast();
+  } catch (e) {
+    // Safe fallback if used outside of ToastProvider
+  }
+
+  const hintBtnRef = useRef<HTMLButtonElement>(null);
+  const [hoverPos, setHoverPos] = useState<{ top: number; left: number } | null>(null);
+
+  const handleIconClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (toast) {
+      toast.info(typeof label === "string" ? label : "معلومات", hint);
+    } else {
+      alert(hint);
+    }
+  };
+
+  const showHoverHint = () => {
+    const rect = hintBtnRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const centerX = rect.left + rect.width / 2;
+    const left = Math.min(
+      Math.max(centerX - HINT_TOOLTIP_WIDTH / 2, 8),
+      window.innerWidth - HINT_TOOLTIP_WIDTH - 8
+    );
+    setHoverPos({ top: rect.bottom + 8, left });
+  };
+
+  return (
+    <>
+      <button
+        ref={hintBtnRef}
+        type="button"
+        onClick={handleIconClick}
+        onMouseEnter={showHoverHint}
+        onMouseLeave={() => setHoverPos(null)}
+        className="cursor-help text-brand-500 hover:text-brand-400 transition-colors flex items-center p-0.5 focus:outline-none rounded"
+      >
+        <Info className="w-4 h-4" />
+      </button>
+      {hoverPos
+        ? createPortal(
+            <div
+              dir="rtl"
+              className="fixed z-[99999] p-3.5 rounded-xl border border-slate-700 bg-slate-900/95 dark:bg-slate-900/95 text-slate-100 text-xs shadow-2xl leading-relaxed text-right whitespace-pre-line pointer-events-none backdrop-blur-md"
+              style={{ top: hoverPos.top, left: hoverPos.left, width: Math.min(320, window.innerWidth - 32) }}
+            >
+              {hint}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  );
+}
 
 export function Field({
   label,
@@ -132,44 +196,13 @@ export function Field({
   required?: boolean;
   className?: string;
 }) {
-  let toast: any = null;
-  try {
-    toast = useToast();
-  } catch (e) {
-    // Safe fallback if used outside of ToastProvider
-  }
-
-  const handleIconClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (hint) {
-      if (toast) {
-        toast.info(typeof label === "string" ? label : "معلومات", hint);
-      } else {
-        alert(hint);
-      }
-    }
-  };
-
   return (
     <div className={cn("space-y-1.5", className)}>
       {label ? (
         <label className="flex items-center gap-1.5 text-xs font-semibold text-ink-muted">
           <span>{label}</span>
           {required ? <span className="text-red-500">*</span> : null}
-          {hint ? (
-            <button
-              type="button"
-              title={hint}
-              onClick={handleIconClick}
-              className="group relative cursor-help text-brand-500 hover:text-brand-400 transition-colors flex items-center p-0.5 focus:outline-none rounded"
-            >
-              <Info className="w-4 h-4" />
-              <span className="pointer-events-none absolute bottom-full mb-2 right-0 w-72 max-w-[calc(100vw-2rem)] p-3 rounded-xl border border-line bg-slate-900 dark:bg-slate-800 text-slate-100 text-xs shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 leading-relaxed text-right font-normal whitespace-normal">
-                {hint}
-              </span>
-            </button>
-          ) : null}
+          {hint ? <HintIcon hint={hint} label={label} /> : null}
         </label>
       ) : null}
       {children}

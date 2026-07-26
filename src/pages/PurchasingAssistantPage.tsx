@@ -125,6 +125,29 @@ export function PurchasingAssistantPage() {
     toast.success("تم تصدير كشف الخطة إلى Excel");
   }
 
+  function createPurchaseInvoiceFromPlan() {
+    if (filtered.length === 0) {
+      toast.error("لا توجد بنود في الخطة الحالية تحوّل إلى فاتورة");
+      return;
+    }
+    const lines = filtered.map((row) => ({
+      productId: row.product.id,
+      quantity: row.recommended,
+      price: row.cost,
+      expiryDate: row.product.expiryDate,
+    }));
+    const effectiveSupplierId =
+      supplierFilter !== "all" && supplierFilter !== "none"
+        ? supplierFilter
+        : filtered[0]?.supplierId ?? "";
+    navigate("/purchases/new", {
+      state: {
+        supplierId: effectiveSupplierId,
+        lines,
+      },
+    });
+  }
+
   const selectedSupplierName =
     supplierFilter === "all"
       ? "كل الموردين"
@@ -154,9 +177,9 @@ export function PurchasingAssistantPage() {
             </Button>
             <Button
               className="bg-amber-400 text-slate-950 hover:bg-amber-300 font-semibold"
-              onClick={() => navigate("/purchases/new")}
+              onClick={createPurchaseInvoiceFromPlan}
             >
-              <ShoppingCart className="h-4 w-4" /> فاتورة شراء
+              <ShoppingCart className="h-4 w-4" /> تحويل الخطة إلى فاتورة شراء ({filtered.length})
             </Button>
           </>
         }

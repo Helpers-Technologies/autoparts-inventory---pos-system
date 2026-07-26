@@ -43,7 +43,7 @@ export function formatQualityGradeLabel(code?: string): string {
   if (!code) return "";
   switch (code.toLowerCase()) {
     case "genuine":
-      return "أصلي (Genuine)";
+      return "أصلي توكيل";
     case "oem":
       return "أصلية (OEM)";
     case "aftermarket-premium":

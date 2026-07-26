@@ -151,6 +151,11 @@ export function MarketingPage() {
 
   const [tab, setTab] = useState("overview");
   const [segmentFilter, setSegmentFilter] = useState<MarketingAudienceFilter>("all");
+  const [segmentQuery, setSegmentQuery] = useState("");
+  const [segmentConsentFilter, setSegmentConsentFilter] = useState<"all" | "opted_in" | "opted_out" | "unknown">("all");
+  const [segmentPhoneFilter, setSegmentPhoneFilter] = useState<"all" | "valid" | "invalid">("all");
+  const [audienceConsentFilter, setAudienceConsentFilter] = useState<"all" | "opted_in" | "unknown">("all");
+  const [audienceContactFilter, setAudienceContactFilter] = useState<"all" | ContactStatus | "not_contacted">("all");
   const [goal, setGoal] = useState<CampaignGoal>("winback");
   const [campaignName, setCampaignName] = useState(CAMPAIGN_GOALS.winback.name);
   const [campaignSegment, setCampaignSegment] = useState<MarketingAudienceFilter>(CAMPAIGN_GOALS.winback.segment);
@@ -177,23 +182,6 @@ export function MarketingPage() {
     () => selectMarketingAudience(profiles, campaignSegment, includeUnknownConsent),
     [campaignSegment, includeUnknownConsent, profiles],
   );
-  const visibleAudience = useMemo(() => {
-    const query = audienceQuery.trim().toLowerCase();
-    if (!query) return audience;
-    return audience.filter((profile) =>
-      profile.customer.name.toLowerCase().includes(query)
-      || (profile.customer.phone ?? "").includes(query)
-      || (profile.topCategory ?? "").toLowerCase().includes(query),
-    );
-  }, [audience, audienceQuery]);
-  const filteredProfiles = useMemo(
-    () => profiles.filter((profile) => segmentFilter === "all" || profile.segment === segmentFilter),
-    [profiles, segmentFilter],
-  );
-  const unknownInSelection = selectedSegmentProfiles.filter(
-    (profile) => (!profile.customer.marketingConsent || profile.customer.marketingConsent === "unknown") && profile.hasReachablePhone,
-  ).length;
-  const missingPhone = selectedSegmentProfiles.filter((profile) => !profile.hasReachablePhone).length;
   const latestContactByCustomer = useMemo(() => {
     const map = new Map<string, ContactRecord>();
     for (const item of [...contactLog].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
@@ -201,6 +189,46 @@ export function MarketingPage() {
     }
     return map;
   }, [contactLog]);
+  const visibleAudience = useMemo(() => {
+    const query = audienceQuery.trim().toLowerCase();
+    return audience.filter((profile) => {
+      if (audienceConsentFilter !== "all") {
+        const consent = profile.customer.marketingConsent;
+        const isUnknown = !consent || consent === "unknown";
+        if (audienceConsentFilter === "unknown" ? !isUnknown : isUnknown) return false;
+      }
+      if (audienceContactFilter !== "all") {
+        const latest = latestContactByCustomer.get(profile.customer.id);
+        if (audienceContactFilter === "not_contacted" ? latest : latest?.status !== audienceContactFilter) return false;
+      }
+      if (query) {
+        const haystack = `${profile.customer.name} ${profile.customer.phone ?? ""} ${profile.topCategory ?? ""}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      return true;
+    });
+  }, [audience, audienceQuery, audienceConsentFilter, audienceContactFilter, latestContactByCustomer]);
+  const filteredProfiles = useMemo(() => {
+    const query = segmentQuery.trim().toLowerCase();
+    return profiles.filter((profile) => {
+      if (segmentFilter !== "all" && profile.segment !== segmentFilter) return false;
+      if (segmentConsentFilter !== "all") {
+        const consent = profile.customer.marketingConsent;
+        if (segmentConsentFilter === "unknown" ? Boolean(consent) && consent !== "unknown" : consent !== segmentConsentFilter) return false;
+      }
+      if (segmentPhoneFilter === "valid" && !profile.hasReachablePhone) return false;
+      if (segmentPhoneFilter === "invalid" && profile.hasReachablePhone) return false;
+      if (query) {
+        const haystack = `${profile.customer.name} ${profile.customer.phone ?? ""} ${profile.topCategory ?? ""}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      return true;
+    });
+  }, [profiles, segmentFilter, segmentQuery, segmentConsentFilter, segmentPhoneFilter]);
+  const unknownInSelection = selectedSegmentProfiles.filter(
+    (profile) => (!profile.customer.marketingConsent || profile.customer.marketingConsent === "unknown") && profile.hasReachablePhone,
+  ).length;
+  const missingPhone = selectedSegmentProfiles.filter((profile) => !profile.hasReachablePhone).length;
   const currentCampaignContactByCustomer = useMemo(() => {
     const map = new Map<string, ContactRecord>();
     const currentName = campaignName.trim();
@@ -455,13 +483,41 @@ export function MarketingPage() {
             <CardHeader
               title="تحليل العملاء"
               subtitle={`${filteredProfiles.length} عميل في العرض الحالي`}
-              actions={(
-                <Select value={segmentFilter} onChange={(event) => setSegmentFilter(event.target.value as MarketingAudienceFilter)} className="w-48">
+            />
+            <CardBody className="space-y-3 p-4 pb-0">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Input
+                  value={segmentQuery}
+                  onChange={(event) => setSegmentQuery(event.target.value)}
+                  placeholder="ابحث بالاسم أو الهاتف أو الفئة..."
+                  className="text-start"
+                />
+                <Select value={segmentFilter} onChange={(event) => setSegmentFilter(event.target.value as MarketingAudienceFilter)}>
                   <option value="all">كل الشرائح</option>
                   {(Object.keys(MARKETING_SEGMENTS) as MarketingSegmentId[]).map((segment) => <option key={segment} value={segment}>{MARKETING_SEGMENTS[segment].label}</option>)}
                 </Select>
+                <Select value={segmentConsentFilter} onChange={(event) => setSegmentConsentFilter(event.target.value as typeof segmentConsentFilter)}>
+                  <option value="all">كل حالات الموافقة</option>
+                  <option value="opted_in">موافق</option>
+                  <option value="unknown">غير مسجلة</option>
+                  <option value="opted_out">منسحب</option>
+                </Select>
+                <Select value={segmentPhoneFilter} onChange={(event) => setSegmentPhoneFilter(event.target.value as typeof segmentPhoneFilter)}>
+                  <option value="all">كل الأرقام</option>
+                  <option value="valid">رقم هاتف صالح</option>
+                  <option value="invalid">بدون رقم صالح</option>
+                </Select>
+              </div>
+              {(segmentQuery || segmentFilter !== "all" || segmentConsentFilter !== "all" || segmentPhoneFilter !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => { setSegmentQuery(""); setSegmentFilter("all"); setSegmentConsentFilter("all"); setSegmentPhoneFilter("all"); }}
+                  className="text-xs text-ink-faint hover:text-ink transition-colors"
+                >
+                  مسح الفلاتر
+                </button>
               )}
-            />
+            </CardBody>
             <CardBody className="overflow-x-auto p-0">
               <Table>
                 <THead><TR><TH>العميل</TH><TH>الشريحة</TH><TH className="text-center">الفواتير</TH><TH className="text-end">صافي القيمة</TH><TH>آخر شراء</TH><TH>الفئة المفضلة</TH><TH>التواصل</TH><TH /></TR></THead>
@@ -478,6 +534,7 @@ export function MarketingPage() {
                       <TD className="text-end"><Button size="sm" variant="outline" onClick={() => prepareCampaign("custom", profile.segment)}>استهدف الشريحة</Button></TD>
                     </TR>
                   ))}
+                  {filteredProfiles.length === 0 ? <TR><TD colSpan={8} className="py-10 text-center text-ink-faint">لا يوجد عملاء مطابقون للفلاتر الحالية.</TD></TR> : null}
                 </TBody>
               </Table>
             </CardBody>
@@ -545,6 +602,21 @@ export function MarketingPage() {
                 />
                 <CardBody className="space-y-3">
                   <Input value={audienceQuery} onChange={(event) => setAudienceQuery(event.target.value)} placeholder="ابحث داخل الجمهور بالاسم أو الهاتف أو الفئة..." className="text-start" />
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Select value={audienceConsentFilter} onChange={(event) => setAudienceConsentFilter(event.target.value as typeof audienceConsentFilter)}>
+                      <option value="all">كل حالات الموافقة</option>
+                      <option value="opted_in">موافق فقط</option>
+                      <option value="unknown">غير مسجلة فقط</option>
+                    </Select>
+                    <Select value={audienceContactFilter} onChange={(event) => setAudienceContactFilter(event.target.value as typeof audienceContactFilter)}>
+                      <option value="all">كل حالات التواصل</option>
+                      <option value="not_contacted">لم يتم التواصل بعد</option>
+                      <option value="contacted">تم التواصل</option>
+                      <option value="responded">رد العميل</option>
+                      <option value="converted">تحولت لبيع</option>
+                      <option value="skipped">تم التخطي</option>
+                    </Select>
+                  </div>
                   <div className="max-h-[38rem] overflow-auto rounded-xl border border-line">
                     <Table>
                       <THead><TR><TH>العميل</TH><TH>السبب</TH><TH>آخر تواصل</TH><TH className="text-end">إجراء</TH></TR></THead>

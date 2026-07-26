@@ -1,37 +1,19 @@
 import { useMemo, useState } from "react";
-import { Archive, CarFront, History, Plus, ScanLine, Search, ShieldCheck, UserRound } from "lucide-react";
+import { Archive, CarFront, History, Pencil, Plus, ScanLine, Search, UserRound } from "lucide-react";
 import { AutoPartsHero } from "../components/AutoPartsHero";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
-import { Dialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
-import { Field, Input, Select, Textarea } from "../components/ui/Input";
-import { SearchableSelect } from "../components/ui/SearchableSelect";
-import { YearSelect } from "../components/ui/YearSelect";
+import { Input } from "../components/ui/Input";
 import { useToast } from "../components/ui/Toast";
 import { formatCurrency } from "../lib/format";
-import { formatEgyptianPlateNumber, validateEgyptianPlateNumber } from "../lib/plateNumber";
-import { useAutoPartsPro, inferMakeNameFromVin, isValidVin, normalizeVin, vehicleDisplayName } from "../store/AutoPartsProContext";
+import { useAutoPartsPro, isValidVin, vehicleDisplayName } from "../store/AutoPartsProContext";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useSettings } from "../store/SettingsContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
-
-type VehicleDraft = {
-  customerId: string;
-  vin: string;
-  plateNumber: string;
-  makeId: string;
-  modelId: string;
-  year: string;
-  engineCode: string;
-  color: string;
-  mileageKm: string;
-  notes: string;
-};
-
-const EMPTY_DRAFT: VehicleDraft = { customerId: "", vin: "", plateNumber: "", makeId: "", modelId: "", year: "", engineCode: "", color: "", mileageKm: "", notes: "" };
+import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleFormDialog";
 
 export function CustomerGaragePage() {
   const { customers } = useCatalog();
@@ -41,8 +23,8 @@ export function CustomerGaragePage() {
   const pro = useAutoPartsPro();
   const toast = useToast();
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<VehicleDraft>(EMPTY_DRAFT);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
@@ -54,54 +36,25 @@ export function CustomerGaragePage() {
     return haystack.includes(query.trim().toLowerCase());
   });
   const selected = pro.customerVehicles.find((vehicle) => vehicle.id === selectedId);
+  const editingVehicle = pro.customerVehicles.find((vehicle) => vehicle.id === editingVehicleId) ?? null;
   const selectedSales = selected
     ? salesInvoices.filter((invoice) => invoice.customerVehicleId === selected.id && !invoice.cancelled)
     : [];
+  const selectedGeneration = selected?.generationId
+    ? vehicleCatalog.vehicleGenerations.find((generation) => generation.id === selected.generationId)
+    : undefined;
+  const selectedEngine = selected?.engineId
+    ? vehicleCatalog.vehicleEngines.find((engine) => engine.id === selected.engineId)
+    : undefined;
 
-  const availableModels = vehicleCatalog.vehicleModels.filter((model) => model.makeId === draft.makeId && model.active);
-
-  function setVin(value: string) {
-    const vin = normalizeVin(value);
-    const inferred = inferMakeNameFromVin(vin);
-    const inferredMake = inferred
-      ? vehicleCatalog.vehicleMakes.find((make) => make.name.toLowerCase() === inferred.toLowerCase())
-      : undefined;
-    setDraft((current) => ({ ...current, vin, makeId: current.makeId || inferredMake?.id || "", modelId: current.makeId || !inferredMake ? current.modelId : "" }));
+  function openAddDialog() {
+    setEditingVehicleId(null);
+    setDialogOpen(true);
   }
 
-  function saveVehicle() {
-    if (!draft.customerId || !draft.makeId) {
-      toast.error("بيانات ناقصة", "اختر العميل وماركة السيارة.");
-      return;
-    }
-    if (draft.vin && !isValidVin(draft.vin)) {
-      toast.error("رقم الشاسيه غير مكتمل", "رقم الشاسيه القياسي يجب أن يكون 17 حرفًا ورقمًا.");
-      return;
-    }
-    const duplicate = pro.customerVehicles.some((vehicle) =>
-      (draft.vin && vehicle.vin === draft.vin) ||
-      (draft.plateNumber && vehicle.plateNumber?.toLowerCase() === draft.plateNumber.trim().toLowerCase())
-    );
-    if (duplicate) {
-      toast.error("السيارة مسجلة بالفعل", "راجع رقم الشاسيه أو اللوحة.");
-      return;
-    }
-    const item = pro.addCustomerVehicle({
-      customerId: draft.customerId,
-      vin: draft.vin || undefined,
-      plateNumber: draft.plateNumber || undefined,
-      makeId: draft.makeId,
-      modelId: draft.modelId || undefined,
-      year: draft.year ? Number(draft.year) : undefined,
-      engineCode: draft.engineCode || undefined,
-      color: draft.color || undefined,
-      mileageKm: draft.mileageKm ? Number(draft.mileageKm) : undefined,
-      notes: draft.notes || undefined,
-    });
-    setSelectedId(item.id);
-    setDraft(EMPTY_DRAFT);
-    setOpen(false);
-    toast.success("تم تسجيل السيارة", "يمكن اختيارها الآن من شاشة الكاشير.");
+  function openEditDialog(vehicleId: string) {
+    setEditingVehicleId(vehicleId);
+    setDialogOpen(true);
   }
 
   return (
@@ -115,7 +68,7 @@ export function CustomerGaragePage() {
           { label: "شاسيه مكتمل", value: activeVehicles.filter((vehicle) => vehicle.vin && isValidVin(vehicle.vin)).length },
           { label: "فواتير مرتبطة", value: salesInvoices.filter((invoice) => invoice.customerVehicleId).length },
         ]}
-        actions={<Button onClick={() => setOpen(true)} className="bg-amber-400 text-slate-950 hover:bg-amber-300"><Plus className="h-4 w-4" /> تسجيل سيارة</Button>}
+        actions={<Button onClick={openAddDialog} className="bg-amber-400 text-slate-950 hover:bg-amber-300"><Plus className="h-4 w-4" /> تسجيل سيارة</Button>}
       />
 
       <div className="grid gap-4 xl:grid-cols-[1.45fr_0.85fr]">
@@ -147,7 +100,7 @@ export function CustomerGaragePage() {
                             <div className="mt-0.5 text-xs text-ink-muted">{vehicle.year || "سنة غير محددة"} · {vehicle.plateNumber || "بدون لوحة"}</div>
                           </div>
                         </div>
-                        <Badge tone={vehicle.vin ? "green" : "amber"}>{vehicle.vin ? "شاسيه مكتمل" : "بدون شاسيه"}</Badge>
+                        <Badge tone={vehicle.generationId ? "green" : "amber"}>{vehicle.generationId ? "الجيل محدد" : "بدون جيل"}</Badge>
                       </div>
                       <div className="mt-3 flex items-center justify-between border-t border-line/70 pt-3 text-xs text-ink-muted">
                         <span className="flex items-center gap-1"><UserRound className="h-3.5 w-3.5" /> {customer?.name || "عميل غير موجود"}</span>
@@ -171,9 +124,15 @@ export function CustomerGaragePage() {
                   <div className="mt-3 font-mono text-base tracking-wider" dir="ltr">{selected.vin || "لم يتم تسجيل رقم الشاسيه"}</div>
                   <div className="mt-2 text-sm text-slate-300">اللوحة: <strong className="text-white">{selected.plateNumber || "—"}</strong></div>
                 </div>
+                {!selected.generationId ? (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+                    لم يتم تحديد جيل السيارة — قد تفشل مطابقة توافق بعض القطع المرتبطة بجيل محدد. عدّل بيانات السيارة وحدد الجيل لضمان دقة المطابقة.
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <Info label="العميل" value={customerById.get(selected.customerId)?.name || "—"} />
-                  <Info label="كود المحرك" value={selected.engineCode || "—"} />
+                  <Info label="الجيل" value={selectedGeneration?.name || "—"} />
+                  <Info label="المحرك" value={selectedEngine?.name || selected.engineCode || "—"} />
                   <Info label="العداد" value={selected.mileageKm ? `${selected.mileageKm.toLocaleString("ar-EG")} كم` : "—"} />
                   <Info label="اللون" value={selected.color || "—"} />
                 </div>
@@ -186,71 +145,32 @@ export function CustomerGaragePage() {
                     </div>
                   ))}
                 </div>
-                <Button variant="outline" className="w-full text-red-600" onClick={() => { pro.archiveCustomerVehicle(selected.id, true); setSelectedId(null); }}><Archive className="h-4 w-4" /> أرشفة السيارة</Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1" onClick={() => openEditDialog(selected.id)}><Pencil className="h-4 w-4" /> تعديل بيانات السيارة</Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 text-red-600"
+                    onClick={() => {
+                      pro.archiveCustomerVehicle(selected.id, true);
+                      setSelectedId(null);
+                      toast.success("تمت أرشفة السيارة");
+                    }}
+                  >
+                    <Archive className="h-4 w-4" /> أرشفة السيارة
+                  </Button>
+                </div>
               </div>
             )}
           </CardBody>
         </Card>
       </div>
 
-      <Dialog open={open} onClose={() => setOpen(false)} title="تسجيل سيارة عميل" subtitle="استخدم قارئ الباركود لمسح رقم الشاسيه أو أدخله يدويًا" width="lg" footer={<><Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button><Button onClick={saveVehicle}><ShieldCheck className="h-4 w-4" /> حفظ وربط السيارة</Button></>}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="العميل" required><Select value={draft.customerId} onChange={(event) => setDraft({ ...draft, customerId: event.target.value })}><option value="">اختر العميل</option>{customers.filter((customer) => !customer.archived).map((customer) => <option key={customer.id} value={customer.id}>{customer.name} {customer.phone ? `— ${customer.phone}` : ""}</option>)}</Select></Field>
-          <Field
-            label="رقم اللوحة"
-            hint={
-              draft.plateNumber && !validateEgyptianPlateNumber(draft.plateNumber).isValid
-                ? validateEgyptianPlateNumber(draft.plateNumber).message
-                : "مثال: أ ب ج 1 2 3 4 (2-3 أحرف و 3-4 أرقام)"
-            }
-          >
-            <Input
-              value={draft.plateNumber}
-              onChange={(event) => setDraft({ ...draft, plateNumber: formatEgyptianPlateNumber(event.target.value) })}
-              placeholder="أ ب ج 1 2 3 4"
-              className="font-semibold tracking-wider text-center"
-            />
-          </Field>
-          <Field label="رقم الشاسيه (VIN)" hint={draft.vin ? `${draft.vin.length}/17${inferMakeNameFromVin(draft.vin) ? ` · متوقع ${inferMakeNameFromVin(draft.vin)}` : ""}` : "يمكن مسحه بقارئ الباركود"} className="md:col-span-2"><div className="relative"><ScanLine className="absolute right-3 top-2.5 h-4 w-4 text-ink-faint" /><Input value={draft.vin} onChange={(event) => setVin(event.target.value)} className="pr-10 font-mono tracking-wider" dir="ltr" placeholder="رقم الشاسيه القياسي (17 حرف/رقم)" /></div></Field>
-          <Field label="الماركة" required>
-            <SearchableSelect
-              value={draft.makeId}
-              onChange={(val) => setDraft((current) => ({ ...current, makeId: val, modelId: "" }))}
-              options={vehicleCatalog.specializedVehicleMakes
-                .filter((make) => make.active)
-                .map((make) => ({
-                  value: make.id,
-                  label: make.nameAr ? `${make.nameAr} (${make.name})` : make.name,
-                  image: make.logoPath || `/vehicle-logos/${make.slug}.png`,
-                  searchText: `${make.name} ${make.nameAr ?? ""}`,
-                }))}
-              placeholder="اختر الماركة..."
-              searchPlaceholder="ابحث عن ماركة السيارة..."
-              minChars={0}
-            />
-          </Field>
-          <Field label="الموديل">
-            <SearchableSelect
-              value={draft.modelId}
-              onChange={(val) => setDraft((current) => ({ ...current, modelId: val }))}
-              options={availableModels.map((model) => ({
-                value: model.id,
-                label: model.nameAr ? `${model.nameAr} (${model.name})` : model.name,
-                searchText: `${model.name} ${model.nameAr ?? ""}`,
-              }))}
-              placeholder="اختر الموديل..."
-              searchPlaceholder="ابحث عن الموديل..."
-              disabled={!draft.makeId}
-              minChars={0}
-            />
-          </Field>
-          <Field label="سنة الصنع"><YearSelect value={draft.year} onChange={(val) => setDraft({ ...draft, year: val })} placeholder="اختر سنة الصنع" /></Field>
-          <Field label="كود المحرك"><Input value={draft.engineCode} onChange={(event) => setDraft({ ...draft, engineCode: event.target.value.toUpperCase() })} dir="ltr" placeholder="G4FC / SQRE4T15" /></Field>
-          <Field label="اللون"><Input value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} /></Field>
-          <Field label="قراءة العداد"><Input type="number" value={draft.mileageKm} onChange={(event) => setDraft({ ...draft, mileageKm: event.target.value })} placeholder="كم" /></Field>
-          <Field label="ملاحظات" className="md:col-span-2"><Textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></Field>
-        </div>
-      </Dialog>
+      <CustomerVehicleFormDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        editingVehicle={editingVehicle}
+        onCreated={(vehicleId) => setSelectedId(vehicleId)}
+      />
     </div>
   );
 }

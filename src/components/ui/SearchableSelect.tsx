@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 import { isFuzzyMatch } from "../../lib/fuzzySearch";
+import { NoResultsHint } from "./EmptyState";
 
 interface Option {
   value: string;
@@ -109,19 +110,19 @@ export function SearchableSelect({
       {/* Dropdown */}
       {open && (
         <div
-          className={`absolute z-50 right-0 min-w-full w-max max-w-[550px] rounded-xl border border-line bg-surface shadow-2xl overflow-hidden ${
+          className={`absolute z-50 right-0 min-w-full w-max max-w-[550px] rounded-md border border-line bg-surface shadow-2xl overflow-hidden ${
             isDropUp ? "bottom-full mb-2" : "top-full mt-2"
           }`}
         >
           {/* Search input */}
-          <div className="flex items-center gap-2 px-3 py-3 border-b border-line bg-surface-muted/50">
+          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-line bg-surface-muted/50">
             <Search className="w-4 h-4 text-ink-faint shrink-0" />
             <input
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={query.length < minChars ? `اكتب ${minChars} أحرف للبحث...` : searchPlaceholder}
-              className="flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-400/20"
+              className="flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-400/20"
             />
           </div>
 
@@ -143,7 +144,7 @@ export function SearchableSelect({
             ) : (
               <>
                 {filtered.length === 0 ? (
-                  <div className="px-4 py-4 text-xs text-ink-faint text-center">لا توجد نتائج</div>
+                  <NoResultsHint message="لا توجد نتائج" className="py-4" />
                 ) : (
                   filtered.map((o) => (
                     <button
@@ -165,12 +166,12 @@ export function SearchableSelect({
                   <button
                     type="button"
                     onClick={() => {
-                      onCreate?.(normalizedQuery);
+                      onCreate?.(query.trim());
                       setOpen(false);
                     }}
-                    className="w-full text-right px-4 py-3 text-sm text-blue-600 border-t border-line hover:bg-surface-muted transition-colors"
+                    className="w-full text-right px-4 py-3 text-sm text-blue-600 border-t border-line hover:bg-surface-muted transition-colors font-medium flex items-center justify-between"
                   >
-                    {createLabel ?? `إضافة جديد: "${query.trim()}"`}
+                    <span>{createLabel ? `${createLabel} "${query.trim()}"` : `إضافة جديد: "${query.trim()}"`}</span>
                   </button>
                 )}
               </>

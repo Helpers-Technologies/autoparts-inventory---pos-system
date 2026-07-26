@@ -85,6 +85,18 @@ textarea {
   font-family: 'Cairo', sans-serif !important;
 }
 
+select {
+  border-radius: 0.5rem !important; /* rounded-lg (8px) */
+}
+
+select option {
+  padding: 6px 12px;
+  margin: 1px 0;
+  border-radius: 4px; /* rounded خفيف (4px - 6px) */
+  background-color: rgb(var(--surface));
+  color: rgb(var(--ink));
+}
+
 /* Scrollbar — themed via tokens */
 ::-webkit-scrollbar {
   width: 10px;

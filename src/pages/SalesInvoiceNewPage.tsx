@@ -722,7 +722,7 @@ export function SalesInvoiceNewPage() {
             </Field>
             <Field label="وسيلة الدفع">
               <div className="flex flex-wrap gap-1.5">
-                {(Object.entries(PAYMENT_METHOD_LABELS).filter(([k]) => k !== "credit" && k !== "other") as [PaymentMethod, string][]).map(([key, label]) => (
+                {(Object.entries(PAYMENT_METHOD_LABELS).filter(([k]) => k !== "credit") as [PaymentMethod, string][]).map(([key, label]) => (
                   <button
                     key={key}
                     type="button"

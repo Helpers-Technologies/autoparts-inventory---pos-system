@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { Lock, Printer, CheckCircle2, TrendingUp, TrendingDown } from "lucide-react";
+import { Lock, Printer, CheckCircle2, TrendingUp, TrendingDown, ShieldAlert } from "lucide-react";
 import { Dialog } from "../ui/Dialog";
 import { Field, Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { useInvoicing } from "../../store/InvoicingContext";
 import { useSettings } from "../../store/SettingsContext";
+import { useAuth } from "../../store/AuthContext";
 import { formatCurrency, formatDateTime } from "../../lib/format";
 import { useToast } from "../ui/Toast";
+import { hasPermission } from "../../lib/permissions";
 import type { CashierShift } from "../../types";
 
 interface CloseShiftDialogProps {
@@ -27,12 +29,22 @@ export function CloseShiftDialog({
 }: CloseShiftDialogProps) {
   const { getShiftSummary, closeShift } = useInvoicing();
   const { settings } = useSettings();
+  const { currentUser } = useAuth();
   const toast = useToast();
 
   const [actualCash, setActualCash] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const isShiftOwner = Boolean(
+    shift && currentUser && (shift.cashierId === currentUser.id || shift.cashierName === currentUser.name)
+  );
+  const canCloseShift = hasPermission(currentUser, "pos", "closeShift");
+  const canSupervise = hasPermission(currentUser, "pos", "supervisorOverride");
+  const isOwner = currentUser?.role === "owner";
+
+  const canCloseThisShift = isOwner || (canCloseShift && (isShiftOwner || canSupervise));
 
   useEffect(() => {
     if (!open) return;
@@ -53,6 +65,10 @@ export function CloseShiftDialog({
     : null;
 
   const handleCloseShift = async () => {
+    if (!canCloseThisShift) {
+      setError("ليس لديك صلاحية تقفيل هذه الوردية");
+      return;
+    }
     if (!hasValidActual) {
       setError("عدّ النقدية الموجودة بالدرج وأدخل مبلغًا صحيحًا لا يقل عن صفر");
       return;
@@ -97,7 +113,7 @@ export function CloseShiftDialog({
             <Button variant="outline" onClick={onClose} disabled={loading}>
               إلغاء
             </Button>
-            <Button onClick={handleCloseShift} disabled={loading || !hasValidActual} variant="primary">
+            <Button onClick={handleCloseShift} disabled={loading || !hasValidActual || !canCloseThisShift} variant="primary">
               <Lock className="w-4 h-4 ml-1.5" />
               {loading ? "جاري تقفيل الوردية..." : "تأكيد وتقفيل الوردية (Z-Report)"}
             </Button>
@@ -106,6 +122,17 @@ export function CloseShiftDialog({
       }
     >
       <div className="space-y-5">
+        {!canCloseThisShift && (
+          <div className="p-3.5 rounded-xl border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/10 text-sm text-red-700 dark:text-red-300 flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <div className="font-bold">غير مصرح بتقفيل الوردية</div>
+              <div className="text-xs text-red-600/80 dark:text-red-300/80 mt-1 leading-relaxed">
+                هذه الوردية تخص الكاشير (<strong>{summary.cashierName}</strong>). يتطلب تقفيل وراديات الموظفين الآخرين صلاحية <strong>مشرف الورديات</strong> أو التبديل لحساب المالك.
+              </div>
+            </div>
+          </div>
+        )}
         {/* Shift Details Banner */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border border-line bg-surface-muted text-xs text-ink-muted">
           <div>

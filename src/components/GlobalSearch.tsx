@@ -6,6 +6,7 @@ import { useInvoicing } from "../store/InvoicingContext";
 import { useAuth } from "../store/AuthContext";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
+import { NoResultsHint } from "./ui/EmptyState";
 import {
   globalSearch,
   KIND_LABELS,
@@ -221,9 +222,7 @@ export function GlobalSearch({
         {/* Results */}
         <div ref={listRef} className="overflow-y-auto">
           {query.length >= 2 && results.length === 0 ? (
-            <div className="py-10 text-center text-sm text-ink-faint">
-              لا توجد نتائج لـ &ldquo;{query}&rdquo;
-            </div>
+            <NoResultsHint message={`لا توجد نتائج لـ "${query}"`} className="py-10" />
           ) : query.length < 2 ? (
             <div className="py-8 text-center text-sm text-ink-faint">
               اكتب حرفين على الأقل — ويمكنك مسح رقم القطعة أو الباركود مباشرة

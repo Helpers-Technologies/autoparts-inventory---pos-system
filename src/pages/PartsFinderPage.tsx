@@ -13,6 +13,7 @@ import { useCatalog } from "../store/CatalogContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { formatCurrency } from "../lib/format";
 import { productMatchesSearch } from "../lib/partSearch";
+import { getMakeSearchText } from "../lib/fuzzySearch";
 
 export function PartsFinderPage() {
   const navigate = useNavigate();
@@ -65,7 +66,7 @@ export function PartsFinderPage() {
                 value: make.id,
                 label: make.nameAr ? `${make.nameAr} — ${make.name}` : make.name,
                 image: `/vehicle-logos/${make.slug}.png`,
-                searchText: `${make.name} ${make.nameAr ?? ""}`
+                searchText: getMakeSearchText(make),
               }))}
               placeholder="كل الماركات"
               minChars={1}

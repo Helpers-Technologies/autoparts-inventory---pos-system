@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Package, Warehouse, AlertTriangle, TrendingUp,
   Wallet, HandCoins, Receipt, Plus, ShoppingBag, Users, Clock,
@@ -136,12 +136,13 @@ function useDashboardConfig() {
 
 /* ─── StatCard ─── */
 function StatCard({
-  title, value, icon, tone, delta,
+  title, value, icon, tone, delta, onClick,
 }: {
   title: string; value: string;
   icon: React.ReactNode;
   tone: "blue" | "green" | "amber" | "red" | "slate" | "indigo" | "rose" | "violet";
   delta?: string;
+  onClick?: () => void;
 }) {
   const toneMap: Record<string, string> = {
     blue:   "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 dark:bg-blue-500/15 dark:text-blue-300",
@@ -154,7 +155,10 @@ function StatCard({
     violet: "bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
   };
   return (
-    <Card>
+    <Card
+      className={onClick ? "cursor-pointer hover:border-brand-500/50 hover:shadow-md transition-all group" : undefined}
+      onClick={onClick}
+    >
       <CardBody className="flex items-start gap-3">
         <div className={`w-10 h-10 rounded-lg grid place-items-center shrink-0 ${toneMap[tone]}`}>
           {icon}
@@ -163,7 +167,7 @@ function StatCard({
           <div className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">{title}</div>
           <div className="text-xl font-bold text-ink mt-1 tabular-nums leading-tight">{value}</div>
           {delta ? (
-            <div className="text-[10px] text-ink-muted mt-1 font-medium bg-surface-muted inline-block px-1.5 py-0.5 rounded-md border border-line">
+            <div className={`text-[10px] text-ink-muted mt-1 font-medium bg-surface-muted inline-block px-1.5 py-0.5 rounded-md border border-line ${onClick ? "group-hover:border-brand-500/40 group-hover:text-brand-600 dark:group-hover:text-brand-400" : ""}`}>
               {delta}
             </div>
           ) : null}
@@ -289,6 +293,7 @@ function CustomizeDialog({
 
 /* ─── Main Page ─── */
 export function DashboardPage() {
+  const navigate = useNavigate();
   const { products, customers, suppliers } = useCatalog();
   const { purchaseInvoices, salesInvoices, salesReturns, currentCashBalance, activeShift } = useInvoicing();
   const { customerBalance, supplierBalance } = useReporting();
@@ -330,7 +335,7 @@ export function DashboardPage() {
     const totalStockUnits = pro.branchStocks.some((row) => activeProductIds.has(row.productId))
       ? branchStockUnits
       : activeProducts.reduce((sum, product) => sum + product.quantity, 0);
-    const lowStock = activeProducts.filter((p) => p.quantity <= p.minStock).length;
+    const lowStock = activeProducts.filter((p) => p.quantity > 0 && p.quantity <= p.minStock).length;
     const fittedIds = new Set(vehicleCatalog.productFitments.map((fitment) => fitment.productId));
     const unmappedParts = activeProducts.filter((product) => !fittedIds.has(product.id)).length;
     const validSales = salesInvoices.filter((invoice) => !invoice.cancelled);
@@ -443,7 +448,7 @@ export function DashboardPage() {
   }, [salesInvoices, salesReturns]);
 
   const lowStockList = useMemo(() =>
-    activeProducts.filter((p) => p.quantity <= p.minStock).sort((a, b) => a.quantity - b.quantity).slice(0, 6),
+    activeProducts.filter((p) => p.quantity > 0 && p.quantity <= p.minStock).sort((a, b) => a.quantity - b.quantity).slice(0, 6),
     [activeProducts]
   );
 
@@ -488,23 +493,23 @@ export function DashboardPage() {
   function renderCard(id: CardId) {
     const cur = settings.currency;
     switch (id) {
-      case "posShift":         return <StatCard key={id} title="وردية الكاشير (POS)" value={activeShift ? `#${activeShift.shiftNumber} — مفتوحة` : "الوردية مغلقة"} icon={<Clock className="w-5 h-5" />} tone={activeShift ? "green" : "amber"} delta={activeShift ? `الكاشير: ${activeShift.cashierName}` : "اضغط لفتح الوردية من POS"} />;
-      case "totalProducts":    return <StatCard key={id} title="أرقام قطع نشطة" value={formatNumber(stats.totalProducts)} icon={<Package className="w-5 h-5" />} tone="blue" />;
-      case "totalStock":       return <StatCard key={id} title="كمية القطع في الفروع" value={formatNumber(stats.totalStockUnits)} icon={<Warehouse className="w-5 h-5" />} tone="indigo" delta={`${stats.activeBranches} فرع نشط`} />;
-      case "lowStock":         return <StatCard key={id} title="قطع تحتاج إعادة طلب" value={formatNumber(stats.lowStock)} icon={<AlertTriangle className="w-5 h-5" />} tone="amber" />;
-      case "expiringSoon":     return <StatCard key={id} title="قطع بدون توافق سيارة" value={formatNumber(stats.unmappedParts)} icon={<Link2 className="w-5 h-5" />} tone={stats.unmappedParts > 0 ? "red" : "green"} />;
-      case "todaySales":       return <StatCard key={id} title="صافي مبيعات قطع اليوم" value={formatCurrency(stats.todaySales, cur)} icon={<TrendingUp className="w-5 h-5" />} tone="green" />;
-      case "todayPurchases":   return <StatCard key={id} title="مطالبات ضمان مفتوحة" value={formatNumber(stats.openWarrantyClaims)} icon={<ShieldCheck className="w-5 h-5" />} tone={stats.openWarrantyClaims > 0 ? "amber" : "green"} />;
-      case "monthlySales":     return <StatCard key={id} title="صافي مبيعات القطع" value={formatCurrency(stats.monthlySales, cur)} icon={<BarChart2 className="w-5 h-5" />} tone="green" delta="هذا الشهر بعد المرتجعات" />;
-      case "monthlyPurchases": return <StatCard key={id} title="قيمة مخزون راكد +90 يوم" value={formatCurrency(stats.deadStockValue, cur)} icon={<PackageSearch className="w-5 h-5" />} tone="slate" />;
-      case "receivables":      return <StatCard key={id} title="مستحقات من العملاء" value={formatCurrency(stats.receivables, cur)} icon={<HandCoins className="w-5 h-5" />} tone="amber" />;
-      case "payables":         return <StatCard key={id} title="مستحقات الموردين" value={formatCurrency(stats.payables, cur)} icon={<ShoppingBag className="w-5 h-5" />} tone="slate" />;
-      case "cashBalance":      return <StatCard key={id} title="رصيد الخزينة الحالي" value={formatCurrency(stats.cashBalance, cur)} icon={<Wallet className="w-5 h-5" />} tone="green" />;
-      case "accountInvoices":  return <StatCard key={id} title="فواتير آجل مفتوحة" value={formatCurrency(accountInvoicesTotal, cur)} icon={<Clock className="w-5 h-5" />} tone="indigo" delta={`${accountInvoicesCount} فاتورة`} />;
-      case "overdueCount":     return <StatCard key={id} title="فواتير متأخرة" value={formatNumber(overdueInvoices.length)} icon={<AlertTriangle className="w-5 h-5" />} tone="red" delta={overdueTotal > 0 ? formatCurrency(overdueTotal, cur) : "لا يوجد تأخير"} />;
-      case "totalCustomers":   return <StatCard key={id} title="سيارات العملاء المسجلة" value={formatNumber(stats.totalCustomerVehicles)} icon={<CarFront className="w-5 h-5" />} tone="violet" />;
-      case "totalSuppliers":   return <StatCard key={id} title="الفروع النشطة" value={formatNumber(stats.activeBranches)} icon={<GitBranch className="w-5 h-5" />} tone="slate" />;
-      case "netProfitToday":   return <StatCard key={id} title="مجمل ربح القطع الشهري" value={formatCurrency(stats.grossProfitMonth, cur)} icon={<CircleDollarSign className="w-5 h-5" />} tone={stats.grossProfitMonth >= 0 ? "green" : "rose"} delta="بعد خصم المرتجعات" />;
+      case "posShift":         return <StatCard key={id} title="وردية الكاشير (POS)" value={activeShift ? `#${activeShift.shiftNumber} — مفتوحة` : "الوردية مغلقة"} icon={<Clock className="w-5 h-5" />} tone={activeShift ? "green" : "amber"} delta={activeShift ? `الكاشير: ${activeShift.cashierName}` : "اضغط لفتح الوردية من POS"} onClick={canViewPOS ? () => navigate("/pos") : undefined} />;
+      case "totalProducts":    return <StatCard key={id} title="أرقام قطع نشطة" value={formatNumber(stats.totalProducts)} icon={<Package className="w-5 h-5" />} tone="blue" onClick={canViewProducts ? () => navigate("/products") : undefined} />;
+      case "totalStock":       return <StatCard key={id} title="كمية القطع في الفروع" value={formatNumber(stats.totalStockUnits)} icon={<Warehouse className="w-5 h-5" />} tone="indigo" delta={`${stats.activeBranches} فرع نشط`} onClick={canViewInventory ? () => navigate("/inventory") : undefined} />;
+      case "lowStock":         return <StatCard key={id} title="قطع تحتاج إعادة طلب" value={formatNumber(stats.lowStock)} icon={<AlertTriangle className="w-5 h-5" />} tone="amber" onClick={canViewAlerts ? () => navigate("/alerts") : undefined} />;
+      case "expiringSoon":     return <StatCard key={id} title="قطع بدون توافق سيارة" value={formatNumber(stats.unmappedParts)} icon={<Link2 className="w-5 h-5" />} tone={stats.unmappedParts > 0 ? "red" : "green"} onClick={canViewProducts ? () => navigate("/parts-finder") : undefined} />;
+      case "todaySales":       return <StatCard key={id} title="صافي مبيعات قطع اليوم" value={formatCurrency(stats.todaySales, cur)} icon={<TrendingUp className="w-5 h-5" />} tone="green" onClick={canViewSales ? () => navigate("/sales") : undefined} />;
+      case "todayPurchases":   return <StatCard key={id} title="مطالبات ضمان مفتوحة" value={formatNumber(stats.openWarrantyClaims)} icon={<ShieldCheck className="w-5 h-5" />} tone={stats.openWarrantyClaims > 0 ? "amber" : "green"} onClick={() => navigate("/warranty-center")} />;
+      case "monthlySales":     return <StatCard key={id} title="صافي مبيعات القطع" value={formatCurrency(stats.monthlySales, cur)} icon={<BarChart2 className="w-5 h-5" />} tone="green" delta="هذا الشهر بعد المرتجعات" onClick={canViewSales ? () => navigate("/sales") : undefined} />;
+      case "monthlyPurchases": return <StatCard key={id} title="قيمة مخزون راكد +90 يوم" value={formatCurrency(stats.deadStockValue, cur)} icon={<PackageSearch className="w-5 h-5" />} tone="slate" onClick={canViewProducts ? () => navigate("/purchasing-assistant") : undefined} />;
+      case "receivables":      return <StatCard key={id} title="مستحقات من العملاء" value={formatCurrency(stats.receivables, cur)} icon={<HandCoins className="w-5 h-5" />} tone="amber" onClick={() => navigate("/dues")} />;
+      case "payables":         return <StatCard key={id} title="مستحقات الموردين" value={formatCurrency(stats.payables, cur)} icon={<ShoppingBag className="w-5 h-5" />} tone="slate" onClick={() => navigate("/dues")} />;
+      case "cashBalance":      return <StatCard key={id} title="رصيد الخزينة الحالي" value={formatCurrency(stats.cashBalance, cur)} icon={<Wallet className="w-5 h-5" />} tone="green" onClick={canViewCashbox ? () => navigate("/cashbox") : undefined} />;
+      case "accountInvoices":  return <StatCard key={id} title="فواتير آجل مفتوحة" value={formatCurrency(accountInvoicesTotal, cur)} icon={<Clock className="w-5 h-5" />} tone="indigo" delta={`${accountInvoicesCount} فاتورة`} onClick={() => navigate("/dues")} />;
+      case "overdueCount":     return <StatCard key={id} title="فواتير متأخرة" value={formatNumber(overdueInvoices.length)} icon={<AlertTriangle className="w-5 h-5" />} tone="red" delta={overdueTotal > 0 ? formatCurrency(overdueTotal, cur) : "لا يوجد تأخير"} onClick={() => navigate("/dues")} />;
+      case "totalCustomers":   return <StatCard key={id} title="سيارات العملاء المسجلة" value={formatNumber(stats.totalCustomerVehicles)} icon={<CarFront className="w-5 h-5" />} tone="violet" onClick={canViewCustomers ? () => navigate("/customer-garage") : undefined} />;
+      case "totalSuppliers":   return <StatCard key={id} title="الفروع النشطة" value={formatNumber(stats.activeBranches)} icon={<GitBranch className="w-5 h-5" />} tone="slate" onClick={() => navigate("/branches")} />;
+      case "netProfitToday":   return <StatCard key={id} title="مجمل ربح القطع الشهري" value={formatCurrency(stats.grossProfitMonth, cur)} icon={<CircleDollarSign className="w-5 h-5" />} tone={stats.grossProfitMonth >= 0 ? "green" : "rose"} delta="بعد خصم المرتجعات" onClick={() => navigate("/reports")} />;
       default: return null;
     }
   }

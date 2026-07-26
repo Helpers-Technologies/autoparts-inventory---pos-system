@@ -14,6 +14,7 @@ import { VEHICLE_COUNTRIES, normalizeVehicleCountryCode } from "../../data/vehic
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { useVehicleCatalog } from "../../store/VehicleCatalogContext";
 import type { ProductFitment } from "../../types";
+import { getMakeSearchText } from "../../lib/fuzzySearch";
 
 const UNITS = ["قطعة", "طقم", "زوج", "علبة", "كرتونة", "جركن", "لتر", "متر"];
 const AUTO_PART_CATEGORIES = [
@@ -127,6 +128,11 @@ const EMPTY: FormState = {
   notes: "",
 };
 
+/** Same normalization as the main form's duplicate-part-number check (validate() below). */
+function cleanPartNum(value?: string): string {
+  return value?.trim().toLowerCase().replace(/[\s./_-]+/g, "") ?? "";
+}
+
 export function ProductFormDialog({
   open,
   onClose,
@@ -160,6 +166,18 @@ export function ProductFormDialog({
   const [alternatives, setAlternatives] = useState<AlternativeDraft[]>([]);
   const [alternativeProductId, setAlternativeProductId] = useState("");
   const [alternativeRelation, setAlternativeRelation] = useState<PartAlternativeRelation>("equivalent");
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddForm, setQuickAddForm] = useState({
+    name: "",
+    partNumber: "",
+    category: "فلاتر",
+    unit: "قطعة",
+    originCountry: "",
+    wholesalePrice: 0,
+    quantity: 0,
+    minStock: 5,
+  });
+  const [quickAddErrors, setQuickAddErrors] = useState<Record<string, string>>({});
 
   const existingCategories = useMemo(
     () => [...new Set(products.map((p) => p.category).filter(Boolean))].sort(),
@@ -185,28 +203,67 @@ export function ProductFormDialog({
   const [addingUnit, setAddingUnit] = useState(false);
   const [newUnitInput, setNewUnitInput] = useState("");
 
+  const agencyOptions = useMemo(() => {
+    const makes = vehicleCatalog.specializedVehicleMakes.filter((m) => m.active);
+    const agencyMakes = makes.map((m) => `توكيل ${m.nameAr ? `${m.nameAr} (${m.name})` : m.name}`);
+    return ["توكيل السيارة الأصلي", ...agencyMakes];
+  }, [vehicleCatalog.specializedVehicleMakes]);
+
   const existingManufacturers = useMemo(
     () => [...new Set(products.map((p) => p.manufacturer).filter((m): m is string => Boolean(m)))].sort(),
     [products]
   );
   const [customManufacturers, setCustomManufacturers] = useState<string[]>([]);
   const allManufacturers = useMemo(
-    () => [...new Set([...AUTO_PART_MANUFACTURERS, ...existingManufacturers, ...customManufacturers])].sort(),
-    [existingManufacturers, customManufacturers]
+    () => [...new Set([...agencyOptions, ...AUTO_PART_MANUFACTURERS, ...existingManufacturers, ...customManufacturers])],
+    [agencyOptions, existingManufacturers, customManufacturers]
   );
-  const [addingManufacturer, setAddingManufacturer] = useState(false);
-  const [newManufacturerInput, setNewManufacturerInput] = useState("");
+  const [manufacturerDialogOpen, setManufacturerDialogOpen] = useState(false);
+  const [manufacturerForm, setManufacturerForm] = useState({
+    name: "",
+    countryCode: "",
+    specialty: "",
+    qualityGrade: "",
+    notes: "",
+  });
 
-  const confirmNewManufacturer = () => {
-    const trimmed = newManufacturerInput.trim();
-    if (trimmed) {
-      setCustomManufacturers((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-      set("manufacturer", trimmed);
-      set("partBrand", trimmed);
+  function openAddManufacturerModal(initialName = "") {
+    setManufacturerForm({
+      name: initialName,
+      countryCode: "",
+      specialty: "",
+      qualityGrade: "",
+      notes: "",
+    });
+    setManufacturerDialogOpen(true);
+  }
+
+  function handleSaveManufacturer() {
+    const trimmedName = manufacturerForm.name.trim();
+    if (!trimmedName) {
+      toast.error("اسم الشركة المصنعة مطلوب", "يرجى كتابة اسم الشركة المصنعة أو الماركة.");
+      return;
     }
-    setAddingManufacturer(false);
-    setNewManufacturerInput("");
-  };
+    setCustomManufacturers((prev) => (prev.includes(trimmedName) ? prev : [...prev, trimmedName]));
+    set("manufacturer", trimmedName);
+    set("partBrand", trimmedName);
+
+    const isAgency = trimmedName.includes("توكيل") || manufacturerForm.qualityGrade === "genuine" || trimmedName.toLowerCase().includes("genuine");
+    if (isAgency) {
+      set("qualityGrade", "genuine");
+      set("originCountry", undefined);
+    } else {
+      if (manufacturerForm.countryCode && !form.originCountry) {
+        set("originCountry", manufacturerForm.countryCode);
+      }
+      if (manufacturerForm.qualityGrade && form.qualityGrade === "aftermarket-premium") {
+        set("qualityGrade", manufacturerForm.qualityGrade as FormState["qualityGrade"]);
+      }
+    }
+
+    toast.success("تم تسجيل الشركة المصنعة", `تمت إضافة "${trimmedName}" بنجاح.`);
+    setManufacturerDialogOpen(false);
+  }
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -259,6 +316,10 @@ export function ProductFormDialog({
   const fitmentEngines = vehicleCatalog.vehicleEngines.filter(
     (engine) => engine.generationId === fitmentGenerationId && engine.active,
   );
+  const fitmentSelectedGeneration = fitmentGenerations.find((generation) => generation.id === fitmentGenerationId);
+  const fitmentYearBounds = fitmentSelectedGeneration?.yearFrom
+    ? { startYear: fitmentSelectedGeneration.yearFrom, endYear: fitmentSelectedGeneration.yearTo ?? new Date().getFullYear() }
+    : undefined;
 
   function addFitmentDraft() {
     if (!fitmentMakeId) {
@@ -319,12 +380,50 @@ export function ProductFormDialog({
     setAlternativeProductId("");
   }
 
+  function handleQuickAddProduct() {
+    const name = quickAddForm.name.trim();
+    const partNumber = quickAddForm.partNumber.trim();
+    const e: Record<string, string> = {};
+    if (!name) e.name = "اسم القطعة مطلوب";
+    if (!partNumber) {
+      e.partNumber = "رقم القطعة مطلوب";
+    } else {
+      const cleanPn = cleanPartNum(partNumber);
+      const duplicate = products.find((p) => p.partNumber && cleanPartNum(p.partNumber) === cleanPn);
+      if (duplicate) {
+        e.partNumber = `رقم القطعة مكرر مسبقاً (مستخدَم في: ${duplicate.name})`;
+      }
+    }
+    if (!quickAddForm.originCountry) e.originCountry = "بلد المنشأ مطلوب";
+    setQuickAddErrors(e);
+    if (Object.keys(e).length > 0) return;
+
+    const created = addProduct({
+      ...EMPTY,
+      code: nextProductCode.toString(),
+      name,
+      partNumber,
+      category: quickAddForm.category,
+      unit: quickAddForm.unit,
+      originCountry: quickAddForm.originCountry,
+      wholesalePrice: quickAddForm.wholesalePrice,
+      retailPrice: quickAddForm.wholesalePrice,
+      quantity: quickAddForm.quantity,
+      minStock: quickAddForm.minStock,
+    });
+    setAlternativeProductId(created.id);
+    setQuickAddForm({ name: "", partNumber: "", category: "فلاتر", unit: "قطعة", originCountry: "", wholesalePrice: 0, quantity: 0, minStock: 5 });
+    setQuickAddErrors({});
+    setQuickAddOpen(false);
+    toast.success("تم إضافة القطعة", "اضغط «إضافة» لربطها كبديل، وتقدر تكمّل باقي بياناتها لاحقًا من صفحة قطع الغيار.");
+  }
+
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!form.code.trim()) e.code = "الكود مطلوب";
     if (!form.name.trim()) e.name = "اسم المنتج مطلوب";
     if (!form.partNumber?.trim()) e.partNumber = "رقم القطعة مطلوب";
-    if (!form.originCountry?.trim()) e.originCountry = "بلد المنشأ مطلوب";
+    if (form.qualityGrade !== "genuine" && !form.originCountry?.trim()) e.originCountry = "بلد المنشأ مطلوب";
     if (!form.category.trim()) e.category = "الفئة مطلوبة";
     if (form.purchasePrice < 0) e.purchasePrice = "يجب أن يكون موجباً";
     if (form.wholesalePrice < 0) e.wholesalePrice = "يجب أن يكون موجباً";
@@ -383,13 +482,18 @@ export function ProductFormDialog({
     let payload = form;
     if (!barcodeEnabled) payload = { ...payload, barcode: undefined };
     if (!multiSalePricesEnabled) {
-      payload = {
-        ...payload,
-        retailPrice: payload.wholesalePrice,
-        piecesPerUnit: undefined,
-        retailUnit: undefined,
-        looseQuantity: undefined,
-      };
+      // Don't touch retailPrice here — it's hidden, not deleted. Overwriting it
+      // with wholesalePrice would silently destroy a distinct retail price the
+      // shop set while the feature was on, with no way to recover it if the
+      // feature is re-enabled later.
+      //
+      // Same logic applies to piecesPerUnit / retailUnit / looseQuantity:
+      // they represent real inventory data (how many pieces per carton, the
+      // retail unit name, and the loose count already in stock). Wiping them
+      // on every save while the feature is off means the shop permanently
+      // loses that information the moment they save *any* product — even if
+      // the edit was completely unrelated (e.g. changing a price). If the
+      // feature is later re-enabled, the data is gone.
     }
     if (!expiryTrackingEnabled) {
       payload = { ...payload, hasExpiry: false, expiryDate: undefined };
@@ -470,11 +574,11 @@ export function ProductFormDialog({
         </>
       }
     >
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-2.5">
 
         {barcodeEnabled ? (
-          <div className="col-span-2 rounded-xl border border-brand-200 bg-brand-50/60 dark:bg-brand-500/10 p-3">
-            <div className="text-sm font-semibold text-brand-800 dark:text-brand-200 mb-2">اسكان إضافة المنتج</div>
+          <div className="col-span-1 sm:col-span-2 md:col-span-4 rounded-xl border border-brand-200 bg-brand-50/60 dark:bg-brand-500/10 p-2.5">
+            <div className="text-xs font-semibold text-brand-800 dark:text-brand-200 mb-1.5">اسكان إضافة المنتج</div>
             <BarcodeScanInput
               onScan={(code) => {
                 const existing = findProductByScan(products.filter((product) => product.id !== editing?.id), code);
@@ -491,14 +595,14 @@ export function ProductFormDialog({
         ) : null}
 
         {/* كود المنتج + اسم المنتج */}
-        <Field label="كود المنتج" required error={errors.code}>
+        <Field label="كود المنتج" required error={errors.code} className="col-span-1">
           <Input
             value={form.code}
             readOnly
             className="bg-surface-muted cursor-not-allowed text-ink-faint opacity-70 font-mono"
           />
         </Field>
-        <Field label="اسم المنتج" required error={errors.name}>
+        <Field label="اسم المنتج" required error={errors.name} className="col-span-1 sm:col-span-2 md:col-span-3">
           <Input
             value={form.name}
             onChange={(e) => set("name", e.target.value)}
@@ -511,6 +615,7 @@ export function ProductFormDialog({
           hint="رقم القطعة (Part Number) هو الكود أو الرقم الذي تضعه الشركة المصنعة للقطعة (مثل W 68/3 لشركة MANN أو 0242236571 لشركة Bosch) للتمييز الفني للقطعة وسهولة طلبها."
           required
           error={errors.partNumber}
+          className="col-span-1 sm:col-span-2"
         >
           <Input
             value={form.partNumber ?? ""}
@@ -520,13 +625,29 @@ export function ProductFormDialog({
             dir="ltr"
           />
         </Field>
-        <Field label="الشركة المصنّعة / الماركة">
+        <Field label="الشركة المصنّعة / الماركة" className="col-span-1 sm:col-span-2">
           <div className="flex gap-2">
             <SearchableSelect
               value={form.manufacturer ?? form.partBrand ?? ""}
               onChange={(val) => {
-                set("manufacturer", val || undefined);
-                set("partBrand", val || undefined);
+                const brandVal = val || undefined;
+                set("manufacturer", brandVal);
+                set("partBrand", brandVal);
+
+                if (val) {
+                  const isAgency = val.includes("توكيل") || val.toLowerCase().includes("genuine");
+                  if (isAgency) {
+                    set("qualityGrade", "genuine");
+                    set("originCountry", undefined);
+
+                    const matchedMake = vehicleCatalog.specializedVehicleMakes.find(
+                      (make) => val.includes(make.name) || (make.nameAr && val.includes(make.nameAr))
+                    );
+                    if (matchedMake && !fitmentMakeId) {
+                      setFitmentMakeId(matchedMake.id);
+                    }
+                  }
+                }
               }}
               options={allManufacturers.map((m) => ({
                 value: m,
@@ -534,13 +655,9 @@ export function ProductFormDialog({
                 searchText: m,
               }))}
               placeholder="اختر أو ابحث عن الشركة..."
-              searchPlaceholder="ابحث عن اسم الشركة المصنعة..."
+              searchPlaceholder="ابحث عن اسم الشركة المصنعة أو التوكيل..."
               minChars={0}
-              onCreate={(newBrand) => {
-                setCustomManufacturers((prev) => [...prev, newBrand]);
-                set("manufacturer", newBrand);
-                set("partBrand", newBrand);
-              }}
+              onCreate={(newBrand) => openAddManufacturerModal(newBrand)}
               createLabel="إضافة شركة مصنعة جديدة:"
               className="flex-1"
             />
@@ -548,43 +665,22 @@ export function ProductFormDialog({
               type="button"
               variant="outline"
               size="icon"
-              onClick={() => { setAddingManufacturer(true); setNewManufacturerInput(""); }}
-              title="إضافة ماركة جديدة"
+              onClick={() => openAddManufacturerModal("")}
+              title="إضافة شركة مصنعة جديدة"
             >
               <Plus className="w-4 h-4" />
             </Button>
           </div>
-          {addingManufacturer && (
-            <div className="flex gap-1.5 mt-1.5">
-              <Input
-                autoFocus
-                value={newManufacturerInput}
-                onChange={(e) => setNewManufacturerInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); confirmNewManufacturer(); }
-                  if (e.key === "Escape") setAddingManufacturer(false);
-                }}
-                placeholder="اسم الماركة / الشركة الجديدة"
-                className="flex-1"
-              />
-              <Button type="button" size="icon" variant="outline" onClick={confirmNewManufacturer}>
-                <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
-              </Button>
-              <Button type="button" size="icon" variant="ghost" onClick={() => setAddingManufacturer(false)}>
-                <X className="w-4 h-4 text-red-500" />
-              </Button>
-            </div>
-          )}
         </Field>
 
         <Field
           label="أرقام OEM"
           hint="أرقام OEM (Original Equipment Manufacturer) هي أرقام القطعة الأصلية المعتمدة من شركة السيارة الأم (مثل Toyota أو Hyundai). تُستخدم لتسهيل المطابقة والدعم عند البحث برقم شاسيه السيارة أو البدائل التجاريّة."
           error={errors.oemNumbers}
-          className="col-span-2"
+          className="col-span-1 sm:col-span-2 md:col-span-4"
         >
           <Textarea
-            rows={2}
+            rows={1}
             value={(form.oemNumbers ?? []).join(", ")}
             onChange={(e) => set("oemNumbers", e.target.value.split(/[,\n؛]+/).map((value) => value.trim()).filter(Boolean))}
             placeholder="أدخل أكثر من رقم مفصول بفاصلة — مثال: 90915-YZZJ1, 90915-10003"
@@ -594,7 +690,7 @@ export function ProductFormDialog({
         </Field>
 
         {barcodeEnabled ? (
-          <Field label="الباركود" error={errors.barcode} className="col-span-2">
+          <Field label="الباركود" error={errors.barcode} className="col-span-1 sm:col-span-2 md:col-span-4">
             <div className="flex gap-2">
               <Input
                 value={form.barcode ?? ""}
@@ -620,7 +716,24 @@ export function ProductFormDialog({
           </Field>
         ) : null}
 
-        <Field label="بلد المنشأ" required error={errors.originCountry}>
+        <Field label="درجة الجودة" hint={`• أصلي توكيل:\nغلاف وعلبة ماركة السيارة الرسمية (مثل تويوتا أو هيونداي).\n\n• OEM:\nالمصنّع الأصلي للقطعة في علبته التجارية الخاصة (مثل Bosch أو Denso).\n\n• بديل ممتاز:\nقطع غيار تجارية معتمدة عالية الجودة.\n\n• بديل اقتصادي:\nقطع غيار تجارية موفرة للسعر.`} className="col-span-1">
+          <Select
+            value={form.qualityGrade ?? "aftermarket-premium"}
+            onChange={(e) => {
+              const val = e.target.value as FormState["qualityGrade"];
+              set("qualityGrade", val);
+              if (val === "genuine") {
+                set("originCountry", undefined);
+              }
+            }}
+          >
+            <option value="genuine">أصلي توكيل</option>
+            <option value="oem">OEM أصلي مصنع</option>
+            <option value="aftermarket-premium">بديل ممتاز</option>
+            <option value="aftermarket-economy">بديل اقتصادي</option>
+          </Select>
+        </Field>
+        <Field label="بلد المنشأ" required={form.qualityGrade !== "genuine"} error={errors.originCountry} className="col-span-1">
           <SearchableSelect
             value={normalizeVehicleCountryCode(form.originCountry) ?? form.originCountry ?? ""}
             onChange={(val) => set("originCountry", val || undefined)}
@@ -629,27 +742,20 @@ export function ProductFormDialog({
               label: `${c.flag}  ${c.nameAr} (${c.code})`,
               searchText: `${c.nameAr} ${c.nameEn} ${c.code}`,
             }))}
-            placeholder="اختر بلد المنشأ..."
-            searchPlaceholder="ابحث عن دولة المنشأ..."
+            placeholder={form.qualityGrade === "genuine" ? "تتبع التوكيل" : "اختر البلد..."}
+            searchPlaceholder="ابحث عن دولة..."
             minChars={0}
+            disabled={form.qualityGrade === "genuine"}
           />
         </Field>
-        <Field label="درجة الجودة">
-          <Select value={form.qualityGrade ?? "aftermarket-premium"} onChange={(e) => set("qualityGrade", e.target.value as FormState["qualityGrade"])}>
-            <option value="genuine">أصلي Genuine</option>
-            <option value="oem">OEM</option>
-            <option value="aftermarket-premium">بديل ممتاز</option>
-            <option value="aftermarket-economy">بديل اقتصادي</option>
-          </Select>
-        </Field>
-        <Field label="حالة القطعة">
+        <Field label="حالة القطعة" className="col-span-1">
           <Select value={form.condition ?? "new"} onChange={(e) => set("condition", e.target.value as FormState["condition"])}>
             <option value="new">جديدة</option>
             <option value="used">استيراد / مستعملة</option>
             <option value="remanufactured">مجددة</option>
           </Select>
         </Field>
-        <Field label="الضمان">
+        <Field label="الضمان" className="col-span-1">
           <Select
             value={form.warrantyMonths === undefined || form.warrantyMonths === 0 ? "0" : String(form.warrantyMonths)}
             onChange={(e) => set("warrantyMonths", e.target.value ? Number(e.target.value) : undefined)}
@@ -661,13 +767,13 @@ export function ProductFormDialog({
             <option value="12">سنة واحدة (12 شهر)</option>
             <option value="18">سنة ونصف (18 شهر)</option>
             <option value="24">سنتين (24 شهر)</option>
-            <option value="36">3 سنوات (36 شهر)</option>
-            <option value="60">5 سنوات (60 شهر)</option>
+            <option value="36">3 سنوات</option>
+            <option value="60">5 سنوات</option>
           </Select>
         </Field>
 
         {/* الفئة + الوحدة */}
-        <Field label="الفئة" required error={errors.category}>
+        <Field label="الفئة" required error={errors.category} className="col-span-1 sm:col-span-2 md:col-span-2">
           <div className="flex gap-2">
             <Select
               value={form.category}
@@ -714,7 +820,7 @@ export function ProductFormDialog({
             </div>
           )}
         </Field>
-        <Field label="الوحدة">
+        <Field label="الوحدة" className="col-span-1 sm:col-span-2 md:col-span-2">
           <div className="flex gap-2">
             <Select
               value={form.unit}
@@ -763,7 +869,7 @@ export function ProductFormDialog({
         </Field>
 
         {/* سعر الشراء + سعر الجملة */}
-        <Field label="سعر الشراء" required error={errors.purchasePrice}>
+        <Field label="سعر الشراء" required error={errors.purchasePrice} className="col-span-1">
           <Input
             type="number"
             min={0}
@@ -772,7 +878,7 @@ export function ProductFormDialog({
             onChange={(e) => set("purchasePrice", Number(e.target.value))}
           />
         </Field>
-        <Field label="سعر الجملة" required error={errors.wholesalePrice}>
+        <Field label={multiSalePricesEnabled ? "سعر الجملة" : "سعر البيع"} required error={errors.wholesalePrice} className="col-span-1">
           <Input
             type="number"
             min={0}
@@ -788,6 +894,7 @@ export function ProductFormDialog({
               label={form.piecesPerUnit ? `سعر ${form.retailUnit || "القطعة"}` : "سعر التجزئة للوحدة"}
               required
               error={errors.retailPrice}
+              className="col-span-1"
             >
               <Input
                 type="number"
@@ -797,7 +904,7 @@ export function ProductFormDialog({
                 onChange={(e) => set("retailPrice", Number(e.target.value))}
               />
             </Field>
-            <Field label="عدد القطع في الوحدة">
+            <Field label="عدد القطع في الوحدة" className="col-span-1">
               <Input
                 type="number"
                 min={1}
@@ -819,14 +926,14 @@ export function ProductFormDialog({
         {/* حقول التجزئة - تظهر فقط لما يكون فيه عدد قطع */}
         {multiSalePricesEnabled && form.piecesPerUnit ? (
           <>
-            <Field label="اسم وحدة التجزئة" required error={errors.retailUnit}>
+            <Field label="اسم وحدة التجزئة" required error={errors.retailUnit} className="col-span-1">
               <Input
                 value={form.retailUnit ?? ""}
                 onChange={(e) => set("retailUnit", e.target.value || undefined)}
                 placeholder="مثل: قطعة، كيس، علبة صغيرة"
               />
             </Field>
-            <Field label={`كمية القطع المفردة (${form.retailUnit || "قطعة"})`}>
+            <Field label={`كمية القطع المفردة (${form.retailUnit || "قطعة"})`} className="col-span-1">
               <Input
                 type="number"
                 min={0}
@@ -839,8 +946,8 @@ export function ProductFormDialog({
           </>
         ) : null}
 
-        {/* الكمية الحالية + الحد الأدنى */}
-        <Field label={`الكمية الحالية (${form.unit})`} required error={errors.quantity}>
+        {/* الكمية الحالية + الحد الأدنى + موقع الرف + كمية إعادة الطلب */}
+        <Field label={`الكمية الحالية (${form.unit})`} required error={errors.quantity} className="col-span-1">
           <Input
             type="number"
             min={0}
@@ -848,7 +955,7 @@ export function ProductFormDialog({
             onChange={(e) => set("quantity", Number(e.target.value))}
           />
         </Field>
-        <Field label="الحد الأدنى للمخزون" required error={errors.minStock}>
+        <Field label="الحد الأدنى للمخزون" required error={errors.minStock} className="col-span-1">
           <Input
             type="number"
             min={0}
@@ -856,15 +963,15 @@ export function ProductFormDialog({
             onChange={(e) => set("minStock", Number(e.target.value))}
           />
         </Field>
-        <Field label="موقع الرف / البِن">
+        <Field label="موقع الرف / البِن" className="col-span-1">
           <Input value={form.rackLocation ?? ""} onChange={(e) => set("rackLocation", e.target.value || undefined)} placeholder="مثال: A-03-02" className="font-mono" dir="ltr" />
         </Field>
-        <Field label="كمية إعادة الطلب">
+        <Field label="كمية إعادة الطلب" className="col-span-1">
           <Input type="number" min={0} value={form.reorderQuantity ?? ""} onChange={(e) => set("reorderQuantity", e.target.value ? Number(e.target.value) : undefined)} />
         </Field>
 
         {/* المورد + تاريخ الصلاحية */}
-        <Field label="المورد">
+        <Field label="المورد" className="col-span-1 sm:col-span-2">
           <Select
             value={form.supplierId ?? ""}
             onChange={(e) => set("supplierId", e.target.value ? e.target.value : undefined)}
@@ -880,6 +987,7 @@ export function ProductFormDialog({
             label="له تاريخ صلاحية؟"
             required={form.hasExpiry}
             error={form.hasExpiry ? errors.expiryDate : undefined}
+            className="col-span-1 sm:col-span-2"
           >
             <div className="flex items-center gap-3 min-h-[36px]">
               <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none whitespace-nowrap">
@@ -915,7 +1023,7 @@ export function ProductFormDialog({
           </Field>
         ) : null}
 
-        <div className="col-span-2 rounded-xl border border-line p-4 space-y-3">
+        <div className="col-span-1 sm:col-span-2 md:col-span-4 rounded-xl border border-line p-3 space-y-2.5">
           <div className="flex items-center justify-between gap-3">
             <div><div className="flex items-center gap-2 font-semibold"><CarFront className="w-4 h-4" />توافق القطعة مع السيارات</div><div className="text-xs text-ink-muted mt-0.5">يمكن ربط القطعة بأكثر من سيارة أو جيل أو محرك</div></div>
             <span className="text-xs text-ink-faint">{fitments.length} توافق</span>
@@ -934,7 +1042,7 @@ export function ProductFormDialog({
                   value: make.id,
                   label: make.nameAr ? `${make.nameAr} — ${make.name}` : make.name,
                   image: `/vehicle-logos/${make.slug}.png`,
-                  searchText: `${make.name} ${make.nameAr ?? ""}`
+                  searchText: getMakeSearchText(make),
                 }))}
                 placeholder="اختر الماركة"
                 minChars={1}
@@ -953,10 +1061,40 @@ export function ProductFormDialog({
                 minChars={1}
               />
             </Field>
-            <Field label="الجيل"><Select value={fitmentGenerationId} onChange={(e) => { setFitmentGenerationId(e.target.value); setFitmentEngineId(""); }} disabled={!fitmentModelId}><option value="">كل الأجيال</option>{fitmentGenerations.map((generation) => <option key={generation.id} value={generation.id}>{generation.name}</option>)}</Select></Field>
+            <Field label="الجيل">
+              <Select
+                value={fitmentGenerationId}
+                onChange={(e) => {
+                  setFitmentGenerationId(e.target.value);
+                  setFitmentEngineId("");
+                  setFitmentYearFrom("");
+                  setFitmentYearTo("");
+                }}
+                disabled={!fitmentModelId}
+              >
+                <option value="">كل الأجيال</option>
+                {fitmentGenerations.map((generation) => <option key={generation.id} value={generation.id}>{generation.name}</option>)}
+              </Select>
+            </Field>
             <Field label="المحرك"><Select value={fitmentEngineId} onChange={(e) => setFitmentEngineId(e.target.value)} disabled={!fitmentGenerationId}><option value="">كل المحركات</option>{fitmentEngines.map((engine) => <option key={engine.id} value={engine.id}>{engine.name}{engine.code ? ` — ${engine.code}` : ""}</option>)}</Select></Field>
-            <Field label="من سنة"><YearSelect value={fitmentYearFrom} onChange={(val) => setFitmentYearFrom(val)} placeholder="من سنة" /></Field>
-            <Field label="إلى سنة"><YearSelect value={fitmentYearTo} onChange={(val) => setFitmentYearTo(val)} placeholder="إلى سنة" /></Field>
+            <Field label="من سنة" hint={fitmentSelectedGeneration ? `مقفولة على سنين هذا الجيل (${fitmentSelectedGeneration.yearFrom ?? "?"}–${fitmentSelectedGeneration.yearTo ?? "الآن"}) — اختر نفس السنة في «من» و«إلى» لتخصيص القطعة بسنة موديل واحدة فقط.` : undefined}>
+              <YearSelect
+                value={fitmentYearFrom}
+                onChange={(val) => setFitmentYearFrom(val)}
+                placeholder="من سنة"
+                startYear={fitmentYearBounds?.startYear}
+                endYear={fitmentYearBounds?.endYear}
+              />
+            </Field>
+            <Field label="إلى سنة">
+              <YearSelect
+                value={fitmentYearTo}
+                onChange={(val) => setFitmentYearTo(val)}
+                placeholder="إلى سنة"
+                startYear={fitmentYearBounds?.startYear}
+                endYear={fitmentYearBounds?.endYear}
+              />
+            </Field>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={addFitmentDraft}><Plus className="w-4 h-4" />إضافة التوافق</Button>
           {fitments.length ? (
@@ -977,7 +1115,7 @@ export function ProductFormDialog({
           ) : <div className="text-xs text-ink-faint">لم يتم ربط القطعة بسيارة بعد؛ ستظل قابلة للبحث برقم القطعة وOEM.</div>}
         </div>
 
-        <div className="col-span-2 rounded-xl border border-line p-4 space-y-3">
+        <div className="col-span-1 sm:col-span-2 md:col-span-4 rounded-xl border border-line p-3 space-y-2.5">
           <div><div className="font-semibold">البدائل والأرقام المحدّثة</div><div className="text-xs text-ink-muted mt-0.5">اربط القطعة ببديل مكافئ أو اقتصادي أو أعلى جودة ليظهر للبائع فورًا</div></div>
           {!isEnabled("partAlternatives") ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
@@ -988,13 +1126,20 @@ export function ProductFormDialog({
             <>
               <div className="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-2 items-end">
                 <Field label="القطعة البديلة">
-                  <SearchableSelect
-                    value={alternativeProductId}
-                    onChange={setAlternativeProductId}
-                    options={products.filter((product) => !product.archived && product.id !== editing?.id).map((product) => ({ value: product.id, label: `${product.partNumber || product.code} — ${product.name}`, searchText: `${product.name} ${product.partNumber ?? ""} ${product.oemNumbers?.join(" ") ?? ""} ${product.partBrand ?? ""}` }))}
-                    placeholder="اختر قطعة من المخزون"
-                    minChars={1}
-                  />
+                  <div className="flex gap-2">
+                    <div className="min-w-0 flex-1">
+                      <SearchableSelect
+                        value={alternativeProductId}
+                        onChange={setAlternativeProductId}
+                        options={products.filter((product) => !product.archived && product.id !== editing?.id).map((product) => ({ value: product.id, label: `${product.partNumber || product.code} — ${product.name}`, searchText: `${product.name} ${product.partNumber ?? ""} ${product.oemNumbers?.join(" ") ?? ""} ${product.partBrand ?? ""}` }))}
+                        placeholder="اختر قطعة من المخزون"
+                        minChars={1}
+                      />
+                    </div>
+                    <Button type="button" variant="outline" size="icon" title="إضافة قطعة بديلة جديدة" onClick={() => setQuickAddOpen(true)}>
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </Field>
                 <Field label="نوع البديل"><Select value={alternativeRelation} onChange={(e) => setAlternativeRelation(e.target.value as PartAlternativeRelation)}>{Object.entries(ALTERNATIVE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></Field>
                 <Button type="button" variant="outline" onClick={addAlternativeDraft}><Plus className="w-4 h-4" />إضافة</Button>
@@ -1005,7 +1150,7 @@ export function ProductFormDialog({
         </div>
 
         {/* ملاحظات - اختياري */}
-        <Field label="ملاحظات" className="col-span-2">
+        <Field label="ملاحظات" className="col-span-1 sm:col-span-2 md:col-span-4">
           <Textarea
             rows={2}
             value={form.notes ?? ""}
@@ -1014,6 +1159,177 @@ export function ProductFormDialog({
         </Field>
 
       </div>
+
+      <Dialog
+        open={manufacturerDialogOpen}
+        onClose={() => setManufacturerDialogOpen(false)}
+        title="تسجيل شركة مصنعة جديدة"
+        subtitle="إضافة ماركة أو شركة مصنعة جديدة لقطع الغيار"
+        width="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setManufacturerDialogOpen(false)}>
+              إلغاء
+            </Button>
+            <Button onClick={handleSaveManufacturer}>
+              <Check className="w-4 h-4" /> حفظ الشركة المصنعة
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4" dir="rtl">
+          <Field label="اسم الشركة المصنعة / الماركة" required>
+            <Input
+              value={manufacturerForm.name}
+              onChange={(e) => setManufacturerForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="مثل: Bosch، Denso، لانسر، Mobis..."
+              autoFocus
+            />
+          </Field>
+
+          <Field label="بلد المنشأ الرئيسي للشركة">
+            <SearchableSelect
+              value={manufacturerForm.countryCode}
+              onChange={(val) => setManufacturerForm((f) => ({ ...f, countryCode: val }))}
+              options={VEHICLE_COUNTRIES.map((c) => ({
+                value: c.code,
+                label: `${c.flag}  ${c.nameAr} (${c.code})`,
+                searchText: `${c.nameAr} ${c.nameEn} ${c.code}`,
+              }))}
+              placeholder="اختر بلد الشركة (اختياري)..."
+              searchPlaceholder="ابحث عن دولة..."
+              minChars={0}
+            />
+          </Field>
+
+          <Field label="تخصص الشركة / نوع قطع الغيار">
+            <Select
+              value={manufacturerForm.specialty}
+              onChange={(e) => setManufacturerForm((f) => ({ ...f, specialty: e.target.value }))}
+            >
+              <option value="">عام (متعدد التخصصات)</option>
+              <option value="فلاتر">فلاتر (فلاتر زيت وهواء وتكييف)</option>
+              <option value="فرامل">فرامل (تيل وطنابير وسوائل فرامل)</option>
+              <option value="عفشة و تعليق">عفشة وتنقيل (مساعدين ومقصات)</option>
+              <option value="كهرباء وإضاءة">كهرباء وإضاءة (بوجيهات وفوانيس)</option>
+              <option value="محرك">محرك وأجزاء دقيقة</option>
+              <option value="زيوت وسوائل">زيوت وسوائل</option>
+              <option value="سيور وبلي">سيور وبلي</option>
+            </Select>
+          </Field>
+
+          <Field
+            label="مستوى الجودة الشهير للشركة"
+            hint={`• أصلي توكيل:\nغلاف وعلبة التوكيل وماركة السيارة الرسمية.\n\n• OEM:\nالمصنّع الأصلي لشركات السيارات.\n\n• بديل ممتاز:\nقطع غيار تجارية معتمدة عالية الجودة.\n\n• بديل اقتصادي:\nقطع غيار تجارية موفرة للسعر.`}
+          >
+            <Select
+              value={manufacturerForm.qualityGrade}
+              onChange={(e) => setManufacturerForm((f) => ({ ...f, qualityGrade: e.target.value }))}
+            >
+              <option value="">غير محدد</option>
+              <option value="genuine">أصلي توكيل (غلاف وعلبة ماركة السيارة الرسمية)</option>
+              <option value="oem">OEM (المصنّع الأصلي للقطعة في علبته التجارية)</option>
+              <option value="aftermarket-premium">بديل ممتاز (Premium Aftermarket — جودة عالية)</option>
+              <option value="aftermarket-economy">بديل اقتصادي (Economy Aftermarket — موفر للسعر)</option>
+            </Select>
+          </Field>
+
+          <Field label="ملاحظات إضافية">
+            <Textarea
+              value={manufacturerForm.notes}
+              onChange={(e) => setManufacturerForm((f) => ({ ...f, notes: e.target.value }))}
+              placeholder="أي ملاحظات حول الوكيل أو الضمان أو جودة منتجات الشركة..."
+              rows={2}
+            />
+          </Field>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={quickAddOpen}
+        onClose={() => { setQuickAddOpen(false); setQuickAddErrors({}); }}
+        title="إضافة قطعة بديلة جديدة"
+        subtitle="سجّل الحد الأدنى من البيانات بسرعة، وتقدر تكمّل الباقي (باركود، رقم OEM، توافق السيارات...) لاحقًا من صفحة قطع الغيار"
+        width="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setQuickAddOpen(false); setQuickAddErrors({}); }}>إلغاء</Button>
+            <Button onClick={handleQuickAddProduct}><Check className="w-4 h-4" /> إضافة القطعة</Button>
+          </>
+        }
+      >
+        <div className="space-y-3" dir="rtl">
+          <Field label="اسم القطعة" required error={quickAddErrors.name}>
+            <Input
+              value={quickAddForm.name}
+              onChange={(e) => setQuickAddForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="مثل: فلتر زيت موتور هيونداي إلنترا"
+              autoFocus
+            />
+          </Field>
+          <Field label="رقم القطعة" required error={quickAddErrors.partNumber}>
+            <Input
+              value={quickAddForm.partNumber}
+              onChange={(e) => setQuickAddForm((f) => ({ ...f, partNumber: e.target.value }))}
+              placeholder="Part Number"
+              dir="ltr"
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="الفئة">
+              <Select value={quickAddForm.category} onChange={(e) => setQuickAddForm((f) => ({ ...f, category: e.target.value }))}>
+                {allCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+              </Select>
+            </Field>
+            <Field label="الوحدة">
+              <Select value={quickAddForm.unit} onChange={(e) => setQuickAddForm((f) => ({ ...f, unit: e.target.value }))}>
+                {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+              </Select>
+            </Field>
+          </div>
+          <Field label="بلد المنشأ" required error={quickAddErrors.originCountry}>
+            <SearchableSelect
+              value={quickAddForm.originCountry}
+              onChange={(val) => setQuickAddForm((f) => ({ ...f, originCountry: val }))}
+              options={VEHICLE_COUNTRIES.map((c) => ({
+                value: c.code,
+                label: `${c.flag}  ${c.nameAr} (${c.code})`,
+                searchText: `${c.nameAr} ${c.nameEn} ${c.code}`,
+              }))}
+              placeholder="اختر بلد المنشأ..."
+              searchPlaceholder="ابحث عن دولة..."
+              minChars={0}
+            />
+          </Field>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="سعر البيع">
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={quickAddForm.wholesalePrice}
+                onChange={(e) => setQuickAddForm((f) => ({ ...f, wholesalePrice: Number(e.target.value) }))}
+              />
+            </Field>
+            <Field label="الكمية">
+              <Input
+                type="number"
+                min={0}
+                value={quickAddForm.quantity}
+                onChange={(e) => setQuickAddForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
+              />
+            </Field>
+            <Field label="الحد الأدنى">
+              <Input
+                type="number"
+                min={0}
+                value={quickAddForm.minStock}
+                onChange={(e) => setQuickAddForm((f) => ({ ...f, minStock: Number(e.target.value) }))}
+              />
+            </Field>
+          </div>
+        </div>
+      </Dialog>
     </Dialog>
   );
 }

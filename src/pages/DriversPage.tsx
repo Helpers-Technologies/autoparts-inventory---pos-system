@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Eye, Phone, Plus, Receipt, Settings2, Trash2, Truck } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
@@ -37,10 +37,22 @@ export function DriversPage() {
   function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const phoneRaw = (fd.get("phone") as string || "").trim();
+    const salaryRaw = (fd.get("salary") as string || "").trim();
+
+    if (phoneRaw) {
+      const digits = phoneRaw.replace(/\D/g, "");
+      if (digits.length !== 11) {
+        toast.error("رقم الهاتف غير صحيح", "يجب أن يكون رقم الهاتف مكون من 11 رقم بالضبط");
+        return;
+      }
+    }
+
     const data = {
-      name: fd.get("name") as string,
-      phone: fd.get("phone") as string,
-      licenseNumber: fd.get("licenseNumber") as string,
+      name: (fd.get("name") as string || "").trim(),
+      phone: phoneRaw,
+      licenseNumber: (fd.get("licenseNumber") as string || "").trim(),
+      salary: salaryRaw ? Number(salaryRaw) : undefined,
     };
 
     if (editing) {
@@ -57,7 +69,7 @@ export function DriversPage() {
     <>
       <PageHeader
         title="السائقين"
-        description="إدارة بيانات السائقين وتتبع رحلاتهم"
+        description="إدارة بيانات السائقين وتتبع رحلاتهم والمرتبات"
         actions={
           canAddDriver ? (
             <Button
@@ -79,6 +91,7 @@ export function DriversPage() {
               <TR>
                 <TH>الاسم</TH>
                 <TH>رقم الهاتف</TH>
+                <TH>المرتب الشهري</TH>
                 <TH>رقم الرخصة</TH>
                 <TH>عدد الفواتير (رحلات)</TH>
                 <TH>إجمالي المبيعات</TH>
@@ -88,7 +101,7 @@ export function DriversPage() {
             <TBody>
               {drivers.length === 0 ? (
                 <TR>
-                  <TD colSpan={6} className="text-center py-8 text-ink-faint">
+                  <TD colSpan={7} className="text-center py-8 text-ink-faint">
                     لا يوجد سائقين مسجلين
                   </TD>
                 </TR>
@@ -105,6 +118,9 @@ export function DriversPage() {
                     >
                       <TD className="font-medium">{d.name}</TD>
                       <TD>{d.phone || "—"}</TD>
+                      <TD className="font-mono text-emerald-700 dark:text-emerald-400 font-semibold">
+                        {d.salary ? formatCurrency(d.salary, settings.currency) : "—"}
+                      </TD>
                       <TD>{d.licenseNumber || "—"}</TD>
                       <TD>{trips.length}</TD>
                       <TD className="font-medium text-ink">{formatCurrency(tripsTotal, settings.currency)}</TD>
@@ -165,8 +181,27 @@ export function DriversPage() {
           <Field label="اسم السائق" required>
             <Input name="name" defaultValue={editing?.name} required autoFocus />
           </Field>
-          <Field label="رقم الهاتف">
-            <Input name="phone" defaultValue={editing?.phone} />
+          <Field label="رقم الهاتف (11 رقم)">
+            <Input
+              name="phone"
+              defaultValue={editing?.phone}
+              maxLength={11}
+              inputMode="numeric"
+              placeholder="مثال: 01000000000"
+              onChange={(e) => {
+                e.target.value = e.target.value.replace(/\D/g, "").slice(0, 11);
+              }}
+            />
+          </Field>
+          <Field label="المرتب الشهري (ج.م)">
+            <Input
+              name="salary"
+              type="number"
+              min={0}
+              step="any"
+              placeholder="مثال: 5000"
+              defaultValue={editing?.salary}
+            />
           </Field>
           <Field label="رقم الرخصة / السيارة">
             <Input name="licenseNumber" defaultValue={editing?.licenseNumber} />
@@ -285,8 +320,9 @@ function DriverDetailsDrawer({
       }
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <InfoBox label="رقم الهاتف" value={driver.phone || "—"} icon={<Phone className="w-4 h-4" />} />
+          <InfoBox label="المرتب الشهري" value={driver.salary ? formatCurrency(driver.salary, currency) : "—"} />
           <InfoBox label="رقم الرخصة / السيارة" value={driver.licenseNumber || "—"} />
           <InfoBox label="تاريخ الإضافة" value={formatDate(driver.createdAt)} />
           <InfoBox label="آخر رحلة" value={lastTrip ? formatDate(lastTrip.date) : "—"} />

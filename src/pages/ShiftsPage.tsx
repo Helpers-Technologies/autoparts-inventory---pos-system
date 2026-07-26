@@ -12,6 +12,8 @@ import { CloseShiftDialog } from "../components/shifts/CloseShiftDialog";
 import { ShiftReportModal } from "../components/shifts/ShiftReportModal";
 import type { CashierShift } from "../types";
 
+import { hasPermission } from "../lib/permissions";
+
 export function ShiftsPage() {
   const { shifts, activeShift, getShiftSummary } = useInvoicing();
   const { settings } = useSettings();
@@ -25,11 +27,14 @@ export function ShiftsPage() {
   const [selectedShiftForClose, setSelectedShiftForClose] = useState<CashierShift | null>(null);
   const [isShiftReportOpen, setIsShiftReportOpen] = useState(false);
 
+  const canSupervise = hasPermission(currentUser, "pos", "supervisorOverride");
+  const canOpenShift = hasPermission(currentUser, "pos", "openShift");
+
   const accessibleShifts = useMemo(
-    () => currentUser?.role === "owner"
+    () => (currentUser?.role === "owner" || canSupervise)
       ? shifts
-      : shifts.filter((shift) => shift.cashierId === currentUser?.id),
-    [shifts, currentUser],
+      : shifts.filter((shift) => shift.cashierId === currentUser?.id || shift.cashierName === currentUser?.name),
+    [shifts, currentUser, canSupervise],
   );
 
   // Compute live summaries for open shifts
@@ -90,9 +95,14 @@ export function ShiftsPage() {
               تقفيل الوردية الحالية (#{activeShift.shiftNumber})
             </Button>
           ) : (
-            <Button variant="primary" onClick={() => setIsOpenShiftOpen(true)}>
+            <Button
+              variant="primary"
+              onClick={() => setIsOpenShiftOpen(true)}
+              disabled={!canOpenShift}
+              title={!canOpenShift ? "يتطلب صلاحية فتح وردية كاشير جديدة" : undefined}
+            >
               <PlayCircle className="w-4 h-4 ml-1.5" />
-              فتح وردية كاشير جديد
+              فتح وردية كاشير جديدة
             </Button>
           )}
         </div>

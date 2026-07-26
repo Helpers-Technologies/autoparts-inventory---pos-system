@@ -27,6 +27,15 @@ export interface ReportingContextValue {
     totalEarnings: number;
     monthLabel: string;
   };
+  employeeSalesStatsBatch: (userIds: ID[], month: string) => Map<ID, {
+    totalCollected: number;
+    commissionEarned: number;
+    commissionPct: number;
+    target: number;
+    salary: number;
+    totalEarnings: number;
+    monthLabel: string;
+  }>;
   exportToExcel: (
     dataType:
       | "products"

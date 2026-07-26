@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Plus, Minus, Wallet, HandCoins, Factory, NotebookPen, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Minus, Wallet, HandCoins, Factory, NotebookPen, Search, ChevronDown, ChevronUp } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -8,10 +8,12 @@ import { Input, Field, Select, Textarea } from "../components/ui/Input";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
 import { Dialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useReporting } from "../store/ReportingContext";
 import { useAuth } from "../store/AuthContext";
+import { useUsers } from "../store/UsersContext";
 import { useSettings } from "../store/SettingsContext";
 import { useToast } from "../components/ui/Toast";
 import { todayISO, uid } from "../lib/utils";
@@ -19,8 +21,15 @@ import type { CashEntryType, PaymentMethod } from "../types";
 import { formatCurrency, formatDate, PAYMENT_METHOD_LABELS } from "../lib/format";
 import { hasPermission } from "../lib/permissions";
 
+function monthValue(d: Date | string): string {
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (isNaN(date.getTime())) return new Date().toISOString().slice(0, 7);
+  return date.toISOString().slice(0, 7);
+}
+
 export function CashboxPage() {
-  const { suppliers } = useCatalog();
+  const { suppliers, drivers } = useCatalog();
+  const { users } = useUsers();
   const { cashEntries, salesInvoices, purchaseInvoices, addCashEntry, currentCashBalance } = useInvoicing();
   const { supplierBalance } = useReporting();
   const { currentUser } = useAuth();
@@ -36,6 +45,156 @@ export function CashboxPage() {
   const [desc, setDesc] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
 
+  const [payoutTarget, setPayoutTarget] = useState<"general" | "driver" | "employee">("general");
+  const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+
+  const [payoutCategory, setPayoutCategory] = useState<"salary" | "bonus" | "advance" | "penalty" | "calculated">("salary");
+  const [payoutMonth, setPayoutMonth] = useState(() => monthValue(new Date()));
+  const [baseSalaryInput, setBaseSalaryInput] = useState<number>(0);
+  const [bonusInput, setBonusInput] = useState<number>(0);
+  const [advanceInput, setAdvanceInput] = useState<number>(0);
+  const [penaltyInput, setPenaltyInput] = useState<number>(0);
+  const [commissionEarned, setCommissionEarned] = useState<number>(0);
+  const [payoutMode, setPayoutMode] = useState<"full" | "partial">("full");
+  const [partialAmount, setPartialAmount] = useState<number>(0);
+
+  function resetPayoutForm() {
+    setPayoutTarget("general");
+    setSelectedDriverId("");
+    setSelectedUserId("");
+    setPayoutCategory("salary");
+    setPayoutMonth(monthValue(new Date()));
+    setBaseSalaryInput(0);
+    setBonusInput(0);
+    setAdvanceInput(0);
+    setPenaltyInput(0);
+    setCommissionEarned(0);
+    setPayoutMode("full");
+    setPartialAmount(0);
+  }
+
+  // Employee dues recorded in the system for the selected month (salary, bonus,
+  // penalty, advance from monthlyConfigs + commission computed from that month's invoices).
+  const selectedEmployee = useMemo(
+    () => users.find((u) => u.id === selectedUserId) || null,
+    [users, selectedUserId]
+  );
+
+  const employeeMonthlyStats = useMemo(() => {
+    if (!selectedEmployee) return null;
+    const totalSalesMonth = salesInvoices
+      .filter((inv) => inv.createdByUserId === selectedEmployee.id && monthValue(inv.date) === payoutMonth)
+      .reduce((sum, inv) => sum + inv.total, 0);
+
+    const currentConfig = selectedEmployee.monthlyConfigs?.[payoutMonth] || {};
+    const commissionPct = currentConfig.commissionPct ?? selectedEmployee.salesCommissionPct ?? 0;
+    const baseSalary = selectedEmployee.monthlySalary ?? 0;
+    const bonus = currentConfig.bonus ?? 0;
+    const penalty = currentConfig.penalty ?? 0;
+    const advance = currentConfig.advance ?? 0;
+    const commission = Math.round(((totalSalesMonth * commissionPct) / 100) * 100) / 100;
+    const netPayable = Math.max(0, baseSalary + bonus + commission - penalty - advance);
+
+    return { baseSalary, bonus, penalty, advance, commission, netPayable };
+  }, [selectedEmployee, salesInvoices, payoutMonth]);
+
+  // For an employee, dues come straight from the system record for the chosen month.
+  useEffect(() => {
+    if (payoutTarget === "employee" && employeeMonthlyStats) {
+      setBaseSalaryInput(employeeMonthlyStats.baseSalary);
+      setBonusInput(employeeMonthlyStats.bonus);
+      setPenaltyInput(employeeMonthlyStats.penalty);
+      setAdvanceInput(employeeMonthlyStats.advance);
+      setCommissionEarned(employeeMonthlyStats.commission);
+    }
+  }, [payoutTarget, employeeMonthlyStats]);
+
+  const calculatedNet = Math.max(0, baseSalaryInput + bonusInput + commissionEarned - penaltyInput - advanceInput);
+
+  // Compute the amount/description for the current selection whenever any relevant input changes.
+  useEffect(() => {
+    if (!(entryType === "manual-remove" && (payoutTarget === "driver" || payoutTarget === "employee"))) return;
+
+    const targetLabel = payoutTarget === "driver" ? "السائق" : "الموظف";
+    const name =
+      payoutTarget === "driver"
+        ? drivers.find((d) => d.id === selectedDriverId)?.name || ""
+        : selectedEmployee?.name || "";
+
+    if (payoutCategory === "salary") {
+      setAmount(baseSalaryInput);
+      setDesc(name ? `صرف مرتب ${targetLabel}: ${name}` : `صرف مرتب ${targetLabel}`);
+    } else if (payoutCategory === "bonus") {
+      setAmount(bonusInput);
+      setDesc(name ? `صرف مكافأة / بونص لـ ${targetLabel}: ${name}` : `صرف مكافأة / بونص`);
+    } else if (payoutCategory === "advance") {
+      setAmount(advanceInput);
+      setDesc(name ? `صرف سُلفة مالية لـ ${targetLabel}: ${name}` : `صرف سُلفة مالية`);
+    } else if (payoutCategory === "penalty") {
+      setAmount(penaltyInput);
+      setDesc(name ? `خصم / جَزاء على ${targetLabel}: ${name}` : `خصم / جَزاء`);
+    } else if (payoutCategory === "calculated") {
+      const payAmount = payoutMode === "full" ? calculatedNet : Math.min(partialAmount, calculatedNet);
+      setAmount(payAmount);
+      const details = [];
+      if (baseSalaryInput > 0) details.push(`أساسي ${baseSalaryInput}`);
+      if (commissionEarned > 0) details.push(`عمولة +${commissionEarned}`);
+      if (bonusInput > 0) details.push(`بونص +${bonusInput}`);
+      if (penaltyInput > 0) details.push(`خصم -${penaltyInput}`);
+      if (advanceInput > 0) details.push(`سُلفة -${advanceInput}`);
+      const detailsStr = details.length > 0 ? ` (${details.join("، ")})` : "";
+      const partialNote = payoutMode === "partial" ? " - دفعة جزئية" : "";
+      setDesc(
+        name
+          ? `صرف صافي مستحقات ${targetLabel}: ${name}${detailsStr}${partialNote}`
+          : `صرف صافي مستحقات${partialNote}`
+      );
+    }
+  }, [
+    entryType,
+    payoutTarget,
+    payoutCategory,
+    baseSalaryInput,
+    bonusInput,
+    penaltyInput,
+    advanceInput,
+    commissionEarned,
+    payoutMode,
+    partialAmount,
+    calculatedNet,
+    selectedDriverId,
+    selectedEmployee,
+    drivers,
+  ]);
+
+  useEffect(() => {
+    if (payoutCategory === "calculated") {
+      setPartialAmount(calculatedNet);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payoutCategory, selectedUserId, selectedDriverId, payoutMonth]);
+
+  const driverOptions = useMemo(
+    () =>
+      drivers.map((d) => ({
+        value: d.id,
+        label: `${d.name} ${d.salary ? `(المرتب: ${formatCurrency(d.salary, settings.currency)})` : ""}`,
+        searchText: `${d.name} ${d.phone ?? ""} ${d.licenseNumber ?? ""}`,
+      })),
+    [drivers, settings.currency]
+  );
+
+  const employeeOptions = useMemo(
+    () =>
+      users.map((u) => ({
+        value: u.id,
+        label: `${u.name} (${u.username}) ${u.monthlySalary ? `(المرتب: ${formatCurrency(u.monthlySalary, settings.currency)})` : ""}`,
+        searchText: `${u.name} ${u.username}`,
+      })),
+    [users, settings.currency]
+  );
+
   const [openBalOpen, setOpenBalOpen] = useState(false);
   const [newOpening, setNewOpening] = useState(settings.openingBalance);
 
@@ -43,6 +202,8 @@ export function CashboxPage() {
   const [cashType, setCashType] = useState("all");
   const [cashFrom, setCashFrom] = useState("");
   const [cashTo, setCashTo] = useState("");
+  const [displayLimit, setDisplayLimit] = useState<number | "all">(5);
+  const [showAllRows, setShowAllRows] = useState(false);
 
   const filteredEntries = useMemo(() => {
     let list = [...cashEntries];
@@ -55,6 +216,11 @@ export function CashboxPage() {
     if (cashTo)   list = list.filter((e) => e.date <= cashTo);
     return list;
   }, [cashEntries, cashQ, cashType, cashFrom, cashTo]);
+
+  const visibleEntries = useMemo(() => {
+    if (showAllRows || displayLimit === "all") return filteredEntries;
+    return filteredEntries.slice(0, typeof displayLimit === "number" ? displayLimit : 5);
+  }, [filteredEntries, showAllRows, displayLimit]);
 
   const totalReceived = useMemo(
     () =>
@@ -107,6 +273,7 @@ export function CashboxPage() {
     setAmount(0);
     setDesc("");
     setPaymentMethod("cash");
+    resetPayoutForm();
   }
 
   return (
@@ -143,6 +310,9 @@ export function CashboxPage() {
                   variant="outline"
                   onClick={() => {
                     setEntryType("manual-remove");
+                    setPayoutTarget("general");
+                    setSelectedDriverId("");
+                    setSelectedUserId("");
                     setOpen(true);
                   }}
                 >
@@ -164,6 +334,26 @@ export function CashboxPage() {
         <CardHeader
           title="دفتر الخزينة"
           subtitle={`الرصيد الافتتاحي: ${formatCurrency(settings.openingBalance, settings.currency)} • مستحقات على الموردين: ${formatCurrency(payables, settings.currency)}`}
+          actions={
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ink-muted hidden sm:inline">عدد العرض:</span>
+              <Select
+                value={displayLimit}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDisplayLimit(val === "all" ? "all" : Number(val));
+                  setShowAllRows(false);
+                }}
+                className="w-28 text-xs h-8 font-semibold"
+              >
+                <option value={5}>5 حركات</option>
+                <option value={10}>10 حركات</option>
+                <option value={20}>20 حركة</option>
+                <option value={50}>50 حركة</option>
+                <option value="all">عرض الكل</option>
+              </Select>
+            </div>
+          }
         />
         <CardBody className="space-y-3">
           <div className="flex gap-2 items-center flex-wrap">
@@ -223,39 +413,65 @@ export function CashboxPage() {
               description="سيتم تسجيل كل دفعة تلقائياً هنا."
             />
           ) : (
-            <Table>
-              <THead>
-                <TR>
-                  <TH>التاريخ</TH>
-                  <TH>النوع</TH>
-                  <TH>البيان</TH>
-                  <TH>وسيلة الدفع</TH>
-                  <TH className="text-end">المبلغ</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {filteredEntries.map((c) => (
-                  <TR key={c.id}>
-                    <TD>{formatDate(c.date)}</TD>
-                    <TD>
-                      <TypeBadge type={c.type} />
-                    </TD>
-                    <TD className="text-ink-muted">{c.description}</TD>
-                    <TD className="text-ink-faint text-sm">
-                      {c.paymentMethod ? PAYMENT_METHOD_LABELS[c.paymentMethod] : "—"}
-                    </TD>
-                    <TD
-                      className={`text-end font-medium ${
-                        c.amount >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"
-                      }`}
-                    >
-                      {c.amount >= 0 ? "+" : ""}
-                      {formatCurrency(c.amount, settings.currency)}
-                    </TD>
+            <>
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>التاريخ</TH>
+                    <TH>النوع</TH>
+                    <TH>البيان</TH>
+                    <TH>وسيلة الدفع</TH>
+                    <TH className="text-end">المبلغ</TH>
                   </TR>
-                ))}
-              </TBody>
-            </Table>
+                </THead>
+                <TBody>
+                  {visibleEntries.map((c) => (
+                    <TR key={c.id}>
+                      <TD>{formatDate(c.date)}</TD>
+                      <TD>
+                        <TypeBadge type={c.type} />
+                      </TD>
+                      <TD className="text-ink-muted">{c.description}</TD>
+                      <TD className="text-ink-faint text-sm">
+                        {c.paymentMethod ? PAYMENT_METHOD_LABELS[c.paymentMethod] : "—"}
+                      </TD>
+                      <TD
+                        className={`text-end font-medium ${
+                          c.amount >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"
+                        }`}
+                      >
+                        {c.amount >= 0 ? "+" : ""}
+                        {formatCurrency(c.amount, settings.currency)}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+
+              {filteredEntries.length > (typeof displayLimit === "number" ? displayLimit : filteredEntries.length) && (
+                <div className="pt-3 text-center border-t border-line mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs text-ink-faint">
+                    يتم عرض {visibleEntries.length} من أصل {filteredEntries.length} حركة
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAllRows(!showAllRows)}
+                    className="text-xs font-bold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-500/10 gap-1.5"
+                  >
+                    {showAllRows ? (
+                      <>
+                        <ChevronUp className="w-4 h-4" /> عرض أقل (عرض 5 فقط)
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4" /> عرض المزيد ({filteredEntries.length - visibleEntries.length} حركات متبقية)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </CardBody>
       </Card>
@@ -263,7 +479,7 @@ export function CashboxPage() {
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title={entryType === "manual-add" ? "إضافة نقدية" : "صرف"}
+        title={entryType === "manual-add" ? "إضافة نقدية" : "صرف نقدية / مرتبات"}
         footer={
           <>
             <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
@@ -279,6 +495,170 @@ export function CashboxPage() {
               {canAddCash || canSpendCash ? <option value="adjustment">تسوية / ملاحظة</option> : null}
             </Select>
           </Field>
+
+          {entryType === "manual-remove" && (
+            <Field label="الغرض من الصرف">
+              <Select
+                value={payoutTarget}
+                onChange={(e) => {
+                  const val = e.target.value as "general" | "driver" | "employee";
+                  setPayoutTarget(val);
+                  setSelectedDriverId("");
+                  setSelectedUserId("");
+                  setPayoutMonth(monthValue(new Date()));
+                  setBaseSalaryInput(0);
+                  setBonusInput(0);
+                  setAdvanceInput(0);
+                  setPenaltyInput(0);
+                  setCommissionEarned(0);
+                  setPayoutMode("full");
+                  setPartialAmount(0);
+                }}
+              >
+                <option value="general">مصروفات عامة / نثرية</option>
+                <option value="driver">صرف مرتب / مستحقات سائق</option>
+                <option value="employee">صرف مرتب / مستحقات موظف</option>
+              </Select>
+            </Field>
+          )}
+
+          {entryType === "manual-remove" && payoutTarget === "driver" && (
+            <Field label="اختر السائق">
+              <SearchableSelect
+                value={selectedDriverId}
+                onChange={(dId) => {
+                  setSelectedDriverId(dId);
+                  const drv = drivers.find((d) => d.id === dId);
+                  setBaseSalaryInput(drv?.salary || 0);
+                  setBonusInput(0);
+                  setPenaltyInput(0);
+                  setAdvanceInput(0);
+                  setCommissionEarned(0);
+                }}
+                options={driverOptions}
+                placeholder="-- اختر السائق --"
+                searchPlaceholder="ابحث باسم السائق أو رقم الهاتف..."
+              />
+            </Field>
+          )}
+
+          {entryType === "manual-remove" && payoutTarget === "employee" && (
+            <Field label="اختر الموظف">
+              <SearchableSelect
+                value={selectedUserId}
+                onChange={(uId) => setSelectedUserId(uId)}
+                options={employeeOptions}
+                placeholder="-- اختر الموظف --"
+                searchPlaceholder="ابحث باسم الموظف أو اسم المستخدم..."
+              />
+            </Field>
+          )}
+
+          {entryType === "manual-remove" && payoutTarget === "employee" && selectedUserId && (
+            <Field label="شهر الاستحقاق">
+              <Input
+                type="month"
+                value={payoutMonth}
+                onChange={(e) => setPayoutMonth(e.target.value || monthValue(new Date()))}
+              />
+            </Field>
+          )}
+
+          {entryType === "manual-remove" && (payoutTarget === "driver" || payoutTarget === "employee") && (
+            <>
+              <Field label="نوع الاستحقاق / الحركة المالي">
+                <Select
+                  value={payoutCategory}
+                  onChange={(e) => setPayoutCategory(e.target.value as "salary" | "bonus" | "advance" | "penalty" | "calculated")}
+                >
+                  <option value="salary">صرف مرتب شهري عادي</option>
+                  <option value="bonus">صرف مكافأة / بونص (+)</option>
+                  <option value="advance">صرف سُلفة مالية (-)</option>
+                  <option value="penalty">تسجيل خصم / جَزاء (-)</option>
+                  <option value="calculated">حساب وصرف صافي المستحقات (تفصيلي)</option>
+                </Select>
+              </Field>
+
+              {payoutCategory === "calculated" && payoutTarget === "employee" && (
+                <div className="p-3 rounded-lg border border-line bg-surface-muted space-y-3">
+                  <div className="text-xs font-semibold text-ink">
+                    الأرقام مسحوبة تلقائياً من سجل الموظف لشهر {payoutMonth} (مرتب + عمولة + بونص - خصم - سُلفة):
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <StatRow label="المرتب الأساسي" value={baseSalaryInput} tone="neutral" settings={settings} />
+                    <StatRow label="العمولة المستحقة (+)" value={commissionEarned} tone="positive" settings={settings} />
+                    <StatRow label="المكافأة / البونص (+)" value={bonusInput} tone="positive" settings={settings} />
+                    <StatRow label="الخصم / الجزاء (-)" value={penaltyInput} tone="negative" settings={settings} />
+                    <StatRow label="السُلفة (-)" value={advanceInput} tone="negative" settings={settings} />
+                    <StatRow label="صافي المستحق الكلي" value={calculatedNet} tone="total" settings={settings} />
+                  </div>
+
+                  <Field label="طريقة الصرف">
+                    <Select value={payoutMode} onChange={(e) => setPayoutMode(e.target.value as "full" | "partial")}>
+                      <option value="full">صرف كامل المستحقات</option>
+                      <option value="partial">صرف جزء من المستحقات</option>
+                    </Select>
+                  </Field>
+
+                  {payoutMode === "partial" && (
+                    <Field label="المبلغ المطلوب صرفه الآن">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={calculatedNet}
+                        value={partialAmount || ""}
+                        onChange={(e) => setPartialAmount(Math.min(Number(e.target.value), calculatedNet))}
+                      />
+                    </Field>
+                  )}
+                </div>
+              )}
+
+              {payoutCategory === "calculated" && payoutTarget === "driver" && (
+                <div className="p-3 rounded-lg border border-line bg-surface-muted space-y-3">
+                  <div className="text-xs font-semibold text-ink">حساب صافي المستحق (مرتب + بونص - خصم - سُلفة):</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="المرتب الأساسي">
+                      <Input type="number" min={0} value={baseSalaryInput || ""} onChange={(e) => setBaseSalaryInput(Number(e.target.value))} />
+                    </Field>
+                    <Field label="المكافأة / البونص (+)">
+                      <Input type="number" min={0} value={bonusInput || ""} onChange={(e) => setBonusInput(Number(e.target.value))} />
+                    </Field>
+                    <Field label="الخصم / الجزاء (-)">
+                      <Input type="number" min={0} value={penaltyInput || ""} onChange={(e) => setPenaltyInput(Number(e.target.value))} />
+                    </Field>
+                    <Field label="السُلفة (-)">
+                      <Input type="number" min={0} value={advanceInput || ""} onChange={(e) => setAdvanceInput(Number(e.target.value))} />
+                    </Field>
+                  </div>
+
+                  <Field label="طريقة الصرف">
+                    <Select value={payoutMode} onChange={(e) => setPayoutMode(e.target.value as "full" | "partial")}>
+                      <option value="full">صرف كامل المستحقات</option>
+                      <option value="partial">صرف جزء من المستحقات</option>
+                    </Select>
+                  </Field>
+
+                  {payoutMode === "partial" && (
+                    <Field label="المبلغ المطلوب صرفه الآن">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={calculatedNet}
+                        value={partialAmount || ""}
+                        onChange={(e) => setPartialAmount(Math.min(Number(e.target.value), calculatedNet))}
+                      />
+                    </Field>
+                  )}
+
+                  <div className="text-xs font-bold text-brand-600 dark:text-brand-400 text-end pt-1">
+                    صافي المبلغ المصروف: {formatCurrency(calculatedNet, settings.currency)}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
           <Field label="المبلغ" required>
             <Input
               type="number"
@@ -300,7 +680,7 @@ export function CashboxPage() {
               rows={2}
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
-              placeholder="مثل: إيداع من صاحب المحل، صرف مصاريف..."
+              placeholder="مثل: إيداع من صاحب المحل، صرف مصاريف، صرف مرتبات..."
             />
           </Field>
         </div>
@@ -339,6 +719,33 @@ function TypeBadge({ type }: { type: CashEntryType }) {
   if (type === "manual-add") return <Badge tone="emerald">إضافة يدوية</Badge>;
   if (type === "manual-remove") return <Badge tone="rose">صرف يدوي</Badge>;
   return <Badge tone="amber">تسوية</Badge>;
+}
+
+function StatRow({
+  label,
+  value,
+  tone,
+  settings,
+}: {
+  label: string;
+  value: number;
+  tone: "neutral" | "positive" | "negative" | "total";
+  settings: { currency: string };
+}) {
+  const toneClass =
+    tone === "positive"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : tone === "negative"
+      ? "text-rose-600 dark:text-rose-400"
+      : tone === "total"
+      ? "text-brand-600 dark:text-brand-400 font-bold"
+      : "text-ink";
+  return (
+    <div className="flex items-center justify-between p-2 rounded-lg bg-surface border border-line">
+      <span className="text-ink-muted">{label}</span>
+      <span className={toneClass}>{formatCurrency(value, settings.currency)}</span>
+    </div>
+  );
 }
 
 function Stat({

@@ -10,7 +10,7 @@ import type { Product } from "../../../src/types";
 
 describe("Chinese and Korean starter product catalog", () => {
   it("ships corrected legacy rows plus structured Chinese and Korean additions", () => {
-    expect(seedProducts).toHaveLength(95);
+    expect(seedProducts).toHaveLength(115);
     expect(ADDITIONAL_STARTER_PRODUCTS.filter((product) => product.originCountry === "KR")).toHaveLength(18);
     expect(ADDITIONAL_STARTER_PRODUCTS.filter((product) => product.originCountry === "CN")).toHaveLength(18);
     expect(new Set(seedProducts.map((product) => product.code)).size).toBe(seedProducts.length);

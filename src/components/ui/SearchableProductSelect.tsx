@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState, useMemo, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Package, Check, X, Box, ScanLine } from "lucide-react";
+import { ChevronDown, Package, Check, X, Box, ScanLine, SlidersHorizontal } from "lucide-react";
 import type { Product } from "../../types";
 import { isFuzzyMatch } from "../../lib/fuzzySearch";
+import { formatQualityGradeLabel } from "../../lib/format";
 import { Badge } from "./Badge";
+import { NoResultsHint } from "./EmptyState";
+
+const QUALITY_GRADES = ["genuine", "oem", "aftermarket-premium", "aftermarket-economy"] as const;
 
 interface SearchableProductSelectProps {
   products: Product[];
@@ -33,6 +37,26 @@ export function SearchableProductSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterBrand, setFilterBrand] = useState("");
+  const [filterQualityGrade, setFilterQualityGrade] = useState("");
+
+  const categories = useMemo(
+    () => [...new Set(products.map((p) => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ar")),
+    [products],
+  );
+  const brands = useMemo(
+    () => [...new Set(products.map((p) => p.partBrand).filter((b): b is string => Boolean(b)))].sort((a, b) => a.localeCompare(b, "ar")),
+    [products],
+  );
+  const activeFilterCount = [filterCategory, filterBrand, filterQualityGrade].filter(Boolean).length;
+
+  function clearFilters() {
+    setFilterCategory("");
+    setFilterBrand("");
+    setFilterQualityGrade("");
+  }
 
   const [popoverStyle, setPopoverStyle] = useState<{
     top?: number;
@@ -53,9 +77,12 @@ export function SearchableProductSelect({
   );
 
   const filteredProducts = useMemo(() => {
-    if (!query.trim()) return products;
     const q = query.trim().toLowerCase();
     return products.filter((p) => {
+      if (filterCategory && p.category !== filterCategory) return false;
+      if (filterBrand && p.partBrand !== filterBrand) return false;
+      if (filterQualityGrade && p.qualityGrade !== filterQualityGrade) return false;
+      if (!q) return true;
       const searchTargets = [
         p.name,
         p.partNumber || "",
@@ -68,7 +95,7 @@ export function SearchableProductSelect({
       ];
       return isFuzzyMatch(q, searchTargets);
     });
-  }, [products, query]);
+  }, [products, query, filterCategory, filterBrand, filterQualityGrade]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -197,7 +224,7 @@ export function SearchableProductSelect({
         width: popoverStyle.width,
         zIndex: 9999,
       }}
-      className="rounded-2xl border border-line bg-surface shadow-2xl overflow-hidden flex flex-col dir-rtl"
+      className="rounded-lg border border-line bg-surface shadow-2xl overflow-hidden flex flex-col dir-rtl"
       dir="rtl"
     >
       {/* Search Input Box Header */}
@@ -209,21 +236,76 @@ export function SearchableProductSelect({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={searchPlaceholder}
-            className="w-full rounded-xl border border-line bg-surface pr-9 pl-8 py-2 text-sm text-ink placeholder:text-ink-faint outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+            className="w-full rounded-xl border border-line bg-surface pr-9 pl-16 py-2 text-sm text-ink placeholder:text-ink-faint outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all"
           />
-          {query && (
+          <div className="absolute left-2 flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setQuery("")}
-              className="absolute left-2.5 p-1 rounded-md text-ink-faint hover:text-ink hover:bg-surface-muted transition-colors"
+              onClick={() => setShowFilters((v) => !v)}
+              title="فلاتر متقدمة"
+              className={`relative p-1 rounded-md transition-colors ${
+                showFilters || activeFilterCount > 0
+                  ? "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10"
+                  : "text-ink-faint hover:text-ink hover:bg-surface-muted"
+              }`}
             >
-              <X className="w-3.5 h-3.5" />
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -left-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-cyan-500 text-[9px] font-bold text-white">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
-          )}
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="p-1 rounded-md text-ink-faint hover:text-ink hover:bg-surface-muted transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
+
+        {showFilters && (
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-cyan-500"
+            >
+              <option value="">كل الفئات</option>
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select
+              value={filterBrand}
+              onChange={(e) => setFilterBrand(e.target.value)}
+              className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-cyan-500"
+            >
+              <option value="">كل الماركات</option>
+              {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+            <select
+              value={filterQualityGrade}
+              onChange={(e) => setFilterQualityGrade(e.target.value)}
+              className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-cyan-500"
+            >
+              <option value="">كل درجات الجودة</option>
+              {QUALITY_GRADES.map((grade) => <option key={grade} value={grade}>{formatQualityGradeLabel(grade)}</option>)}
+            </select>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mt-2 px-1 text-[11px] text-ink-faint font-medium">
           <span>{filteredProducts.length} قطعة متوفرة</span>
-          <span>(↑↓) للتنقل • (Enter) للاختيار</span>
+          {activeFilterCount > 0 ? (
+            <button type="button" onClick={clearFilters} className="text-rose-500 hover:text-rose-600 font-semibold">
+              مسح الفلاتر ({activeFilterCount})
+            </button>
+          ) : (
+            <span>(↑↓) للتنقل • (Enter) للاختيار</span>
+          )}
         </div>
       </div>
 
@@ -248,10 +330,10 @@ export function SearchableProductSelect({
         </button>
 
         {filteredProducts.length === 0 ? (
-          <div className="py-8 text-center text-sm text-ink-faint">
-            <Box className="w-8 h-8 mx-auto mb-2 opacity-40 stroke-[1.5]" />
-            لا توجد نتائج مطابقة لـ "{query}"
-          </div>
+          <NoResultsHint
+            icon={<Box className="w-8 h-8 opacity-40 stroke-[1.5]" />}
+            message={`لا توجد نتائج مطابقة لـ "${query}"`}
+          />
         ) : (
           filteredProducts.map((p, idx) => {
             const isSelected = value === p.id;

@@ -86,7 +86,7 @@ const GROUPS: NavGroup[] = [
       { to: "/parts-finder", label: "دليل قطع الغيار", icon: PackageSearch, permission: "products", feature: "products" },
       { to: "/vehicle-catalog", label: "كتالوج السيارات", icon: CarFront, permission: "products", feature: "products" },
       { to: "/part-alternatives", label: "البدائل وCross Reference", icon: Link2, permission: "products", feature: "partAlternatives" },
-      { to: "/products", label: "المنتجات", icon: Package, permission: "products", feature: "products" },
+      { to: "/products", label: "قطع الغيار", icon: Package, permission: "products", feature: "products" },
       { to: "/inventory", label: "المخزون", icon: Warehouse, permission: "inventory", feature: "inventory" },
       { to: "/alerts", label: "التنبيهات", icon: Bell, permission: "alerts", feature: "advancedAlerts" },
     ],

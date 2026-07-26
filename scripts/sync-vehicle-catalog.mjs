@@ -48,7 +48,7 @@ const REGIONAL_MODELS = {
   Chery: ["QQ", "A11", "A15", "Envy", "Arrizo 5", "Arrizo 6", "Arrizo 8", "Tiggo 2", "Tiggo 3", "Tiggo 4 Pro", "Tiggo 7", "Tiggo 7 Pro", "Tiggo 8", "Tiggo 8 Pro Max"],
   BYD: ["F0", "F3", "F3R", "L3", "S5", "F7", "Qin Plus", "Song Plus", "Yuan Plus", "Atto 3", "Dolphin", "Seal", "Han"],
   Geely: ["Panda", "Emgrand", "Emgrand 7", "Emgrand X7", "GX3 Pro", "Coolray", "Okavango", "Starray", "Geometry C"],
-  MG: ["MG 3", "MG 4", "MG 5", "MG 6", "MG GT", "MG ZS", "MG HS", "MG RX5", "MG One", "Marvel R"],
+  MG: ["MG 3", "MG 4", "MG 5", "MG 6", "MG 7", "MG GT", "MG ZS", "MG HS", "MG RX5", "MG RX8", "MG One", "Marvel R"],
   Haval: ["Jolion", "H2", "H6", "Dargo", "H9"],
   "Great Wall": ["Wingle 5", "Wingle 7", "Poer", "C30", "C50"],
   JAC: ["J3", "J4", "J7", "JS2", "JS3", "JS4", "JS6", "S2", "S3", "S4"],
@@ -64,6 +64,28 @@ const REGIONAL_MODELS = {
   "Land Rover": ["Defender", "Discovery", "Discovery Sport", "Range Rover", "Range Rover Sport", "Range Rover Evoque", "Range Rover Velar"],
   Volvo: ["S40", "S60", "S80", "S90", "V40", "V60", "XC40", "XC60", "XC90"],
   Lexus: ["IS", "ES", "LS", "UX", "NX", "RX", "GX", "LX"],
+  // Chinese/regional makes already present from car-logos-dataset but with
+  // zero or near-zero vPIC coverage (not sold in the U.S.) despite being
+  // common on Egyptian/MENA roads.
+  "GAC Group": ["GA3", "GA4", "GA6", "GA8", "GS3", "GS4", "GS8", "Empow", "Aion S", "Aion Y"],
+  Changan: ["Alsvin", "Eado", "CS35", "CS35 Plus", "CS55", "CS55 Plus", "CS75", "CS75 Plus", "CS85", "CS95", "UNI-T", "UNI-K", "Hunter"],
+  Brilliance: ["H220", "H230", "H320", "H330", "H530", "V3", "V5", "V6", "V7"],
+  Foton: ["Tunland", "View C2", "Sauvana", "Aumark", "Ollin"],
+  Landwind: ["X2", "X5", "X6", "X7", "X8", "CV9"],
+  Haima: ["3", "7", "S5", "S7", "M3", "Family"],
+  Soueast: ["DX3", "DX5", "DX7", "DX8", "V3 Lingyue"],
+  Hawtai: ["Santa Fe", "B11", "Boliger", "Xiongshi", "EV"],
+  Gonow: ["GA200", "GA202", "Way", "Aoosed", "Riich"],
+  Saipa: ["Pride", "Tiba", "Quick", "Saina", "Shahin", "Aria"],
+  IKCO: ["Samand", "Peugeot Pars", "Dena", "Runna", "Soren", "Tara"],
+  JMC: ["Vigus", "Yuhu", "N601", "N720", "Kaiyun", "Baodian"],
+  Zotye: ["T600", "T700", "T800", "Z300", "Z500", "SR9", "Damai"],
+  FAW: ["Besturn B30", "Besturn B50", "Besturn B70", "Besturn X40", "Besturn X80", "V2", "N5"],
+  Lifan: ["320", "330", "520", "620", "720", "X50", "X60", "X70", "Solano", "Myway"],
+  // Famous Chinese marques not yet present at all in the vPIC-derived catalog.
+  Roewe: ["RX5", "RX8", "i5", "i6", "ei5"],
+  Hongqi: ["H5", "H9", "HS5", "E-HS9"],
+  Wuling: ["Hongguang", "Hongguang Mini EV", "Zhiguang"],
 };
 
 const args = new Set(process.argv.slice(2));

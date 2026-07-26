@@ -6,18 +6,23 @@ import { useSettings } from "../store/SettingsContext";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Button } from "../components/ui/Button";
 import { Input, Select } from "../components/ui/Input";
-import { Filter, Receipt, Search, ShoppingBag } from "lucide-react";
+import { Dialog } from "../components/ui/Dialog";
+import { Badge } from "../components/ui/Badge";
+import { Filter, Receipt, Search, ShoppingBag, Plus, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { formatCurrency, formatDate } from "../lib/format";
 import { hasPermission } from "../lib/permissions";
 import { inRange } from "../lib/utils";
+import { SalesReturnDialog } from "../features/returns/SalesReturnDialog";
+import type { SalesInvoice } from "../types";
 
 export function ReturnsPage() {
-  const { salesReturns, purchaseReturns } = useInvoicing();
+  const { salesReturns, purchaseReturns, salesInvoices } = useInvoicing();
   const { currentUser } = useAuth();
   const { settings } = useSettings();
 
   const canViewSales = hasPermission(currentUser, "returns");
   const canViewPurchases = hasPermission(currentUser, "returns");
+  const canCreateReturn = hasPermission(currentUser, "returns", "add");
 
   const [tab, setTab] = useState<"sales" | "purchases">(canViewSales ? "sales" : "purchases");
   const [q, setQ] = useState("");
@@ -25,6 +30,14 @@ export function ReturnsPage() {
   const [refundMode, setRefundMode] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
+  // Modal for initiating a return by searching invoice / receipt number
+  const [isInvoiceSearchOpen, setIsInvoiceSearchOpen] = useState(false);
+  const [invoiceQuery, setInvoiceQuery] = useState("");
+  const [selectedInvoiceForReturn, setSelectedInvoiceForReturn] = useState<SalesInvoice | null>(null);
+  const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false);
+
+  const maxReturnDays = settings.maxReturnDays ?? 14;
 
   function changeTab(nextTab: "sales" | "purchases") {
     setTab(nextTab);
@@ -94,6 +107,17 @@ export function ReturnsPage() {
     return [...list].sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [purchaseReturns, q, partyId, from, to]);
 
+  const matchingInvoices = useMemo(() => {
+    const term = invoiceQuery.trim().toLowerCase();
+    if (!term) return salesInvoices.slice(0, 10);
+    return salesInvoices.filter(
+      (inv) =>
+        inv.invoiceNumber.toLowerCase().includes(term) ||
+        inv.customerName.toLowerCase().includes(term) ||
+        inv.date.includes(term)
+    ).slice(0, 15);
+  }, [salesInvoices, invoiceQuery]);
+
   const activeParties = tab === "sales" ? salesParties : purchaseParties;
   const activeCount = tab === "sales" ? filteredSalesReturns.length : filteredPurchaseReturns.length;
 
@@ -101,7 +125,21 @@ export function ReturnsPage() {
     <>
       <PageHeader
         title="المرتجعات"
-        description="سجل بجميع مرتجعات البيع والشراء"
+        description={`إدارة مرتجعات الشراء والبيع والتحقق من سياسة المرتجعات (${maxReturnDays} يوماً)`}
+        actions={
+          canCreateReturn && (
+            <Button
+              variant="primary"
+              onClick={() => {
+                setInvoiceQuery("");
+                setIsInvoiceSearchOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4 ml-1.5" />
+              إنشاء مرتجع مبيعات (برقم الفاتورة/الريسيت)
+            </Button>
+          )
+        }
       />
 
       <div className="bg-surface border border-line rounded-xl overflow-hidden shadow-sm">
@@ -259,6 +297,98 @@ export function ReturnsPage() {
           </div>
         )}
       </div>
+
+      {/* Invoice Search Modal to Initiate Return */}
+      <Dialog
+        open={isInvoiceSearchOpen}
+        onClose={() => setIsInvoiceSearchOpen(false)}
+        title="تحديد فاتورة أو ريسيت الشراء المُراد إرجاعه"
+        width="md"
+      >
+        <div className="space-y-4" dir="rtl">
+          <div className="p-3 rounded-lg border border-brand-200 dark:border-brand-500/20 bg-brand-50/50 dark:bg-brand-500/10 text-xs text-brand-900 dark:text-brand-300">
+            أدخل رقم الفاتورة أو الريسيت الموجود مع العميل لاستكمال إجراء المرتجع.
+            حد الاسترجاع المسموح به في النظام هو <strong>{maxReturnDays === 999 ? "مفتوح" : `${maxReturnDays} يوماً`}</strong> من تاريخ الفاتورة.
+          </div>
+
+          <div className="relative">
+            <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
+            <Input
+              value={invoiceQuery}
+              onChange={(e) => setInvoiceQuery(e.target.value)}
+              placeholder="اكتب رقم الفاتورة أو الريسيت (مثال: INV-001) أو اسم العميل..."
+              className="pe-9 text-base"
+              autoFocus
+            />
+          </div>
+
+          <div className="space-y-2 max-h-72 overflow-y-auto pe-1">
+            {matchingInvoices.length === 0 ? (
+              <div className="text-center py-6 text-sm text-ink-muted">
+                لم يتم العثور على فاتورة أو ريسيت بهذا الرقم
+              </div>
+            ) : (
+              matchingInvoices.map((inv) => {
+                const invDateMs = new Date(inv.date).getTime();
+                const todayMs = new Date().getTime();
+                const diffDays = Math.max(0, Math.floor((todayMs - invDateMs) / (1000 * 60 * 60 * 24)));
+                const isExpired = maxReturnDays !== 999 && diffDays > maxReturnDays;
+
+                return (
+                  <div
+                    key={inv.id}
+                    onClick={() => {
+                      setSelectedInvoiceForReturn(inv);
+                      setIsInvoiceSearchOpen(false);
+                      setIsReturnDialogOpen(true);
+                    }}
+                    className="p-3 rounded-lg border border-line hover:border-brand-500/50 bg-surface hover:bg-surface-muted transition-all cursor-pointer flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="font-bold text-sm text-ink flex items-center gap-2">
+                        <span>{inv.invoiceNumber}</span>
+                        <span className="text-xs font-normal text-ink-muted">({inv.customerName})</span>
+                      </div>
+                      <div className="text-xs text-ink-faint mt-1">
+                        تاريخ الشراء: {formatDate(inv.date)} ({diffDays} يوماً)
+                      </div>
+                    </div>
+
+                    <div className="text-left flex flex-col items-end gap-1">
+                      <div className="font-bold text-sm text-brand-600">
+                        {formatCurrency(inv.total, settings.currency)}
+                      </div>
+                      {isExpired ? (
+                        <Badge tone="red">
+                          <AlertTriangle className="w-3 h-3 ml-1" />
+                          تجاوزت {maxReturnDays} يوم (ممنوع)
+                        </Badge>
+                      ) : (
+                        <Badge tone="emerald">
+                          <CheckCircle2 className="w-3 h-3 ml-1" />
+                          متاح للاسترجاع
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </Dialog>
+
+      {/* Sales Return Dialog */}
+      {selectedInvoiceForReturn && (
+        <SalesReturnDialog
+          open={isReturnDialogOpen}
+          onClose={() => {
+            setIsReturnDialogOpen(false);
+            setSelectedInvoiceForReturn(null);
+          }}
+          invoice={selectedInvoiceForReturn}
+        />
+      )}
     </>
   );
 }

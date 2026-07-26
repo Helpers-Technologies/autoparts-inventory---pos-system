@@ -14,20 +14,27 @@ import {
   ShieldCheck,
   PlayCircle,
   Lock,
+  RotateCcw,
+  Pause,
+  Play,
+  Building2,
 } from "lucide-react";
+import { hasPermission } from "../lib/permissions";
+import { useAuth } from "../store/AuthContext";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useReporting } from "../store/ReportingContext";
 import { useToast } from "../components/ui/Toast";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { Dialog } from "../components/ui/Dialog";
 import { CustomerFormDialog } from "../features/customers/CustomerFormDialog";
 import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleFormDialog";
 import { Button } from "../components/ui/Button";
-import { Input } from "../components/ui/Input";
+import { Input, Select } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { todayISO, uid } from "../lib/utils";
-import type { CashierShift, InvoiceLine, PaymentMethod, Product, SalesPaymentType, SalesPriceType } from "../types";
-import { formatCurrency, formatDateTime } from "../lib/format";
+import type { CashierShift, InvoiceLine, PartAlternativeRelation, PaymentMethod, Product, SalesInvoice, SalesPaymentType, SalesPriceType } from "../types";
+import { formatCurrency, formatDateTime, formatQualityGradeLabel } from "../lib/format";
 import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
 import { useFeatures } from "../lib/useFeatures";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
@@ -38,6 +45,36 @@ import { computeCreditPaymentView } from "../store/_pure";
 import { OpenShiftDialog } from "../components/shifts/OpenShiftDialog";
 import { CloseShiftDialog } from "../components/shifts/CloseShiftDialog";
 import { ShiftReportModal } from "../components/shifts/ShiftReportModal";
+import { POSReturnLookupDialog } from "../features/returns/POSReturnLookupDialog";
+import { SalesReturnDialog } from "../features/returns/SalesReturnDialog";
+
+// ── Held (parked) invoices — persisted in localStorage ──────────────────────
+interface HeldInvoice {
+  id: string;
+  heldAt: string;
+  customerName: string;
+  customerId: string;
+  lines: LineDraft[];
+  discount: number;
+  notes: string;
+  paymentType: SalesPaymentType;
+  paymentMethod: PaymentMethod;
+  selectedVehicleId: string;
+  selectedBranchId: string;
+  gross: number;
+}
+
+const HELD_INVOICES_KEY = "pos-held-invoices";
+function loadHeldInvoices(): HeldInvoice[] {
+  try {
+    return JSON.parse(localStorage.getItem(HELD_INVOICES_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+function saveHeldInvoices(items: HeldInvoice[]) {
+  localStorage.setItem(HELD_INVOICES_KEY, JSON.stringify(items));
+}
 
 interface LineDraft {
   id: string;
@@ -49,6 +86,13 @@ interface LineDraft {
 }
 
 const DEFAULT_PRICE_TYPE: SalesPriceType = "wholesale";
+
+const ALTERNATIVE_RELATION_LABELS: Record<PartAlternativeRelation, string> = {
+  equivalent: "بديل مطابق",
+  economy: "بديل اقتصادي",
+  premium: "بديل أعلى جودة",
+  superseded: "رقم بديل / مُحدّث",
+};
 
 function nextInvoiceNumber(existing: string[]): string {
   const nums = existing
@@ -80,6 +124,7 @@ function getProductPrice(product: Product, selectedPriceType: SalesPriceType = D
 }
 
 export function POSPage() {
+  const { currentUser } = useAuth();
   const { products: allProducts, customers: allCustomers } = useCatalog();
   const { salesInvoices, addSalesInvoice, applyCustomerCredit, activeShift } = useInvoicing();
   const { customerBalance } = useReporting();
@@ -98,12 +143,38 @@ export function POSPage() {
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
   const [pendingCustomerName, setPendingCustomerName] = useState("");
+  const [stockAlternative, setStockAlternative] = useState<{
+    product: Product;
+    alternatives: Array<{ product: Product; relation: PartAlternativeRelation }>;
+  } | null>(null);
 
   // Shift Dialogs State
   const [isOpenShiftOpen, setIsOpenShiftOpen] = useState(false);
   const [isCloseShiftOpen, setIsCloseShiftOpen] = useState(false);
   const [selectedShiftForReport, setSelectedShiftForReport] = useState<CashierShift | null>(null);
   const [isShiftReportOpen, setIsShiftReportOpen] = useState(false);
+
+  // ── Return lookup state ──
+  const [isReturnLookupOpen, setIsReturnLookupOpen] = useState(false);
+  const [returnInvoice, setReturnInvoice] = useState<SalesInvoice | null>(null);
+
+  // ── Held invoices state ──
+  const [heldInvoices, setHeldInvoices] = useState<HeldInvoice[]>(loadHeldInvoices);
+  const [isHeldListOpen, setIsHeldListOpen] = useState(false);
+
+  const canAddReturn = hasPermission(currentUser, "returns", "add");
+
+  const canOpenShift = hasPermission(currentUser, "pos", "openShift");
+  const canCloseShift = hasPermission(currentUser, "pos", "closeShift");
+
+  useEffect(() => {
+    // Don't pop the "start a new shift" prompt over the close-shift flow or its
+    // Z-Report — activeShift goes null the instant a shift closes, while the
+    // cashier is still viewing/printing that shift's report.
+    if (!activeShift && canOpenShift && !isCloseShiftOpen && !isShiftReportOpen) {
+      setIsOpenShiftOpen(true);
+    }
+  }, [activeShift, canOpenShift, isCloseShiftOpen, isShiftReportOpen]);
 
   // Form State
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -122,8 +193,11 @@ export function POSPage() {
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [compatibilityOnly, setCompatibilityOnly] = useState(true);
+  // A restricted employee (currentUser.branchId set) always works their
+  // assigned branch; only an unrestricted user (owner, or an employee with no
+  // fixed branch) can freely pick one.
   const [selectedBranchId, setSelectedBranchId] = useState(
-    pro.branches.find((branch) => branch.isMain)?.id ?? pro.branches[0]?.id ?? "",
+    currentUser?.branchId ?? pro.branches.find((branch) => branch.isMain)?.id ?? pro.branches[0]?.id ?? "",
   );
 
   // Barcode & Catalog UI state
@@ -209,8 +283,18 @@ export function POSPage() {
   }, [customerVehicles, selectedVehicleId]);
 
   useEffect(() => {
-    if (!selectedBranchId && pro.branches[0]) setSelectedBranchId(pro.branches[0].id);
-  }, [pro.branches, selectedBranchId]);
+    if (!selectedBranchId && pro.branches[0]) {
+      setSelectedBranchId(currentUser?.branchId ?? pro.branches.find((b) => b.isMain)?.id ?? pro.branches[0].id);
+    }
+  }, [pro.branches, selectedBranchId, currentUser?.branchId]);
+
+  // A restricted employee can't switch away from their assigned branch even
+  // if it changes elsewhere (e.g. an admin re-assigns them mid-session).
+  useEffect(() => {
+    if (currentUser?.branchId && selectedBranchId !== currentUser.branchId) {
+      setSelectedBranchId(currentUser.branchId);
+    }
+  }, [currentUser?.branchId, selectedBranchId]);
 
   // Autofocus barcode input
   const focusBarcode = () => {
@@ -297,6 +381,19 @@ export function POSPage() {
   }, [lines, products, branchAvailableAsBaseUnits]);
 
   // Add product to cart
+  const findAlternativesFor = useCallback(
+    (product: Product) =>
+      vehicleCatalog.productAlternatives
+        .filter((link) => link.productId === product.id || link.alternativeProductId === product.id)
+        .map((link) => {
+          const otherId = link.productId === product.id ? link.alternativeProductId : link.productId;
+          const other = products.find((p) => p.id === otherId);
+          return other ? { product: other, relation: link.relation } : null;
+        })
+        .filter((row): row is { product: Product; relation: PartAlternativeRelation } => row !== null),
+    [products, vehicleCatalog.productAlternatives],
+  );
+
   const addProductToCart = (product: Product) => {
     const fitmentStatus = productVehicleFitmentStatus(product.id, selectedVehicle, vehicleCatalog.productFitments);
     if (selectedVehicle && fitmentStatus === "incompatible") {
@@ -305,14 +402,19 @@ export function POSPage() {
     }
     const defaultPriceType = DEFAULT_PRICE_TYPE;
     const existing = lines.find((l) => l.productId === product.id && l.priceType === defaultPriceType);
-    
+
     // Check stock warning
     const currentQtyInCart = existing ? existing.quantity : 0;
     const baseQtyRequested = quantityAsBaseUnits(product, currentQtyInCart + 1, defaultPriceType);
     const available = branchAvailableAsBaseUnits(product);
-    
+
     if (baseQtyRequested > available) {
-      toast.error("الكمية المطلوبة تتجاوز المخزون المتاح", product.name);
+      const alternatives = findAlternativesFor(product);
+      if (alternatives.length > 0) {
+        setStockAlternative({ product, alternatives });
+      } else {
+        toast.error("الكمية المطلوبة تتجاوز المخزون المتاح", product.name);
+      }
       return;
     }
 
@@ -363,11 +465,15 @@ export function POSPage() {
   };
 
   // Adjust line quantity
-  const updateLineQty = (id: string, newQty: number) => {
-    if (newQty <= 0) {
+  // `fromButton` distinguishes button clicks (which CAN remove the line at
+  // qty 0) from keyboard input (which should NOT remove it — the user may
+  // just be clearing the field to retype a new number).
+  const updateLineQty = (id: string, newQty: number, fromButton = false) => {
+    if (fromButton && newQty <= 0) {
       removeLine(id);
       return;
     }
+    if (newQty <= 0) return; // ignore non-positive values typed in the input
     
     const line = lines.find((l) => l.id === id);
     if (!line) return;
@@ -446,6 +552,17 @@ export function POSPage() {
     }
 
     const customer = customers.find((c) => c.id === customerId)!;
+    if (remainingDue > 0 && customer.creditLimit && customer.creditLimit > 0) {
+      const currentDebt = Math.max(0, customerBalance(customerId));
+      const projectedDebt = currentDebt + remainingDue;
+      if (projectedDebt > customer.creditLimit) {
+        toast.error(
+          "تجاوز الحد الائتماني للعميل",
+          `الحد: ${customer.creditLimit.toFixed(2)} — الرصيد الحالي: ${currentDebt.toFixed(2)} — هذه الفاتورة تحتاج ${remainingDue.toFixed(2)} إضافية.`
+        );
+        return;
+      }
+    }
     const invLines: InvoiceLine[] = lines.map((l) => {
       const p = products.find((x) => x.id === l.productId)!;
       const ept = l.priceType;
@@ -508,10 +625,74 @@ export function POSPage() {
     setNewInvoiceId(inv.id);
   };
 
-  // Keyboard shortcut listener (F10 to checkout)
+  // ── Hold / Resume invoice helpers ──
+  const holdCurrentInvoice = () => {
+    if (lines.length === 0) {
+      toast.error("السلة فارغة — لا يوجد ما يُعلّق");
+      return;
+    }
+    const customer = customers.find((c) => c.id === customerId);
+    const held: HeldInvoice = {
+      id: uid("held"),
+      heldAt: new Date().toISOString(),
+      customerName: customer?.name ?? "عميل",
+      customerId,
+      lines: [...lines],
+      discount,
+      notes,
+      paymentType,
+      paymentMethod,
+      selectedVehicleId,
+      selectedBranchId,
+      gross,
+    };
+    const updated = [held, ...heldInvoices];
+    setHeldInvoices(updated);
+    saveHeldInvoices(updated);
+    toast.success("تم تعليق الفاتورة", `${held.customerName} — ${lines.length} صنف`);
+    handleResetSale();
+  };
+
+  const resumeHeldInvoice = (heldId: string) => {
+    const held = heldInvoices.find((h) => h.id === heldId);
+    if (!held) return;
+    // If current cart has items, hold it first
+    if (lines.length > 0) {
+      holdCurrentInvoice();
+    }
+    setCustomerId(held.customerId);
+    setLines(held.lines);
+    setDiscount(held.discount);
+    setNotes(held.notes);
+    setPaymentType(held.paymentType);
+    setPaymentMethod(held.paymentMethod);
+    setSelectedVehicleId(held.selectedVehicleId);
+    setSelectedBranchId(held.selectedBranchId);
+    const updated = heldInvoices.filter((h) => h.id !== heldId);
+    setHeldInvoices(updated);
+    saveHeldInvoices(updated);
+    setIsHeldListOpen(false);
+    toast.info("تم استعادة الفاتورة المعلّقة");
+    focusBarcode();
+  };
+
+  const deleteHeldInvoice = (heldId: string) => {
+    const updated = heldInvoices.filter((h) => h.id !== heldId);
+    setHeldInvoices(updated);
+    saveHeldInvoices(updated);
+    toast.success("تم حذف الفاتورة المعلّقة");
+  };
+
+  // Keyboard shortcut listener (F8 hold, F9 return, F10 checkout)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "F10") {
+      if (e.key === "F8") {
+        e.preventDefault();
+        holdCurrentInvoice();
+      } else if (e.key === "F9") {
+        e.preventDefault();
+        if (canAddReturn) setIsReturnLookupOpen(true);
+      } else if (e.key === "F10") {
         e.preventDefault();
         submitSale();
       }
@@ -560,6 +741,18 @@ export function POSPage() {
         <div className="flex items-center gap-2">
           {activeShift ? (
             <>
+              {canAddReturn && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsReturnLookupOpen(true)}
+                  title="مرتجع مبيعات سريع (F9)"
+                >
+                  <RotateCcw className="w-4 h-4 ml-1.5 text-amber-600" />
+                  مرتجع
+                </Button>
+              )}
+
               <Button
                 variant="outline"
                 size="sm"
@@ -576,6 +769,8 @@ export function POSPage() {
                 variant="primary"
                 size="sm"
                 onClick={() => setIsCloseShiftOpen(true)}
+                disabled={!canCloseShift}
+                title={!canCloseShift ? "يتطلب صلاحية إغلاق وردية الكاشير" : undefined}
               >
                 <Lock className="w-4 h-4 ml-1.5" />
                 تقفيل وإغلاق الوردية
@@ -586,6 +781,8 @@ export function POSPage() {
               variant="primary"
               size="sm"
               onClick={() => setIsOpenShiftOpen(true)}
+              disabled={!canOpenShift}
+              title={!canOpenShift ? "يتطلب صلاحية فتح وردية كاشير جديدة" : undefined}
             >
               <PlayCircle className="w-4 h-4 ml-1.5" />
               فتح وردية كاشير جديدة
@@ -604,6 +801,31 @@ export function POSPage() {
         <div className="w-full lg:w-[var(--pos-cart-w)] lg:shrink-0 flex flex-col min-h-0 bg-surface border border-line rounded-xl shadow-sm overflow-hidden">
           {/* Cart Header with Customer & Barcode */}
           <div className="p-4 border-b border-line bg-surface-muted/30 space-y-3 shrink-0">
+            {/* Branch indicator/selector — restricted employees see a fixed
+                badge; unrestricted users (owner, or an employee with no fixed
+                branch) get a real switcher when more than one branch exists. */}
+            {pro.branches.filter((b) => b.active).length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-ink-muted shrink-0 flex items-center gap-1">
+                  <Building2 className="w-3.5 h-3.5" /> الفرع:
+                </span>
+                {currentUser?.branchId || pro.branches.filter((b) => b.active).length <= 1 ? (
+                  <span className="flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-ink">
+                    {selectedBranch?.name ?? "—"}
+                  </span>
+                ) : (
+                  <Select
+                    value={selectedBranchId}
+                    onChange={(e) => setSelectedBranchId(e.target.value)}
+                    className="flex-1"
+                  >
+                    {pro.branches.filter((b) => b.active).map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </Select>
+                )}
+              </div>
+            )}
             {/* Customer select */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-semibold text-ink-muted shrink-0 flex items-center gap-1">
@@ -792,7 +1014,7 @@ export function POSPage() {
                           <div className="inline-flex items-center border border-line rounded-lg bg-surface">
                             <button
                               type="button"
-                              onClick={() => updateLineQty(line.id, line.quantity - 1)}
+                              onClick={() => updateLineQty(line.id, line.quantity - 1, true)}
                               className="w-8 h-8 flex items-center justify-center text-ink-muted hover:bg-surface-muted active:bg-line transition-colors rounded-r-lg"
                             >
                               <Minus className="w-3 h-3" />
@@ -800,12 +1022,12 @@ export function POSPage() {
                             <input
                               type="number"
                               value={line.quantity}
-                              onChange={(e) => updateLineQty(line.id, parseInt(e.target.value) || 0)}
+                              onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) updateLineQty(line.id, v); }}
                               className="w-10 h-8 text-center text-sm font-semibold border-x border-line focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                             <button
                               type="button"
-                              onClick={() => updateLineQty(line.id, line.quantity + 1)}
+                              onClick={() => updateLineQty(line.id, line.quantity + 1, true)}
                               className="w-8 h-8 flex items-center justify-center text-ink-muted hover:bg-surface-muted active:bg-line transition-colors rounded-l-lg"
                             >
                               <Plus className="w-3 h-3" />
@@ -919,6 +1141,20 @@ export function POSPage() {
                 >
                   انستاباي
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentType("cash");
+                    setPaymentMethod("other");
+                  }}
+                  className={`flex-1 py-2 font-bold rounded-lg border text-center transition-all ${
+                    paymentType === "cash" && paymentMethod === "other"
+                      ? "bg-purple-600 text-white border-purple-600 shadow-md scale-[1.02]"
+                      : "bg-surface text-ink-muted border-line hover:bg-surface-muted/50"
+                  }`}
+                >
+                  أخرى
+                </button>
                 {creditSalesEnabled && (
                   <button
                     type="button"
@@ -936,13 +1172,41 @@ export function POSPage() {
                 )}
               </div>
 
+              {/* Hold / Resume row */}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={holdCurrentInvoice}
+                  disabled={lines.length === 0}
+                  className="flex-1 h-10 text-xs font-bold rounded-xl"
+                  title="تعليق الفاتورة الحالية (F8)"
+                >
+                  <Pause className="w-4 h-4 ml-1" /> تعليق (F8)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsHeldListOpen(true)}
+                  className="flex-1 h-10 text-xs font-bold rounded-xl relative"
+                  title="الفواتير المعلّقة"
+                >
+                  <Play className="w-4 h-4 ml-1" /> المعلّقة
+                  {heldInvoices.length > 0 && (
+                    <span className="absolute -top-1.5 -left-1.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold px-1 shadow">
+                      {heldInvoices.length}
+                    </span>
+                  )}
+                </Button>
+              </div>
+
               {/* Big Checkout Button */}
               <Button
                 type="button"
                 onClick={submitSale}
                 className="w-full h-12 bg-emerald-600 text-white hover:bg-emerald-700 text-base font-bold shadow-md rounded-xl"
               >
-                <DollarSign className="w-5 h-5" /> إتمام البيع وحفظ الفاتورة
+                <DollarSign className="w-5 h-5" /> إتمام البيع وحفظ الفاتورة (F10)
               </Button>
             </div>
           </div>
@@ -1139,6 +1403,129 @@ export function POSPage() {
           setSelectedShiftForReport(null);
         }}
       />
+
+      <Dialog
+        open={stockAlternative !== null}
+        onClose={() => setStockAlternative(null)}
+        title="القطعة اللي دورت عليها خلصت"
+        subtitle={stockAlternative ? `${stockAlternative.product.name} — بس عندك بديل متسجّل ليها` : undefined}
+        width="md"
+        footer={<Button variant="outline" onClick={() => setStockAlternative(null)}>إلغاء</Button>}
+      >
+        {stockAlternative ? (
+          <div className="space-y-2.5" dir="rtl">
+            {stockAlternative.alternatives.map(({ product: alt, relation }) => {
+              const altAvailable = branchAvailableAsBaseUnits(alt);
+              const out = altAvailable <= 0;
+              const low = !out && altAvailable <= alt.minStock;
+              return (
+                <div key={alt.id} className="flex items-center justify-between gap-3 rounded-2xl border border-line p-3.5">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs text-brand-700" dir="ltr">{alt.partNumber || alt.code}</span>
+                      <Badge tone={relation === "economy" ? "amber" : relation === "premium" ? "indigo" : "green"}>
+                        {ALTERNATIVE_RELATION_LABELS[relation]}
+                      </Badge>
+                      {alt.qualityGrade ? <Badge tone="slate">{formatQualityGradeLabel(alt.qualityGrade)}</Badge> : null}
+                    </div>
+                    <div className="mt-1 font-semibold text-ink">{alt.name}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                      <span>{alt.partBrand || "بدون ماركة"}</span>
+                      <span>·</span>
+                      <span>{formatCurrency(getProductPrice(alt, DEFAULT_PRICE_TYPE))}</span>
+                      <Badge tone={out ? "red" : low ? "amber" : "green"}>
+                        {out ? "نافذ" : `متاح: ${altAvailable} ${alt.unit}`}
+                      </Badge>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={out}
+                    onClick={() => {
+                      setStockAlternative(null);
+                      addProductToCart(alt);
+                    }}
+                    className="shrink-0"
+                  >
+                    أضِفه للسلة
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </Dialog>
+
+      {/* ── POS Return Lookup ── */}
+      <POSReturnLookupDialog
+        open={isReturnLookupOpen}
+        onClose={() => setIsReturnLookupOpen(false)}
+        onSelectInvoice={(inv) => {
+          setIsReturnLookupOpen(false);
+          setReturnInvoice(inv);
+        }}
+      />
+
+      {returnInvoice && (
+        <SalesReturnDialog
+          open={!!returnInvoice}
+          onClose={() => setReturnInvoice(null)}
+          invoice={returnInvoice}
+        />
+      )}
+
+      {/* ── Held Invoices List Dialog ── */}
+      <Dialog
+        open={isHeldListOpen}
+        onClose={() => setIsHeldListOpen(false)}
+        title="الفواتير المعلّقة"
+        subtitle={heldInvoices.length > 0 ? `${heldInvoices.length} فاتورة معلّقة` : undefined}
+        width="md"
+      >
+        {heldInvoices.length === 0 ? (
+          <div className="py-10 text-center text-ink-faint text-sm">
+            <Pause className="w-10 h-10 mx-auto mb-2 stroke-[1.2]" />
+            لا توجد فواتير معلّقة حاليًا
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin">
+            {heldInvoices.map((held) => (
+              <div
+                key={held.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-line p-3.5 bg-surface"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-sm text-ink">{held.customerName}</div>
+                  <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-ink-muted">
+                    <span>{new Date(held.heldAt).toLocaleString("ar-EG")}</span>
+                    <span className="text-line">·</span>
+                    <span>{held.lines.length} صنف</span>
+                    <span className="text-line">·</span>
+                    <span className="font-semibold">{formatCurrency(held.gross)}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button
+                    size="sm"
+                    onClick={() => resumeHeldInvoice(held.id)}
+                    className="text-xs"
+                  >
+                    <Play className="w-3.5 h-3.5 ml-1" /> استعادة
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => deleteHeldInvoice(held.id)}
+                    className="text-xs text-red-600 border-red-200 hover:bg-red-50 dark:border-red-500/30 dark:hover:bg-red-500/10"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 }

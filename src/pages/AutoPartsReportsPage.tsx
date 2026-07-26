@@ -7,7 +7,7 @@ import { Badge } from "../components/ui/Badge";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
-import { formatCurrency } from "../lib/format";
+import { formatCurrency, formatQualityGradeLabel } from "../lib/format";
 import { useCatalog } from "../store/CatalogContext";
 import { useSettings } from "../store/SettingsContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
@@ -63,7 +63,7 @@ export function AutoPartsReportsPage() {
     (sum, product) => sum + product.quantity * (product.avgCost ?? product.purchasePrice),
     0,
   );
-  const lowStock = activeProducts.filter((product) => product.quantity <= product.minStock);
+  const lowStock = activeProducts.filter((product) => product.quantity > 0 && product.quantity <= product.minStock);
   const missingFitment = activeProducts.filter((product) => !fittedProductIds.has(product.id));
   const missingRack = activeProducts.filter((product) => !product.rackLocation?.trim());
   const warrantyProducts = activeProducts.filter((product) => (product.warrantyMonths ?? 0) > 0);
@@ -124,6 +124,54 @@ export function AutoPartsReportsPage() {
       map.set(origin, row);
     }
     return [...map.entries()].map(([origin, row]) => ({ origin, ...row })).sort((a, b) => b.revenue - a.revenue);
+  })();
+  const qualityGradePerformance = (() => {
+    const map = new Map<string, { products: number; stock: number; revenue: number; profit: number }>();
+    for (const product of activeProducts) {
+      const grade = product.qualityGrade || "غير محدد";
+      const row = map.get(grade) ?? { products: 0, stock: 0, revenue: 0, profit: 0 };
+      const sales = salesByProduct.get(product.id);
+      row.products += 1;
+      row.stock += product.quantity;
+      row.revenue += sales?.revenue ?? 0;
+      row.profit += sales?.profit ?? 0;
+      map.set(grade, row);
+    }
+    return [...map.entries()].map(([grade, row]) => ({ grade, ...row })).sort((a, b) => b.revenue - a.revenue);
+  })();
+  // Branch sales/profitability comparison — the per-branch STOCK distribution
+  // above already existed, but nothing compared actual sales/profit earned
+  // by each branch even though every sales invoice already carries branchId.
+  const branchSalesPerformance = (() => {
+    const map = new Map<string, { branchName: string; invoices: number; revenue: number; profit: number }>();
+    for (const invoice of periodSales) {
+      const key = invoice.branchId || "unassigned";
+      const row = map.get(key) ?? { branchName: invoice.branchName || "بدون فرع", invoices: 0, revenue: 0, profit: 0 };
+      row.invoices += 1;
+      row.revenue += invoice.total;
+      const linesGross = invoice.lines.reduce((sum, line) => sum + line.subtotal, 0);
+      for (const line of invoice.lines) {
+        const discountShare = linesGross > 0 ? (invoice.discount ?? 0) * (line.subtotal / linesGross) : 0;
+        const netLineRevenue = line.subtotal - discountShare;
+        const cost = line.costPrice ?? productById.get(line.productId)?.avgCost ?? productById.get(line.productId)?.purchasePrice ?? 0;
+        row.profit += netLineRevenue - cost * line.quantity;
+      }
+      map.set(key, row);
+    }
+    for (const item of periodReturns) {
+      const invoice = invoiceById.get(item.originalInvoiceId);
+      const key = invoice?.branchId || "unassigned";
+      const row = map.get(key) ?? { branchName: invoice?.branchName || "بدون فرع", invoices: 0, revenue: 0, profit: 0 };
+      row.revenue -= item.total;
+      for (const line of item.lines) {
+        const originalLine = invoice?.lines.find((entry) => entry.id === line.sourceLineId)
+          ?? invoice?.lines.find((entry) => entry.productId === line.productId);
+        const cost = originalLine?.costPrice ?? productById.get(line.productId)?.avgCost ?? productById.get(line.productId)?.purchasePrice ?? 0;
+        row.profit -= line.subtotal - cost * line.quantity;
+      }
+      map.set(key, row);
+    }
+    return [...map.entries()].map(([branchId, row]) => ({ branchId, ...row })).sort((a, b) => b.revenue - a.revenue);
   })();
   const vehicleSales = (() => {
     const map = new Map<string, { invoices: number; revenue: number }>();
@@ -193,6 +241,22 @@ export function AutoPartsReportsPage() {
   })();
 
   const brands = allBrands.slice(0, 5);
+
+  // Real gap analysis instead of a flat "X products missing fitment" counter
+  // — which categories are worst covered, so effort can be targeted there.
+  const fitmentGapByCategory = (() => {
+    const map = new Map<string, { total: number; missing: number }>();
+    for (const product of activeProducts) {
+      const row = map.get(product.category) ?? { total: 0, missing: 0 };
+      row.total += 1;
+      if (!fittedProductIds.has(product.id)) row.missing += 1;
+      map.set(product.category, row);
+    }
+    return [...map.entries()]
+      .map(([category, row]) => ({ category, ...row, coveragePct: row.total > 0 ? ((row.total - row.missing) / row.total) * 100 : 100 }))
+      .filter((row) => row.missing > 0)
+      .sort((a, b) => a.coveragePct - b.coveragePct);
+  })();
 
   const incompleteProducts = activeProducts.filter(
     (product) => !fittedProductIds.has(product.id) || !product.rackLocation || !product.oemNumbers?.length
@@ -279,6 +343,59 @@ export function AutoPartsReportsPage() {
         <Card>
           <CardHeader title={<span className="flex items-center gap-2"><CarFront className="h-4 w-4 text-cyan-600" /> السيارات الأعلى مبيعًا</span>} subtitle="حسب السيارات المختارة في POS" />
           <CardBody className="space-y-2">{vehicleSales.length === 0 ? <EmptyState icon={<CarFront className="h-5 w-5" />} title="اربط الفواتير بسيارات العملاء" /> : vehicleSales.map((row) => <div key={row.vehicle} className="rounded-xl border border-line p-3"><div className="text-sm font-semibold" dir="ltr">{row.vehicle}</div><div className="mt-2 flex justify-between text-xs text-ink-muted"><span>{row.invoices} فاتورة</span><strong>{formatCurrency(row.revenue, settings.currency)}</strong></div></div>)}</CardBody>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader title="الربحية حسب درجة الجودة" subtitle="أصلي توكيل / OEM / بديل ممتاز / اقتصادي — الإيراد والربح لكل درجة" />
+          <CardBody className="space-y-2">
+            {qualityGradePerformance.length === 0 ? (
+              <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="لا توجد بيانات مبيعات بعد" />
+            ) : qualityGradePerformance.map((row) => {
+              const margin = row.revenue !== 0 ? (row.profit / row.revenue) * 100 : 0;
+              return (
+                <div key={row.grade} className="rounded-xl border border-line p-3">
+                  <div className="flex items-center justify-between">
+                    <Badge tone={row.grade === "genuine" ? "green" : row.grade === "oem" ? "blue" : "slate"}>
+                      {row.grade === "غير محدد" ? row.grade : formatQualityGradeLabel(row.grade)}
+                    </Badge>
+                    <strong>{formatCurrency(row.revenue, settings.currency)}</strong>
+                  </div>
+                  <div className="mt-2 flex justify-between text-xs text-ink-muted">
+                    <span>{row.products} رقم قطعة · {row.stock} وحدة</span>
+                    <span className={row.profit >= 0 ? "text-emerald-700" : "text-rose-600"}>
+                      ربح {formatCurrency(row.profit, settings.currency)} ({margin.toFixed(1)}%)
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader title="مقارنة مبيعات وربحية الفروع" subtitle={period === "all" ? "كل المدة" : `آخر ${period} يومًا`} actions={canViewBranches ? <Link to="/branches" className="text-xs font-semibold text-brand-700">إدارة الفروع</Link> : undefined} />
+          <CardBody className="space-y-2">
+            {branchSalesPerformance.length === 0 ? (
+              <EmptyState icon={<Building2 className="h-5 w-5" />} title="لا توجد مبيعات مرتبطة بفرع في الفترة" />
+            ) : branchSalesPerformance.map((row) => {
+              const margin = row.revenue !== 0 ? (row.profit / row.revenue) * 100 : 0;
+              return (
+                <div key={row.branchId} className="rounded-xl border border-line p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">{row.branchName}</span>
+                    <strong>{formatCurrency(row.revenue, settings.currency)}</strong>
+                  </div>
+                  <div className="mt-2 flex justify-between text-xs text-ink-muted">
+                    <span>{row.invoices} فاتورة</span>
+                    <span className={row.profit >= 0 ? "text-emerald-700" : "text-rose-600"}>
+                      ربح {formatCurrency(row.profit, settings.currency)} ({margin.toFixed(1)}%)
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </CardBody>
         </Card>
       </div>
 
@@ -491,6 +608,32 @@ export function AutoPartsReportsPage() {
           </CardBody>
         </Card>
       </div>
+
+      {fitmentGapByCategory.length > 0 && (
+        <Card>
+          <CardHeader
+            title="فجوة تغطية التوافق حسب الفئة"
+            subtitle="نسبة الأصناف المربوطة بتوافق سيارة داخل كل فئة — الأسوأ تغطيةً أولاً، لتوجيه جهد الربط لمكانه"
+          />
+          <CardBody className="space-y-2">
+            {fitmentGapByCategory.map((row) => (
+              <div key={row.category} className="rounded-xl border border-line p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">{row.category}</span>
+                  <span className="text-xs text-ink-faint">{row.missing} من {row.total} بدون توافق</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-surface-muted overflow-hidden">
+                  <div
+                    className={`h-full ${row.coveragePct < 34 ? "bg-rose-500" : row.coveragePct < 67 ? "bg-amber-500" : "bg-emerald-500"}`}
+                    style={{ width: `${row.coveragePct}%` }}
+                  />
+                </div>
+                <div className="mt-1 text-xs text-ink-muted text-end">{row.coveragePct.toFixed(0)}% مغطى</div>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader

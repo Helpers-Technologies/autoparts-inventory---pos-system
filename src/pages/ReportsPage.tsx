@@ -542,7 +542,7 @@ export function ReportsPage() {
         </Card>
       </div>
 
-      <div className="no-print grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="no-print flex flex-wrap items-stretch gap-3">
         <Stat icon={<TrendingUp className="w-5 h-5" />} tone="green" label="صافي المبيعات (بعد المرتجعات)" value={formatCurrency(totalSales, settings.currency)} />
         <Stat icon={<TrendingDown className="w-5 h-5" />} tone="blue" label="إجمالي المشتريات" value={formatCurrency(totalPurchases, settings.currency)} />
         <Stat icon={<Coins className="w-5 h-5" />} tone="amber" label="الربح التقديري" value={formatCurrency(estimatedProfit, settings.currency)} />
@@ -564,7 +564,7 @@ export function ReportsPage() {
           <TabsTrigger value="customers">أرصدة العملاء</TabsTrigger>
           <TabsTrigger value="suppliers">أرصدة الموردين</TabsTrigger>
           <TabsTrigger value="supplierDues">فلوس علينا للموردين</TabsTrigger>
-          <TabsTrigger value="commissions">عمولات الموردين</TabsTrigger>
+          {canViewEmployeeBonuses ? <TabsTrigger value="commissions">عمولات الموردين</TabsTrigger> : null}
           <TabsTrigger value="monthlyProfit">الربح الشهري</TabsTrigger>
           <TabsTrigger value="customerDues">فلوس لدينا من عملاء</TabsTrigger>
           {canViewEmployeeBonuses ? <TabsTrigger value="employeeBonuses">بونص الموظفين</TabsTrigger> : null}
@@ -572,7 +572,7 @@ export function ReportsPage() {
 
         <TabsContent value="sales">
           {/* ── Sales summary ── */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+          <div className="flex flex-wrap items-stretch gap-3 mb-4">
             <SummaryCard
               label="إجمالي المبيعات"
               value={formatCurrency(grossSalesInRange, settings.currency)}
@@ -786,7 +786,7 @@ export function ReportsPage() {
             const profitIfWholesale = totalWholesale - totalPurchase;
             const profitIfRetail = totalRetail - totalPurchase;
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+              <div className="flex flex-wrap items-stretch gap-3 mb-4">
                 <SummaryCard
                   label="عدد أرقام القطع"
                   value={`${products.length} رقم قطعة`}
@@ -1590,22 +1590,22 @@ function Stat({
   tone: "green" | "blue" | "amber" | "indigo" | "emerald" | "rose" | "violet";
 }) {
   const colors: Record<string, string> = {
-    green: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-    blue: "bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400",
-    amber: "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400",
-    indigo: "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-    emerald: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-    rose: "bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400",
-    violet: "bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400",
+    green: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-500/20",
+    blue: "bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200/50 dark:border-blue-500/20",
+    amber: "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200/50 dark:border-amber-500/20",
+    indigo: "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-200/50 dark:border-indigo-500/20",
+    emerald: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-500/20",
+    rose: "bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200/50 dark:border-rose-500/20",
+    violet: "bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-200/50 dark:border-violet-500/20",
   };
   return (
-    <div className="bg-surface rounded-xl border border-line p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
-      <div className={`w-11 h-11 rounded-xl grid place-items-center shrink-0 ${colors[tone]}`}>
-        {icon}
+    <div className="bg-surface rounded-2xl border border-line p-4 flex items-center justify-between gap-3 flex-1 min-w-[210px] shadow-sm hover:shadow-md hover:border-brand-500/30 transition-all">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-semibold text-ink-muted leading-4 truncate" title={label}>{label}</div>
+        <div className="text-lg font-bold text-ink mt-1 tabular-nums leading-tight truncate">{value}</div>
       </div>
-      <div className="min-w-0">
-        <div className="text-[11px] font-bold uppercase tracking-wider text-ink-faint leading-4">{label}</div>
-        <div className="text-lg font-bold text-ink mt-0.5 tabular-nums leading-tight">{value}</div>
+      <div className={`w-10 h-10 rounded-xl border grid place-items-center shrink-0 ${colors[tone]}`}>
+        {icon}
       </div>
     </div>
   );
@@ -1624,25 +1624,25 @@ function SummaryCard({
 }) {
   const valueColors: Record<string, string> = {
     slate: "text-ink",
-    green: "text-emerald-700 dark:text-emerald-400",
-    emerald: "text-emerald-700 dark:text-emerald-400",
-    amber: "text-amber-700 dark:text-amber-400",
-    red: "text-rose-700 dark:text-rose-400",
-    indigo: "text-indigo-700",
+    green: "text-emerald-600 dark:text-emerald-400",
+    emerald: "text-emerald-600 dark:text-emerald-400",
+    amber: "text-amber-600 dark:text-amber-400",
+    red: "text-rose-600 dark:text-rose-400",
+    indigo: "text-indigo-600 dark:text-indigo-400",
   };
   const borderColors: Record<string, string> = {
-    slate: "border-line",
-    green: "border-emerald-200 dark:border-emerald-500/30",
-    emerald: "border-emerald-200 dark:border-emerald-500/30",
-    amber: "border-amber-200 dark:border-amber-500/30",
-    red: "border-rose-200 dark:border-rose-500/30",
-    indigo: "border-indigo-200 dark:border-indigo-500/30",
+    slate: "border-line bg-surface",
+    green: "border-emerald-200/80 dark:border-emerald-500/25 bg-emerald-50/30 dark:bg-emerald-500/[0.04]",
+    emerald: "border-emerald-200/80 dark:border-emerald-500/25 bg-emerald-50/30 dark:bg-emerald-500/[0.04]",
+    amber: "border-amber-200/80 dark:border-amber-500/25 bg-amber-50/30 dark:bg-amber-500/[0.04]",
+    red: "border-rose-200/80 dark:border-rose-500/25 bg-rose-50/30 dark:bg-rose-500/[0.04]",
+    indigo: "border-indigo-200/80 dark:border-indigo-500/25 bg-indigo-50/30 dark:bg-indigo-500/[0.04]",
   };
   return (
-    <div className={`bg-surface rounded-xl border p-3 ${borderColors[tone]}`}>
-      <div className="text-[11px] text-ink-faint mb-1">{label}</div>
+    <div className={`rounded-xl border p-3.5 shadow-sm transition-all hover:shadow-md flex-1 min-w-[160px] ${borderColors[tone]}`}>
+      <div className="text-[11px] font-semibold text-ink-muted mb-1 truncate" title={label}>{label}</div>
       <div className={`text-base font-bold tabular-nums leading-tight ${valueColors[tone]}`}>{value}</div>
-      {sub && <div className="text-[10px] text-ink-faint mt-0.5">{sub}</div>}
+      {sub && <div className="text-[10px] text-ink-faint mt-1 truncate">{sub}</div>}
     </div>
   );
 }

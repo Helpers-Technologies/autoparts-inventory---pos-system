@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
@@ -22,6 +22,7 @@ export function Dialog({
   footer?: ReactNode;
   width?: "sm" | "md" | "lg" | "xl" | "2xl";
 }) {
+  const titleId = useId();
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -57,6 +58,8 @@ export function Dialog({
       />
       <div
         role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
         className={cn(
           "relative w-full bg-surface rounded-2xl shadow-xl border border-line animate-fadeIn flex flex-col max-h-[90vh]",
           widthClass
@@ -66,7 +69,7 @@ export function Dialog({
           <div className="flex items-start justify-between gap-4 p-4 border-b border-line">
             <div>
               {title ? (
-                <div className="font-semibold text-ink">{title}</div>
+                <div id={titleId} className="font-semibold text-ink">{title}</div>
               ) : null}
               {subtitle ? (
                 <div className="text-xs text-ink-muted mt-0.5">{subtitle}</div>

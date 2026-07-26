@@ -1,0 +1,4851 @@
+[
+  {
+    "id": "generation_toyota_corolla_1",
+    "modelId": "model_toyota_corolla",
+    "name": "الجيل العاشر (E140/E150)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2013
+  },
+  {
+    "id": "generation_toyota_corolla_2",
+    "modelId": "model_toyota_corolla",
+    "name": "الجيل الحادي عشر (E170/E180)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_toyota_corolla_3",
+    "modelId": "model_toyota_corolla",
+    "name": "الجيل الثاني عشر (E210)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_toyota_yaris_1",
+    "modelId": "model_toyota_yaris",
+    "name": "الجيل الثالث (XP150)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_toyota_yaris_2",
+    "modelId": "model_toyota_yaris",
+    "name": "الجيل الرابع (XP210)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_toyota_fortuner_1",
+    "modelId": "model_toyota_fortuner",
+    "name": "AN160",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_toyota_hilux_1",
+    "modelId": "model_toyota_hilux",
+    "name": "AN120/AN130",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_toyota_land-cruiser_1",
+    "modelId": "model_toyota_land-cruiser",
+    "name": "J200",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_toyota_land-cruiser_2",
+    "modelId": "model_toyota_land-cruiser",
+    "name": "J300",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_toyota_rav4_1",
+    "modelId": "model_toyota_rav4",
+    "name": "الجيل الخامس (XA50)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hyundai_elantra_1",
+    "modelId": "model_hyundai_elantra",
+    "name": "MD",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_hyundai_elantra_2",
+    "modelId": "model_hyundai_elantra",
+    "name": "AD",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_hyundai_elantra_3",
+    "modelId": "model_hyundai_elantra",
+    "name": "CN7",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hyundai_accent_1",
+    "modelId": "model_hyundai_accent",
+    "name": "RB",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_hyundai_accent_2",
+    "modelId": "model_hyundai_accent",
+    "name": "الجيل السادس (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hyundai_tucson_1",
+    "modelId": "model_hyundai_tucson",
+    "name": "TL",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_hyundai_tucson_2",
+    "modelId": "model_hyundai_tucson",
+    "name": "NX4",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hyundai_creta_1",
+    "modelId": "model_hyundai_creta",
+    "name": "GS",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_hyundai_creta_2",
+    "modelId": "model_hyundai_creta",
+    "name": "SU2",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hyundai_i10_1",
+    "modelId": "model_hyundai_i10",
+    "name": "PA",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_hyundai_i10_2",
+    "modelId": "model_hyundai_i10",
+    "name": "AC3",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_kia_cerato_1",
+    "modelId": "model_kia_cerato",
+    "name": "YD",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_kia_cerato_2",
+    "modelId": "model_kia_cerato",
+    "name": "BD",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_kia_picanto_1",
+    "modelId": "model_kia_picanto",
+    "name": "TA",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_kia_picanto_2",
+    "modelId": "model_kia_picanto",
+    "name": "JA",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_kia_sportage_1",
+    "modelId": "model_kia_sportage",
+    "name": "QL",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_kia_sportage_2",
+    "modelId": "model_kia_sportage",
+    "name": "NQ5",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_kia_rio_1",
+    "modelId": "model_kia_rio",
+    "name": "UB",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Sedan",
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_kia_rio_2",
+    "modelId": "model_kia_rio",
+    "name": "YB",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Sedan",
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_nissan_sunny_1",
+    "modelId": "model_nissan_sunny",
+    "name": "N17",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_nissan_qashqai_1",
+    "modelId": "model_nissan_qashqai",
+    "name": "J11",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_nissan_qashqai_2",
+    "modelId": "model_nissan_qashqai",
+    "name": "J12",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_nissan_x-trail_1",
+    "modelId": "model_nissan_x-trail",
+    "name": "T32",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_chevrolet_aveo_1",
+    "modelId": "model_chevrolet_aveo",
+    "name": "T300",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Sedan",
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_chevrolet_optra_1",
+    "modelId": "model_chevrolet_optra",
+    "name": "J200",
+    "yearFrom": 2002,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_chevrolet_captiva_1",
+    "modelId": "model_chevrolet_captiva",
+    "name": "الجيل الأول والثاني (2006-2018)",
+    "yearFrom": 2006,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_mg_mg-5_1",
+    "modelId": "model_mg_mg-5",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-zs_1",
+    "modelId": "model_mg_mg-zs",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-6_1",
+    "modelId": "model_mg_mg-6",
+    "name": "الجيل الأول (2010-2018)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_fiat_tipo_1",
+    "modelId": "model_fiat_tipo",
+    "name": "الجيل الرابع (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Sedan",
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_fiat_punto_1",
+    "modelId": "model_fiat_punto",
+    "name": "Grande Punto",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_fiat_500_1",
+    "modelId": "model_fiat_500",
+    "name": "الجيل الثاني (2007+)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_peugeot_301_1",
+    "modelId": "model_peugeot_301",
+    "name": "الجيل الأول (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_peugeot_2008_1",
+    "modelId": "model_peugeot_2008",
+    "name": "الجيل الأول (Mk1)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_peugeot_2008_2",
+    "modelId": "model_peugeot_2008",
+    "name": "الجيل الثاني (Mk2)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_peugeot_508_1",
+    "modelId": "model_peugeot_508",
+    "name": "الجيل الأول (Mk1)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_peugeot_508_2",
+    "modelId": "model_peugeot_508",
+    "name": "الجيل الثاني (Mk2)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Sedan",
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_renault_logan_1",
+    "modelId": "model_renault_logan",
+    "name": "الجيل الأول (Mk1)",
+    "yearFrom": 2004,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2012
+  },
+  {
+    "id": "generation_renault_logan_2",
+    "modelId": "model_renault_logan",
+    "name": "الجيل الثاني (Mk2)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_renault_duster_1",
+    "modelId": "model_renault_duster",
+    "name": "الجيل الأول (Mk1)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_renault_duster_2",
+    "modelId": "model_renault_duster",
+    "name": "الجيل الثاني (Mk2)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_renault_megane_1",
+    "modelId": "model_renault_megane",
+    "name": "الجيل الثالث (Mk3)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Sedan",
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_renault_megane_2",
+    "modelId": "model_renault_megane",
+    "name": "الجيل الرابع (Mk4)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Sedan",
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_volkswagen_passat_1",
+    "modelId": "model_volkswagen_passat",
+    "name": "B6",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2010
+  },
+  {
+    "id": "generation_volkswagen_passat_2",
+    "modelId": "model_volkswagen_passat",
+    "name": "B7",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_volkswagen_passat_3",
+    "modelId": "model_volkswagen_passat",
+    "name": "B8",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_volkswagen_golf_1",
+    "modelId": "model_volkswagen_golf",
+    "name": "Mk6",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2013
+  },
+  {
+    "id": "generation_volkswagen_golf_2",
+    "modelId": "model_volkswagen_golf",
+    "name": "Mk7",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_volkswagen_golf_3",
+    "modelId": "model_volkswagen_golf",
+    "name": "Mk8",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_volkswagen_jetta_1",
+    "modelId": "model_volkswagen_jetta",
+    "name": "Mk6",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_volkswagen_jetta_2",
+    "modelId": "model_volkswagen_jetta",
+    "name": "Mk7",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_swift_1",
+    "modelId": "model_suzuki_swift",
+    "name": "الجيل الثالث (Mk3)",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2010
+  },
+  {
+    "id": "generation_suzuki_swift_2",
+    "modelId": "model_suzuki_swift",
+    "name": "الجيل الرابع (Mk4)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_suzuki_swift_3",
+    "modelId": "model_suzuki_swift",
+    "name": "الجيل الخامس (Mk5)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mitsubishi_lancer_1",
+    "modelId": "model_mitsubishi_lancer",
+    "name": "الجيل التاسع (CY)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_mitsubishi_attrage_1",
+    "modelId": "model_mitsubishi_attrage",
+    "name": "الجيل الأول (2013+)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_mitsubishi_attrage_2",
+    "modelId": "model_mitsubishi_attrage",
+    "name": "الجيل الثاني (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_honda_civic_1",
+    "modelId": "model_honda_civic",
+    "name": "FB",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_honda_civic_2",
+    "modelId": "model_honda_civic",
+    "name": "FC",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_honda_civic_3",
+    "modelId": "model_honda_civic",
+    "name": "FE",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_bmw_3-series_1",
+    "modelId": "model_bmw_3-series",
+    "name": "F30",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_bmw_3-series_2",
+    "modelId": "model_bmw_3-series",
+    "name": "G20",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_bmw_5-series_1",
+    "modelId": "model_bmw_5-series",
+    "name": "F10",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_bmw_5-series_2",
+    "modelId": "model_bmw_5-series",
+    "name": "G30",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mercedes-benz_c-class_1",
+    "modelId": "model_mercedes-benz_c-class",
+    "name": "W204",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2014
+  },
+  {
+    "id": "generation_mercedes-benz_c-class_2",
+    "modelId": "model_mercedes-benz_c-class",
+    "name": "W205",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_mercedes-benz_c-class_3",
+    "modelId": "model_mercedes-benz_c-class",
+    "name": "W206",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mercedes-benz_e-class_1",
+    "modelId": "model_mercedes-benz_e-class",
+    "name": "W212",
+    "yearFrom": 2009,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_mercedes-benz_e-class_2",
+    "modelId": "model_mercedes-benz_e-class",
+    "name": "W213",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-3_1",
+    "modelId": "model_mg_mg-3",
+    "name": "الجيل الأول (2011-2018)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_mg_mg-3_2",
+    "modelId": "model_mg_mg-3",
+    "name": "الجيل الثاني (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-4_1",
+    "modelId": "model_mg_mg-4",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-gt_1",
+    "modelId": "model_mg_mg-gt",
+    "name": "الجيل الأول (2014-2019)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_mg_mg-hs_1",
+    "modelId": "model_mg_mg-hs",
+    "name": "الجيل الأول (2018-2021)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_mg_mg-hs_2",
+    "modelId": "model_mg_mg-hs",
+    "name": "الجيل الثاني (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-one_1",
+    "modelId": "model_mg_mg-one",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-rx5_1",
+    "modelId": "model_mg_mg-rx5",
+    "name": "الجيل الأول (2016-2019)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_mg_mg-rx5_2",
+    "modelId": "model_mg_mg-rx5",
+    "name": "الجيل الثاني (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_marvel-r_1",
+    "modelId": "model_mg_marvel-r",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-7_1",
+    "modelId": "model_mg_mg-7",
+    "name": "الجيل الأول (2023+)",
+    "yearFrom": 2023,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mg_mg-rx8_1",
+    "modelId": "model_mg_mg-rx8",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_qq_1",
+    "modelId": "model_chery_qq",
+    "name": "الجيل الأول (2003-2013)",
+    "yearFrom": 2003,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2013
+  },
+  {
+    "id": "generation_chery_a11_1",
+    "modelId": "model_chery_a11",
+    "name": "الجيل الأول (2008-2014)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2014
+  },
+  {
+    "id": "generation_chery_a15_1",
+    "modelId": "model_chery_a15",
+    "name": "الجيل الأول (2010-2016)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_chery_envy_1",
+    "modelId": "model_chery_envy",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_arrizo-5_1",
+    "modelId": "model_chery_arrizo-5",
+    "name": "الجيل الأول (2016-2019)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_chery_arrizo-5_2",
+    "modelId": "model_chery_arrizo-5",
+    "name": "الجيل الثاني (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_arrizo-6_1",
+    "modelId": "model_chery_arrizo-6",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_arrizo-8_1",
+    "modelId": "model_chery_arrizo-8",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_tiggo-2_1",
+    "modelId": "model_chery_tiggo-2",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_tiggo-3_1",
+    "modelId": "model_chery_tiggo-3",
+    "name": "الجيل الأول (2014-2018)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_chery_tiggo-3_2",
+    "modelId": "model_chery_tiggo-3",
+    "name": "الجيل الثاني (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_tiggo-4-pro_1",
+    "modelId": "model_chery_tiggo-4-pro",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_tiggo-7_1",
+    "modelId": "model_chery_tiggo-7",
+    "name": "الجيل الأول (2016-2020)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_chery_tiggo-7-pro_1",
+    "modelId": "model_chery_tiggo-7-pro",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_chery_tiggo-8_1",
+    "modelId": "model_chery_tiggo-8",
+    "name": "الجيل الأول (2018-2022)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_chery_tiggo-8-pro-max_1",
+    "modelId": "model_chery_tiggo-8-pro-max",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_byd_f0_1",
+    "modelId": "model_byd_f0",
+    "name": "الجيل الأول (2008-2015)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_byd_f3_1",
+    "modelId": "model_byd_f3",
+    "name": "الجيل الأول (2005-2015)",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_byd_f3r_1",
+    "modelId": "model_byd_f3r",
+    "name": "الجيل الأول (2010-2015)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_byd_l3_1",
+    "modelId": "model_byd_l3",
+    "name": "الجيل الأول (2010-2016)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_byd_s5_1",
+    "modelId": "model_byd_s5",
+    "name": "الجيل الأول (2015-2020)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_byd_f7_1",
+    "modelId": "model_byd_f7",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_byd_qin-plus_1",
+    "modelId": "model_byd_qin-plus",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_byd_song-plus_1",
+    "modelId": "model_byd_song-plus",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_byd_yuan-plus_1",
+    "modelId": "model_byd_yuan-plus",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_byd_atto-3_1",
+    "modelId": "model_byd_atto-3",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_byd_dolphin_1",
+    "modelId": "model_byd_dolphin",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_byd_seal_1",
+    "modelId": "model_byd_seal",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_byd_han_1",
+    "modelId": "model_byd_han",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_geely_panda_1",
+    "modelId": "model_geely_panda",
+    "name": "الجيل الأول (2008-2016)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_geely_emgrand_1",
+    "modelId": "model_geely_emgrand",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_geely_emgrand-7_1",
+    "modelId": "model_geely_emgrand-7",
+    "name": "EC7 (2009-2016)",
+    "yearFrom": 2009,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_geely_emgrand-x7_1",
+    "modelId": "model_geely_emgrand-x7",
+    "name": "الجيل الأول (2011-2018)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_geely_gx3-pro_1",
+    "modelId": "model_geely_gx3-pro",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_geely_coolray_1",
+    "modelId": "model_geely_coolray",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_geely_okavango_1",
+    "modelId": "model_geely_okavango",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_geely_starray_1",
+    "modelId": "model_geely_starray",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_geely_geometry-c_1",
+    "modelId": "model_geely_geometry-c",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jetour_dashing_1",
+    "modelId": "model_jetour_dashing",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jetour_t1_1",
+    "modelId": "model_jetour_t1",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jetour_t2_1",
+    "modelId": "model_jetour_t2",
+    "name": "الجيل الأول (2023+)",
+    "yearFrom": 2023,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jetour_x70_1",
+    "modelId": "model_jetour_x70",
+    "name": "الجيل الأول (2018-2021)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_jetour_x70-plus_1",
+    "modelId": "model_jetour_x70-plus",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jetour_x90-plus_1",
+    "modelId": "model_jetour_x90-plus",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haval_h2_1",
+    "modelId": "model_haval_h2",
+    "name": "الجيل الأول (2014-2021)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_haval_h6_1",
+    "modelId": "model_haval_h6",
+    "name": "الجيل الأول (2011-2017)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_haval_h6_2",
+    "modelId": "model_haval_h6",
+    "name": "الجيل الثاني (2017-2021)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_haval_h6_3",
+    "modelId": "model_haval_h6",
+    "name": "الجيل الثالث (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haval_h9_1",
+    "modelId": "model_haval_h9",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haval_dargo_1",
+    "modelId": "model_haval_dargo",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haval_jolion_1",
+    "modelId": "model_haval_jolion",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jac_j3_1",
+    "modelId": "model_jac_j3",
+    "name": "الجيل الأول (2008-2014)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2014
+  },
+  {
+    "id": "generation_jac_j4_1",
+    "modelId": "model_jac_j4",
+    "name": "الجيل الأول (2009-2015)",
+    "yearFrom": 2009,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_jac_j7_1",
+    "modelId": "model_jac_j7",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jac_js2_1",
+    "modelId": "model_jac_js2",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jac_js3_1",
+    "modelId": "model_jac_js3",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jac_js4_1",
+    "modelId": "model_jac_js4",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jac_js6_1",
+    "modelId": "model_jac_js6",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jac_s2_1",
+    "modelId": "model_jac_s2",
+    "name": "الجيل الأول (2015-2020)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_jac_s3_1",
+    "modelId": "model_jac_s3",
+    "name": "الجيل الأول (2016-2021)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_jac_s4_1",
+    "modelId": "model_jac_s4",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_citroen_c-elysee_1",
+    "modelId": "model_citroen_c-elysee",
+    "name": "الجيل الأول (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_citroen_c3_1",
+    "modelId": "model_citroen_c3",
+    "name": "الجيل الثاني (2009-2016)",
+    "yearFrom": 2009,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_citroen_c3_2",
+    "modelId": "model_citroen_c3",
+    "name": "الجيل الثالث (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_citroen_c3-aircross_1",
+    "modelId": "model_citroen_c3-aircross",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_citroen_c4_1",
+    "modelId": "model_citroen_c4",
+    "name": "الجيل الثاني (2010-2018)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_citroen_c4_2",
+    "modelId": "model_citroen_c4",
+    "name": "الجيل الثالث (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_citroen_c4x_1",
+    "modelId": "model_citroen_c4x",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_citroen_c5-aircross_1",
+    "modelId": "model_citroen_c5-aircross",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_citroen_berlingo_1",
+    "modelId": "model_citroen_berlingo",
+    "name": "الجيل الثاني (2008-2018)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Van"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_citroen_berlingo_2",
+    "modelId": "model_citroen_berlingo",
+    "name": "الجيل الثالث (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Van"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_citroen_xsara_1",
+    "modelId": "model_citroen_xsara",
+    "name": "الجيل الأول (1997-2006)",
+    "yearFrom": 1997,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2006
+  },
+  {
+    "id": "generation_skoda_felicia_1",
+    "modelId": "model_skoda_felicia",
+    "name": "الجيل الأول (1994-2001)",
+    "yearFrom": 1994,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2001
+  },
+  {
+    "id": "generation_skoda_fabia_1",
+    "modelId": "model_skoda_fabia",
+    "name": "الجيل الثاني (2007-2014)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2014
+  },
+  {
+    "id": "generation_skoda_fabia_2",
+    "modelId": "model_skoda_fabia",
+    "name": "الجيل الثالث (2014-2021)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_skoda_fabia_3",
+    "modelId": "model_skoda_fabia",
+    "name": "الجيل الرابع (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_skoda_rapid_1",
+    "modelId": "model_skoda_rapid",
+    "name": "الجيل الأول (2012-2019)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan",
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_skoda_octavia_1",
+    "modelId": "model_skoda_octavia",
+    "name": "الجيل الثاني (2004-2013)",
+    "yearFrom": 2004,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2013
+  },
+  {
+    "id": "generation_skoda_octavia_2",
+    "modelId": "model_skoda_octavia",
+    "name": "الجيل الثالث (2013-2019)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_skoda_octavia_3",
+    "modelId": "model_skoda_octavia",
+    "name": "الجيل الرابع (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_skoda_superb_1",
+    "modelId": "model_skoda_superb",
+    "name": "الجيل الثاني (2008-2015)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_skoda_superb_2",
+    "modelId": "model_skoda_superb",
+    "name": "الجيل الثالث (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_skoda_scala_1",
+    "modelId": "model_skoda_scala",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_skoda_kamiq_1",
+    "modelId": "model_skoda_kamiq",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_skoda_karoq_1",
+    "modelId": "model_skoda_karoq",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_skoda_kodiaq_1",
+    "modelId": "model_skoda_kodiaq",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_opel_corsa_1",
+    "modelId": "model_opel_corsa",
+    "name": "الجيل الرابع - D (2006-2014)",
+    "yearFrom": 2006,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2014
+  },
+  {
+    "id": "generation_opel_corsa_2",
+    "modelId": "model_opel_corsa",
+    "name": "الجيل الخامس - E (2014-2019)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_opel_corsa_3",
+    "modelId": "model_opel_corsa",
+    "name": "الجيل السادس - F (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_opel_astra_1",
+    "modelId": "model_opel_astra",
+    "name": "الجيل الرابع - H (2004-2010)",
+    "yearFrom": 2004,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2010
+  },
+  {
+    "id": "generation_opel_astra_2",
+    "modelId": "model_opel_astra",
+    "name": "الجيل الخامس - J (2009-2015)",
+    "yearFrom": 2009,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_opel_astra_3",
+    "modelId": "model_opel_astra",
+    "name": "الجيل السادس - K (2015-2021)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_opel_vectra_1",
+    "modelId": "model_opel_vectra",
+    "name": "الجيل الثالث - C (2002-2008)",
+    "yearFrom": 2002,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2008
+  },
+  {
+    "id": "generation_opel_insignia_1",
+    "modelId": "model_opel_insignia",
+    "name": "الجيل الأول - A (2008-2017)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_opel_insignia_2",
+    "modelId": "model_opel_insignia",
+    "name": "الجيل الثاني - B (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_opel_mokka_1",
+    "modelId": "model_opel_mokka",
+    "name": "الجيل الأول (2012-2019)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_opel_mokka_2",
+    "modelId": "model_opel_mokka",
+    "name": "الجيل الثاني (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_opel_crossland_1",
+    "modelId": "model_opel_crossland",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_opel_grandland_1",
+    "modelId": "model_opel_grandland",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_opel_meriva_1",
+    "modelId": "model_opel_meriva",
+    "name": "الجيل الأول والثاني (2003-2017)",
+    "yearFrom": 2003,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_opel_zafira_1",
+    "modelId": "model_opel_zafira",
+    "name": "الجيل الأول والثاني (2005-2019)",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_ford_fiesta_1",
+    "modelId": "model_ford_fiesta",
+    "name": "الجيل السادس - Mk6 (2008-2017)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_ford_fiesta_2",
+    "modelId": "model_ford_fiesta",
+    "name": "الجيل السابع - Mk7 (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_ford_focus_1",
+    "modelId": "model_ford_focus",
+    "name": "الجيل الثاني - Mk2 (2004-2011)",
+    "yearFrom": 2004,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2011
+  },
+  {
+    "id": "generation_ford_focus_2",
+    "modelId": "model_ford_focus",
+    "name": "الجيل الثالث - Mk3 (2011-2018)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_ford_focus_3",
+    "modelId": "model_ford_focus",
+    "name": "الجيل الرابع - Mk4 (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_ford_mondeo_1",
+    "modelId": "model_ford_mondeo",
+    "name": "الجيل الرابع - Mk4 (2007-2014)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2014
+  },
+  {
+    "id": "generation_ford_mondeo_2",
+    "modelId": "model_ford_mondeo",
+    "name": "الجيل الخامس - Mk5 (2014-2022)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_ford_ecosport_1",
+    "modelId": "model_ford_ecosport",
+    "name": "الجيل الأول (2012-2022)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_ford_kuga_1",
+    "modelId": "model_ford_kuga",
+    "name": "الجيل الثاني - Mk2 (2012-2019)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_ford_kuga_2",
+    "modelId": "model_ford_kuga",
+    "name": "الجيل الثالث - Mk3 (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_ford_everest_1",
+    "modelId": "model_ford_everest",
+    "name": "الجيل الأول والثاني (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_ford_ranger_1",
+    "modelId": "model_ford_ranger",
+    "name": "T6 (2011-2022)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_ford_ranger_2",
+    "modelId": "model_ford_ranger",
+    "name": "الجيل الجديد (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_ford_explorer_1",
+    "modelId": "model_ford_explorer",
+    "name": "الجيل السادس (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_ford_transit_1",
+    "modelId": "model_ford_transit",
+    "name": "الجيل الحالي (2013+)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Van"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_ford_transit-connect_1",
+    "modelId": "model_ford_transit-connect",
+    "name": "الجيل الثاني (2013+)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Van"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_isuzu_d-max_1",
+    "modelId": "model_isuzu_d-max",
+    "name": "الجيل الثاني - RT50 (2012-2020)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_isuzu_d-max_2",
+    "modelId": "model_isuzu_d-max",
+    "name": "الجيل الثالث (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_isuzu_mu-x_1",
+    "modelId": "model_isuzu_mu-x",
+    "name": "الجيل الأول (2013-2020)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_isuzu_mu-x_2",
+    "modelId": "model_isuzu_mu-x",
+    "name": "الجيل الثاني (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_isuzu_trooper_1",
+    "modelId": "model_isuzu_trooper",
+    "name": "الجيل الثاني (1991-2002)",
+    "yearFrom": 1991,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2002
+  },
+  {
+    "id": "generation_audi_a1_1",
+    "modelId": "model_audi_a1",
+    "name": "الجيل الأول والثاني (2010+)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_audi_a3_1",
+    "modelId": "model_audi_a3",
+    "name": "8P (2003-2012)",
+    "yearFrom": 2003,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2012
+  },
+  {
+    "id": "generation_audi_a3_2",
+    "modelId": "model_audi_a3",
+    "name": "8V (2012-2020)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_audi_a3_3",
+    "modelId": "model_audi_a3",
+    "name": "8Y (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_audi_a4_1",
+    "modelId": "model_audi_a4",
+    "name": "B7 (2004-2008)",
+    "yearFrom": 2004,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2008
+  },
+  {
+    "id": "generation_audi_a4_2",
+    "modelId": "model_audi_a4",
+    "name": "B8 (2008-2015)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_audi_a4_3",
+    "modelId": "model_audi_a4",
+    "name": "B9 (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_audi_a5_1",
+    "modelId": "model_audi_a5",
+    "name": "الجيل الأول والثاني (2007+)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Coupe",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_audi_a6_1",
+    "modelId": "model_audi_a6",
+    "name": "C6 (2004-2011)",
+    "yearFrom": 2004,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2011
+  },
+  {
+    "id": "generation_audi_a6_2",
+    "modelId": "model_audi_a6",
+    "name": "C7 (2011-2018)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_audi_a6_3",
+    "modelId": "model_audi_a6",
+    "name": "C8 (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_audi_q3_1",
+    "modelId": "model_audi_q3",
+    "name": "8U (2011-2018)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_audi_q3_2",
+    "modelId": "model_audi_q3",
+    "name": "F3 (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_audi_q5_1",
+    "modelId": "model_audi_q5",
+    "name": "8R (2008-2017)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_audi_q5_2",
+    "modelId": "model_audi_q5",
+    "name": "FY (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_audi_q7_1",
+    "modelId": "model_audi_q7",
+    "name": "4L (2005-2015)",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_audi_q7_2",
+    "modelId": "model_audi_q7",
+    "name": "4M (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mazda_mazda-2_1",
+    "modelId": "model_mazda_mazda-2",
+    "name": "الجيل الثالث والرابع (2007+)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mazda_mazda-3_1",
+    "modelId": "model_mazda_mazda-3",
+    "name": "الجيل الثالث - BM (2013-2019)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_mazda_mazda-3_2",
+    "modelId": "model_mazda_mazda-3",
+    "name": "الجيل الرابع - BP (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Hatchback",
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mazda_mazda-6_1",
+    "modelId": "model_mazda_mazda-6",
+    "name": "الجيل الثاني - GH (2007-2012)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2012
+  },
+  {
+    "id": "generation_mazda_mazda-6_2",
+    "modelId": "model_mazda_mazda-6",
+    "name": "الجيل الثالث - GJ (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mazda_cx-3_1",
+    "modelId": "model_mazda_cx-3",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mazda_cx-5_1",
+    "modelId": "model_mazda_cx-5",
+    "name": "الجيل الأول - KE (2012-2017)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_mazda_cx-5_2",
+    "modelId": "model_mazda_cx-5",
+    "name": "الجيل الثاني - KF (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mazda_cx-9_1",
+    "modelId": "model_mazda_cx-9",
+    "name": "الجيل الأول والثاني (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mazda_bt-50_1",
+    "modelId": "model_mazda_bt-50",
+    "name": "الجيل الثالث (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lada_2105_1",
+    "modelId": "model_lada_2105",
+    "name": "الجيل الأول (1980-2010)",
+    "yearFrom": 1980,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2010
+  },
+  {
+    "id": "generation_lada_2107_1",
+    "modelId": "model_lada_2107",
+    "name": "الجيل الأول (1982-2012)",
+    "yearFrom": 1982,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2012
+  },
+  {
+    "id": "generation_lada_samara_1",
+    "modelId": "model_lada_samara",
+    "name": "الجيل الأول (1984-2013)",
+    "yearFrom": 1984,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2013
+  },
+  {
+    "id": "generation_lada_granta_1",
+    "modelId": "model_lada_granta",
+    "name": "الجيل الأول (2011+)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lada_vesta_1",
+    "modelId": "model_lada_vesta",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lada_niva_1",
+    "modelId": "model_lada_niva",
+    "name": "الجيل الأول (1977+)",
+    "yearFrom": 1977,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_land-rover_defender_1",
+    "modelId": "model_land-rover_defender",
+    "name": "الجيل الكلاسيكي (1990-2016)",
+    "yearFrom": 1990,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_land-rover_defender_2",
+    "modelId": "model_land-rover_defender",
+    "name": "الجيل الجديد (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_land-rover_discovery_1",
+    "modelId": "model_land-rover_discovery",
+    "name": "الجيل الخامس (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_land-rover_discovery-sport_1",
+    "modelId": "model_land-rover_discovery-sport",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_land-rover_range-rover_1",
+    "modelId": "model_land-rover_range-rover",
+    "name": "L322 (2002-2012)",
+    "yearFrom": 2002,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2012
+  },
+  {
+    "id": "generation_land-rover_range-rover_2",
+    "modelId": "model_land-rover_range-rover",
+    "name": "L405 (2012-2022)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_land-rover_range-rover_3",
+    "modelId": "model_land-rover_range-rover",
+    "name": "L460 (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_land-rover_range-rover-sport_1",
+    "modelId": "model_land-rover_range-rover-sport",
+    "name": "L320 (2005-2013)",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2013
+  },
+  {
+    "id": "generation_land-rover_range-rover-sport_2",
+    "modelId": "model_land-rover_range-rover-sport",
+    "name": "L494 (2013-2022)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_land-rover_range-rover-sport_3",
+    "modelId": "model_land-rover_range-rover-sport",
+    "name": "L461 (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_land-rover_range-rover-evoque_1",
+    "modelId": "model_land-rover_range-rover-evoque",
+    "name": "الجيل الأول (2011-2018)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_land-rover_range-rover-evoque_2",
+    "modelId": "model_land-rover_range-rover-evoque",
+    "name": "الجيل الثاني (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_land-rover_range-rover-velar_1",
+    "modelId": "model_land-rover_range-rover-velar",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_alto_1",
+    "modelId": "model_suzuki_alto",
+    "name": "الجيل السابع (2009-2014)",
+    "yearFrom": 2009,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2014
+  },
+  {
+    "id": "generation_suzuki_alto_2",
+    "modelId": "model_suzuki_alto",
+    "name": "الجيل الثامن (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_celerio_1",
+    "modelId": "model_suzuki_celerio",
+    "name": "الجيل الأول (2014-2021)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_suzuki_celerio_2",
+    "modelId": "model_suzuki_celerio",
+    "name": "الجيل الثاني (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_dzire_1",
+    "modelId": "model_suzuki_dzire",
+    "name": "الجيل الثاني (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_baleno_1",
+    "modelId": "model_suzuki_baleno",
+    "name": "الجيل الثاني (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_ertiga_1",
+    "modelId": "model_suzuki_ertiga",
+    "name": "الجيل الأول (2012-2018)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_suzuki_ertiga_2",
+    "modelId": "model_suzuki_ertiga",
+    "name": "الجيل الثاني (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_vitara_1",
+    "modelId": "model_suzuki_vitara",
+    "name": "الجيل الرابع (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_grand-vitara_1",
+    "modelId": "model_suzuki_grand-vitara",
+    "name": "(2005-2015)",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_suzuki_s-cross_1",
+    "modelId": "model_suzuki_s-cross",
+    "name": "الجيل الأول (2013-2021)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_suzuki_s-cross_2",
+    "modelId": "model_suzuki_s-cross",
+    "name": "الجيل الثاني (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_suzuki_jimny_1",
+    "modelId": "model_suzuki_jimny",
+    "name": "الجيل الثالث (1998-2018)",
+    "yearFrom": 1998,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_suzuki_jimny_2",
+    "modelId": "model_suzuki_jimny",
+    "name": "الجيل الرابع (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mitsubishi_lancer-evolution_1",
+    "modelId": "model_mitsubishi_lancer-evolution",
+    "name": "Evo X (2007-2016)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_mitsubishi_mirage_1",
+    "modelId": "model_mitsubishi_mirage",
+    "name": "الجيل السادس (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mitsubishi_galant_1",
+    "modelId": "model_mitsubishi_galant",
+    "name": "الجيل الثامن (2004-2012)",
+    "yearFrom": 2004,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2012
+  },
+  {
+    "id": "generation_mitsubishi_pajero_1",
+    "modelId": "model_mitsubishi_pajero",
+    "name": "الجيل الرابع (2006+)",
+    "yearFrom": 2006,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mitsubishi_eclipse-cross_1",
+    "modelId": "model_mitsubishi_eclipse-cross",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mitsubishi_outlander_1",
+    "modelId": "model_mitsubishi_outlander",
+    "name": "الجيل الثالث (2012-2021)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_mitsubishi_outlander_2",
+    "modelId": "model_mitsubishi_outlander",
+    "name": "الجيل الرابع (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_mitsubishi_xpander_1",
+    "modelId": "model_mitsubishi_xpander",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_honda_city_1",
+    "modelId": "model_honda_city",
+    "name": "الجيل الخامس (2008-2014)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2014
+  },
+  {
+    "id": "generation_honda_city_2",
+    "modelId": "model_honda_city",
+    "name": "الجيل السادس (2014-2020)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_honda_city_3",
+    "modelId": "model_honda_city",
+    "name": "الجيل السابع (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_honda_accord_1",
+    "modelId": "model_honda_accord",
+    "name": "الجيل التاسع (2012-2017)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2017
+  },
+  {
+    "id": "generation_honda_accord_2",
+    "modelId": "model_honda_accord",
+    "name": "الجيل العاشر (2017-2022)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_honda_accord_3",
+    "modelId": "model_honda_accord",
+    "name": "الجيل الحادي عشر (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_honda_jazz_1",
+    "modelId": "model_honda_jazz",
+    "name": "الجيل الثالث (2013-2020)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_honda_jazz_2",
+    "modelId": "model_honda_jazz",
+    "name": "الجيل الرابع (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_honda_fit_1",
+    "modelId": "model_honda_fit",
+    "name": "الجيل الثالث (2013-2020)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_honda_fit_2",
+    "modelId": "model_honda_fit",
+    "name": "الجيل الرابع (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_honda_hr-v_1",
+    "modelId": "model_honda_hr-v",
+    "name": "الجيل الثاني (2015-2021)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_honda_hr-v_2",
+    "modelId": "model_honda_hr-v",
+    "name": "الجيل الثالث (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_honda_cr-v_1",
+    "modelId": "model_honda_cr-v",
+    "name": "الجيل الرابع (2012-2016)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_honda_cr-v_2",
+    "modelId": "model_honda_cr-v",
+    "name": "الجيل الخامس (2017-2022)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_honda_cr-v_3",
+    "modelId": "model_honda_cr-v",
+    "name": "الجيل السادس (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_honda_pilot_1",
+    "modelId": "model_honda_pilot",
+    "name": "الجيل الثالث (2015-2022)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2022
+  },
+  {
+    "id": "generation_byd_e6_1",
+    "modelId": "model_byd_e6",
+    "name": "الجيل الأول (2010-2021)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_dongfeng_aeolus-a30_1",
+    "modelId": "model_dongfeng_aeolus-a30",
+    "name": "الجيل الأول (2014-2020)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2020
+  },
+  {
+    "id": "generation_dongfeng_aeolus-huge_1",
+    "modelId": "model_dongfeng_aeolus-huge",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_dongfeng_aeolus-mage_1",
+    "modelId": "model_dongfeng_aeolus-mage",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_dongfeng_shine_1",
+    "modelId": "model_dongfeng_shine",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_dongfeng_shine-max_1",
+    "modelId": "model_dongfeng_shine-max",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_great-wall_wingle-5_1",
+    "modelId": "model_great-wall_wingle-5",
+    "name": "الجيل الأول (2010-2019)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_great-wall_wingle-7_1",
+    "modelId": "model_great-wall_wingle-7",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_great-wall_poer_1",
+    "modelId": "model_great-wall_poer",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_great-wall_c30_1",
+    "modelId": "model_great-wall_c30",
+    "name": "الجيل الأول (2010-2015)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2015
+  },
+  {
+    "id": "generation_great-wall_c50_1",
+    "modelId": "model_great-wall_c50",
+    "name": "الجيل الأول (2013-2018)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_omoda_c5_1",
+    "modelId": "model_omoda_c5",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_omoda_c7_1",
+    "modelId": "model_omoda_c7",
+    "name": "الجيل الأول (2023+)",
+    "yearFrom": 2023,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_omoda_e5_1",
+    "modelId": "model_omoda_e5",
+    "name": "الجيل الأول (2023+)",
+    "yearFrom": 2023,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_exeed_lx_1",
+    "modelId": "model_exeed_lx",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_exeed_txl_1",
+    "modelId": "model_exeed_txl",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_exeed_rx_1",
+    "modelId": "model_exeed_rx",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_exeed_vx_1",
+    "modelId": "model_exeed_vx",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_baic-motor_x35_1",
+    "modelId": "model_baic-motor_x35",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_baic-motor_x55_1",
+    "modelId": "model_baic-motor_x55",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_baic-motor_x7_1",
+    "modelId": "model_baic-motor_x7",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_baic-motor_u5-plus_1",
+    "modelId": "model_baic-motor_u5-plus",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gac-group_ga3_1",
+    "modelId": "model_gac-group_ga3",
+    "name": "الجيل الأول (2010-2016)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2016
+  },
+  {
+    "id": "generation_gac-group_ga4_1",
+    "modelId": "model_gac-group_ga4",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gac-group_ga6_1",
+    "modelId": "model_gac-group_ga6",
+    "name": "الجيل الأول (2012-2018)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_gac-group_ga8_1",
+    "modelId": "model_gac-group_ga8",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gac-group_gs3_1",
+    "modelId": "model_gac-group_gs3",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gac-group_gs4_1",
+    "modelId": "model_gac-group_gs4",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gac-group_gs8_1",
+    "modelId": "model_gac-group_gs8",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gac-group_empow_1",
+    "modelId": "model_gac-group_empow",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gac-group_aion-s_1",
+    "modelId": "model_gac-group_aion-s",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gac-group_aion-y_1",
+    "modelId": "model_gac-group_aion-y",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_alsvin_1",
+    "modelId": "model_changan_alsvin",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_eado_1",
+    "modelId": "model_changan_eado",
+    "name": "الجيل الأول (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_cs35_1",
+    "modelId": "model_changan_cs35",
+    "name": "الجيل الأول (2012-2018)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_changan_cs35-plus_1",
+    "modelId": "model_changan_cs35-plus",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_cs55_1",
+    "modelId": "model_changan_cs55",
+    "name": "الجيل الأول (2017-2021)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2021
+  },
+  {
+    "id": "generation_changan_cs55-plus_1",
+    "modelId": "model_changan_cs55-plus",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_cs75_1",
+    "modelId": "model_changan_cs75",
+    "name": "الجيل الأول (2013-2019)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2019
+  },
+  {
+    "id": "generation_changan_cs75-plus_1",
+    "modelId": "model_changan_cs75-plus",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_cs85_1",
+    "modelId": "model_changan_cs85",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_cs95_1",
+    "modelId": "model_changan_cs95",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_uni-t_1",
+    "modelId": "model_changan_uni-t",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_uni-k_1",
+    "modelId": "model_changan_uni-k",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_changan_hunter_1",
+    "modelId": "model_changan_hunter",
+    "name": "الجيل الأول (2022+)",
+    "yearFrom": 2022,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_h220_1",
+    "modelId": "model_brilliance_h220",
+    "name": "الجيل الأول (2013+)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_h230_1",
+    "modelId": "model_brilliance_h230",
+    "name": "الجيل الأول (2011+)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_h320_1",
+    "modelId": "model_brilliance_h320",
+    "name": "الجيل الأول (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_h330_1",
+    "modelId": "model_brilliance_h330",
+    "name": "الجيل الأول (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_h530_1",
+    "modelId": "model_brilliance_h530",
+    "name": "الجيل الأول (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_v3_1",
+    "modelId": "model_brilliance_v3",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_v5_1",
+    "modelId": "model_brilliance_v5",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_v6_1",
+    "modelId": "model_brilliance_v6",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_brilliance_v7_1",
+    "modelId": "model_brilliance_v7",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_foton_tunland_1",
+    "modelId": "model_foton_tunland",
+    "name": "الجيل الأول (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_foton_view-c2_1",
+    "modelId": "model_foton_view-c2",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Van"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_foton_sauvana_1",
+    "modelId": "model_foton_sauvana",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_foton_aumark_1",
+    "modelId": "model_foton_aumark",
+    "name": "الجيل الأول (2007+)",
+    "yearFrom": 2007,
+    "bodyTypes": [
+      "Truck"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_foton_ollin_1",
+    "modelId": "model_foton_ollin",
+    "name": "الجيل الأول (2010+)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Truck"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_landwind_x2_1",
+    "modelId": "model_landwind_x2",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_landwind_x5_1",
+    "modelId": "model_landwind_x5",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_landwind_x6_1",
+    "modelId": "model_landwind_x6",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_landwind_x7_1",
+    "modelId": "model_landwind_x7",
+    "name": "الجيل الأول (2014-2018)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2018
+  },
+  {
+    "id": "generation_landwind_x8_1",
+    "modelId": "model_landwind_x8",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_landwind_cv9_1",
+    "modelId": "model_landwind_cv9",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haima_3_1",
+    "modelId": "model_haima_3",
+    "name": "الجيل الأول (2012+)",
+    "yearFrom": 2012,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haima_7_1",
+    "modelId": "model_haima_7",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haima_s5_1",
+    "modelId": "model_haima_s5",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haima_s7_1",
+    "modelId": "model_haima_s7",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haima_m3_1",
+    "modelId": "model_haima_m3",
+    "name": "الجيل الأول (2013+)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_haima_family_1",
+    "modelId": "model_haima_family",
+    "name": "الجيل الأول (2005-2011)",
+    "yearFrom": 2005,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2011
+  },
+  {
+    "id": "generation_soueast_dx3_1",
+    "modelId": "model_soueast_dx3",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_soueast_dx5_1",
+    "modelId": "model_soueast_dx5",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_soueast_dx7_1",
+    "modelId": "model_soueast_dx7",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_soueast_dx8_1",
+    "modelId": "model_soueast_dx8",
+    "name": "الجيل الأول (2021+)",
+    "yearFrom": 2021,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_soueast_v3-lingyue_1",
+    "modelId": "model_soueast_v3-lingyue",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hawtai_santa-fe_1",
+    "modelId": "model_hawtai_santa-fe",
+    "name": "إنتاج مرخّص (2003-2012)",
+    "yearFrom": 2003,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z",
+    "yearTo": 2012
+  },
+  {
+    "id": "generation_hawtai_b11_1",
+    "modelId": "model_hawtai_b11",
+    "name": "الجيل الأول (2013+)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hawtai_boliger_1",
+    "modelId": "model_hawtai_boliger",
+    "name": "الجيل الأول (2010+)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hawtai_xiongshi_1",
+    "modelId": "model_hawtai_xiongshi",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hawtai_ev_1",
+    "modelId": "model_hawtai_ev",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gonow_ga200_1",
+    "modelId": "model_gonow_ga200",
+    "name": "الجيل الأول (2008+)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gonow_ga202_1",
+    "modelId": "model_gonow_ga202",
+    "name": "الجيل الأول (2010+)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gonow_way_1",
+    "modelId": "model_gonow_way",
+    "name": "الجيل الأول (2010+)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gonow_aoosed_1",
+    "modelId": "model_gonow_aoosed",
+    "name": "الجيل الأول (2011+)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_gonow_riich_1",
+    "modelId": "model_gonow_riich",
+    "name": "الجيل الأول (2009+)",
+    "yearFrom": 2009,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jmc_vigus_1",
+    "modelId": "model_jmc_vigus",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jmc_yuhu_1",
+    "modelId": "model_jmc_yuhu",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jmc_n601_1",
+    "modelId": "model_jmc_n601",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jmc_n720_1",
+    "modelId": "model_jmc_n720",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Pickup"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jmc_kaiyun_1",
+    "modelId": "model_jmc_kaiyun",
+    "name": "الجيل الأول (2010+)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Truck"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_jmc_baodian_1",
+    "modelId": "model_jmc_baodian",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Van"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_zotye_t600_1",
+    "modelId": "model_zotye_t600",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_zotye_t700_1",
+    "modelId": "model_zotye_t700",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_zotye_t800_1",
+    "modelId": "model_zotye_t800",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_zotye_z300_1",
+    "modelId": "model_zotye_z300",
+    "name": "الجيل الأول (2014+)",
+    "yearFrom": 2014,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_zotye_z500_1",
+    "modelId": "model_zotye_z500",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_zotye_sr9_1",
+    "modelId": "model_zotye_sr9",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_zotye_damai_1",
+    "modelId": "model_zotye_damai",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_faw_besturn-b30_1",
+    "modelId": "model_faw_besturn-b30",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_faw_besturn-b50_1",
+    "modelId": "model_faw_besturn-b50",
+    "name": "الجيل الأول (2008+)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_faw_besturn-b70_1",
+    "modelId": "model_faw_besturn-b70",
+    "name": "الجيل الأول (2006+)",
+    "yearFrom": 2006,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_faw_besturn-x40_1",
+    "modelId": "model_faw_besturn-x40",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_faw_besturn-x80_1",
+    "modelId": "model_faw_besturn-x80",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_faw_v2_1",
+    "modelId": "model_faw_v2",
+    "name": "الجيل الأول (2011+)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_faw_n5_1",
+    "modelId": "model_faw_n5",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_320_1",
+    "modelId": "model_lifan_320",
+    "name": "الجيل الأول (2008+)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_330_1",
+    "modelId": "model_lifan_330",
+    "name": "الجيل الأول (2010+)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_520_1",
+    "modelId": "model_lifan_520",
+    "name": "الجيل الأول (2006+)",
+    "yearFrom": 2006,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_620_1",
+    "modelId": "model_lifan_620",
+    "name": "الجيل الأول (2008+)",
+    "yearFrom": 2008,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_720_1",
+    "modelId": "model_lifan_720",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_x50_1",
+    "modelId": "model_lifan_x50",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_x60_1",
+    "modelId": "model_lifan_x60",
+    "name": "الجيل الأول (2011+)",
+    "yearFrom": 2011,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_x70_1",
+    "modelId": "model_lifan_x70",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_solano_1",
+    "modelId": "model_lifan_solano",
+    "name": "الجيل الأول (2013+)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_lifan_myway_1",
+    "modelId": "model_lifan_myway",
+    "name": "الجيل الأول (2013+)",
+    "yearFrom": 2013,
+    "bodyTypes": [
+      "MPV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_roewe_rx5_1",
+    "modelId": "model_roewe_rx5",
+    "name": "الجيل الأول (2016+)",
+    "yearFrom": 2016,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_roewe_rx8_1",
+    "modelId": "model_roewe_rx8",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_roewe_i5_1",
+    "modelId": "model_roewe_i5",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_roewe_i6_1",
+    "modelId": "model_roewe_i6",
+    "name": "الجيل الأول (2017+)",
+    "yearFrom": 2017,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_roewe_ei5_1",
+    "modelId": "model_roewe_ei5",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hongqi_h5_1",
+    "modelId": "model_hongqi_h5",
+    "name": "الجيل الأول (2018+)",
+    "yearFrom": 2018,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hongqi_h9_1",
+    "modelId": "model_hongqi_h9",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Sedan"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hongqi_hs5_1",
+    "modelId": "model_hongqi_hs5",
+    "name": "الجيل الأول (2019+)",
+    "yearFrom": 2019,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_hongqi_e-hs9_1",
+    "modelId": "model_hongqi_e-hs9",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "SUV"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_wuling_hongguang_1",
+    "modelId": "model_wuling_hongguang",
+    "name": "الجيل الأول (2010+)",
+    "yearFrom": 2010,
+    "bodyTypes": [
+      "Van"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_wuling_hongguang-mini-ev_1",
+    "modelId": "model_wuling_hongguang-mini-ev",
+    "name": "الجيل الأول (2020+)",
+    "yearFrom": 2020,
+    "bodyTypes": [
+      "Hatchback"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  },
+  {
+    "id": "generation_wuling_zhiguang_1",
+    "modelId": "model_wuling_zhiguang",
+    "name": "الجيل الأول (2015+)",
+    "yearFrom": 2015,
+    "bodyTypes": [
+      "Van"
+    ],
+    "active": true,
+    "createdAt": "2026-07-25T00:00:00.000Z"
+  }
+]

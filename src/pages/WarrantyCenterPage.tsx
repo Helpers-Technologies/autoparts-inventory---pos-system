@@ -11,7 +11,9 @@ import { useToast } from "../components/ui/Toast";
 import { useAutoPartsPro } from "../store/AutoPartsProContext";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
-import type { WarrantyClaimStatus } from "../types";
+import { useSettings } from "../store/SettingsContext";
+import { formatCurrency } from "../lib/format";
+import type { WarrantyClaim, WarrantyClaimStatus } from "../types";
 
 const STATUS_LABELS: Record<WarrantyClaimStatus, string> = {
   open: "طلب جديد",
@@ -44,9 +46,24 @@ function addMonths(date: string, months: number): string {
 
 export function WarrantyCenterPage() {
   const { salesInvoices } = useInvoicing();
-  const { products, suppliers } = useCatalog();
+  const { products, suppliers, adjustStock } = useCatalog();
+  const { settings } = useSettings();
   const pro = useAutoPartsPro();
   const toast = useToast();
+
+  function changeClaimStatus(claim: WarrantyClaim, status: WarrantyClaimStatus) {
+    if (status === "replaced" && claim.status !== "replaced" && !claim.stockDeducted) {
+      const product = products.find((p) => p.id === claim.productId);
+      const unitCost = product ? (product.avgCost ?? product.purchasePrice) : 0;
+      if (product) {
+        adjustStock(claim.productId, -1, `استبدال ضمان — طلب #${claim.id} (فاتورة ${claim.invoiceNumber})`);
+      }
+      pro.updateWarrantyClaim(claim.id, { status, stockDeducted: true, replacementCost: unitCost });
+      toast.success("تم تسجيل الاستبدال", product ? `تم خصم قطعة من المخزون بتكلفة ${unitCost.toFixed(2)}` : "تعذر العثور على المنتج لخصمه من المخزون");
+      return;
+    }
+    pro.updateWarrantyClaim(claim.id, { status });
+  }
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"coverage" | "claims">("coverage");
   const [claimRow, setClaimRow] = useState<CoverageRow | null>(null);
@@ -192,7 +209,7 @@ export function WarrantyCenterPage() {
           <CardBody>
             {filteredClaims.length === 0 ? <EmptyState icon={<ShieldCheck className="h-6 w-6" />} title="لا توجد طلبات ضمان" /> : <div className="space-y-3">{filteredClaims.map((claim) => {
               const supplier = suppliers.find((item) => item.id === claim.supplierId);
-              return <div key={claim.id} className="rounded-2xl border border-line p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong>{claim.productName}</strong><Badge tone={claim.status === "rejected" ? "red" : claim.status === "replaced" ? "green" : "amber"}>{STATUS_LABELS[claim.status]}</Badge></div><div className="mt-1 text-xs text-ink-muted">{claim.customerName} · <span dir="ltr">{claim.invoiceNumber}</span>{supplier ? ` · المورد: ${supplier.name}` : ""}</div><div className="mt-2 rounded-xl bg-surface-muted px-3 py-2 text-sm text-ink">{claim.complaint}</div>{claim.serialNumber ? <div className="mt-2 font-mono text-xs text-ink-faint" dir="ltr">S/N: {claim.serialNumber}</div> : null}</div><div className="w-full lg:w-52"><Select value={claim.status} onChange={(event) => pro.updateWarrantyClaim(claim.id, { status: event.target.value as WarrantyClaimStatus })}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select><div className="mt-2 flex gap-2"><Button size="sm" variant="success" className="flex-1" onClick={() => pro.updateWarrantyClaim(claim.id, { status: "replaced" })}><CheckCircle2 className="h-3.5 w-3.5" /> استبدال</Button><Button size="sm" variant="outline" className="flex-1 text-red-600" onClick={() => pro.updateWarrantyClaim(claim.id, { status: "rejected" })}><XCircle className="h-3.5 w-3.5" /> رفض</Button></div></div></div></div>;
+              return <div key={claim.id} className="rounded-2xl border border-line p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong>{claim.productName}</strong><Badge tone={claim.status === "rejected" ? "red" : claim.status === "replaced" ? "green" : "amber"}>{STATUS_LABELS[claim.status]}</Badge></div><div className="mt-1 text-xs text-ink-muted">{claim.customerName} · <span dir="ltr">{claim.invoiceNumber}</span>{supplier ? ` · المورد: ${supplier.name}` : ""}</div><div className="mt-2 rounded-xl bg-surface-muted px-3 py-2 text-sm text-ink">{claim.complaint}</div>{claim.serialNumber ? <div className="mt-2 font-mono text-xs text-ink-faint" dir="ltr">S/N: {claim.serialNumber}</div> : null}{claim.status === "replaced" && claim.replacementCost !== undefined ? <div className="mt-2 text-xs font-semibold text-red-700 dark:text-red-400">تكلفة الاستبدال: {formatCurrency(claim.replacementCost, settings.currency)} (تم خصم قطعة من المخزون)</div> : null}</div><div className="w-full lg:w-52"><Select value={claim.status} onChange={(event) => changeClaimStatus(claim, event.target.value as WarrantyClaimStatus)}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select><div className="mt-2 flex gap-2"><Button size="sm" variant="success" className="flex-1" onClick={() => changeClaimStatus(claim, "replaced")}><CheckCircle2 className="h-3.5 w-3.5" /> استبدال</Button><Button size="sm" variant="outline" className="flex-1 text-red-600" onClick={() => changeClaimStatus(claim, "rejected")}><XCircle className="h-3.5 w-3.5" /> رفض</Button></div></div></div></div>;
             })}</div>}
           </CardBody>
         </Card>

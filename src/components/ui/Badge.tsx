@@ -10,7 +10,8 @@ type Tone =
   | "red"
   | "indigo"
   | "emerald"
-  | "rose";
+  | "rose"
+  | "cyan";
 
 const tones: Record<Tone, string> = {
   slate: "bg-surface-muted text-ink-muted border-line",
@@ -22,6 +23,7 @@ const tones: Record<Tone, string> = {
   indigo: "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 border-indigo-200 dark:border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-300 dark:border-indigo-500/30",
   emerald: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30",
   rose: "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30",
+  cyan: "bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-500/30",
 };
 
 export function Badge({

@@ -171,6 +171,10 @@ export function DuesPage() {
   const [endDate, setEndDate] = useState("");
   const [sortBy, setSortBy] = useState("default");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [displayLimit, setDisplayLimit] = useState<number | "all">(5);
+  const [showAllRows, setShowAllRows] = useState(false);
+  const [priorityDisplayLimit, setPriorityDisplayLimit] = useState<number | "all">(5);
+  const [showAllPriorityRows, setShowAllPriorityRows] = useState(false);
 
   const resetFilters = () => {
     setQuery("");
@@ -486,6 +490,21 @@ export function DuesPage() {
     return result;
   }, [purchaseDueRows, query, branchFilter, minAmount, maxAmount, startDate, endDate, sortBy]);
 
+  const visibleSalesRows = useMemo(() => {
+    if (showAllRows || displayLimit === "all") return filteredSalesRows;
+    return filteredSalesRows.slice(0, typeof displayLimit === "number" ? displayLimit : 5);
+  }, [filteredSalesRows, showAllRows, displayLimit]);
+
+  const visiblePartyRows = useMemo(() => {
+    if (showAllRows || displayLimit === "all") return filteredPartyRows;
+    return filteredPartyRows.slice(0, typeof displayLimit === "number" ? displayLimit : 5);
+  }, [filteredPartyRows, showAllRows, displayLimit]);
+
+  const visiblePurchaseRows = useMemo(() => {
+    if (showAllRows || displayLimit === "all") return filteredPurchaseRows;
+    return filteredPurchaseRows.slice(0, typeof displayLimit === "number" ? displayLimit : 5);
+  }, [filteredPurchaseRows, showAllRows, displayLimit]);
+
   const totals = useMemo(() => {
     const customerReceivables = partyRows
       .filter((row) => row.type === "customer" && row.balance > 0)
@@ -523,9 +542,15 @@ export function DuesPage() {
     };
   }, [partyRows, salesDueRows]);
 
-  const priorityRows = salesDueRows
-    .filter((row) => row.status === "overdue" || row.status === "today" || row.status === "soon")
-    .slice(0, 6);
+  const allPriorityRows = useMemo(
+    () => salesDueRows.filter((row) => row.status === "overdue" || row.status === "today" || row.status === "soon"),
+    [salesDueRows]
+  );
+
+  const visiblePriorityRows = useMemo(() => {
+    if (showAllPriorityRows || priorityDisplayLimit === "all") return allPriorityRows;
+    return allPriorityRows.slice(0, typeof priorityDisplayLimit === "number" ? priorityDisplayLimit : 5);
+  }, [allPriorityRows, showAllPriorityRows, priorityDisplayLimit]);
 
   return (
     <>
@@ -581,73 +606,114 @@ export function DuesPage() {
           title="أولويات تحصيل مبيعات قطع الغيار"
           subtitle={`مستحق قريباً: ${formatCurrency(totals.dueSoonSales, settings.currency)} - بدون تاريخ استحقاق: ${formatCurrency(totals.undatedSales, settings.currency)}`}
           actions={
-            <Badge tone={priorityRows.length > 0 ? "amber" : "green"}>
-              {priorityRows.length > 0 ? `${priorityRows.length} أولوية` : "لا توجد أولويات"}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ink-muted hidden sm:inline">عدد العرض:</span>
+              <Select
+                value={priorityDisplayLimit}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPriorityDisplayLimit(val === "all" ? "all" : Number(val));
+                  setShowAllPriorityRows(false);
+                }}
+                className="w-28 text-xs h-8 font-semibold"
+              >
+                <option value={5}>5 أولويات</option>
+                <option value={10}>10 أولويات</option>
+                <option value={20}>20 أولوية</option>
+                <option value={50}>50 أولوية</option>
+                <option value="all">عرض الكل</option>
+              </Select>
+            </div>
           }
         />
         <CardBody className="space-y-3">
-          {priorityRows.length === 0 ? (
+          {allPriorityRows.length === 0 ? (
             <div className="min-h-32 grid place-items-center text-sm text-ink-muted">
               لا توجد فواتير قطع غيار متأخرة أو مستحقة قريباً
             </div>
           ) : (
-            priorityRows.map((row) => (
-              <div
-                key={row.invoice.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-muted px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {canViewSales ? (
-                      <Link
-                        to={`/sales/${row.invoice.id}`}
-                        className="font-mono text-xs text-brand-700 hover:underline"
-                      >
-                        {row.invoice.invoiceNumber}
-                      </Link>
-                    ) : (
-                      <span className="font-mono text-xs text-ink-muted">
-                        {row.invoice.invoiceNumber}
-                      </span>
-                    )}
-                    <Badge tone={statusTone(row.status)}>
-                      {statusLabel(row.status, row.days)}
-                    </Badge>
-                  </div>
-                  <div className="mt-1 text-sm font-medium text-ink">
-                    {row.invoice.customerName}
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
-                    {row.vehicleLabel ? (
+            <>
+              {visiblePriorityRows.map((row) => (
+                <div
+                  key={row.invoice.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-muted px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {canViewSales ? (
+                        <Link
+                          to={`/sales/${row.invoice.id}`}
+                          className="font-mono text-xs text-brand-700 hover:underline"
+                        >
+                          {row.invoice.invoiceNumber}
+                        </Link>
+                      ) : (
+                        <span className="font-mono text-xs text-ink-muted">
+                          {row.invoice.invoiceNumber}
+                        </span>
+                      )}
+                      <Badge tone={statusTone(row.status)}>
+                        {statusLabel(row.status, row.days)}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-ink">
+                      {row.invoice.customerName}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
+                      {row.vehicleLabel ? (
+                        <span className="inline-flex items-center gap-1">
+                          <CarFront className="h-3.5 w-3.5" />
+                          {row.vehicleLabel}
+                        </span>
+                      ) : null}
                       <span className="inline-flex items-center gap-1">
-                        <CarFront className="h-3.5 w-3.5" />
-                        {row.vehicleLabel}
+                        <PackageSearch className="h-3.5 w-3.5" />
+                        {row.partsSummary}
                       </span>
-                    ) : null}
-                    <span className="inline-flex items-center gap-1">
-                      <PackageSearch className="h-3.5 w-3.5" />
-                      {row.partsSummary}
+                      {row.branchName ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Building2 className="h-3.5 w-3.5" />
+                          {row.branchName}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-semibold text-rose-700 dark:text-rose-400">
+                      {formatCurrency(row.invoice.remaining, settings.currency)}
                     </span>
-                    {row.branchName ? (
-                      <span className="inline-flex items-center gap-1">
-                        <Building2 className="h-3.5 w-3.5" />
-                        {row.branchName}
-                      </span>
-                    ) : null}
+                    <ContactButton
+                      phone={row.customerPhone}
+                      message={`مرحبًا ${row.invoice.customerName}، تذكير باستحقاق ${formatCurrency(row.invoice.remaining, settings.currency)} لفاتورة قطع الغيار ${row.invoice.invoiceNumber}${row.vehicleLabel ? ` الخاصة بـ ${row.vehicleLabel}` : ""}.`}
+                    />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm font-semibold text-rose-700 dark:text-rose-400">
-                    {formatCurrency(row.invoice.remaining, settings.currency)}
+              ))}
+
+              {allPriorityRows.length > (typeof priorityDisplayLimit === "number" ? priorityDisplayLimit : allPriorityRows.length) && (
+                <div className="pt-3 text-center border-t border-line mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs text-ink-faint">
+                    يتم عرض {visiblePriorityRows.length} من أصل {allPriorityRows.length} أولوية
                   </span>
-                  <ContactButton
-                    phone={row.customerPhone}
-                    message={`مرحبًا ${row.invoice.customerName}، تذكير باستحقاق ${formatCurrency(row.invoice.remaining, settings.currency)} لفاتورة قطع الغيار ${row.invoice.invoiceNumber}${row.vehicleLabel ? ` الخاصة بـ ${row.vehicleLabel}` : ""}.`}
-                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAllPriorityRows(!showAllPriorityRows)}
+                    className="text-xs font-bold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-500/10 gap-1.5"
+                  >
+                    {showAllPriorityRows ? (
+                      <>
+                        <ChevronUp className="w-4 h-4" /> عرض أقل (عرض 5 فقط)
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4" /> عرض المزيد ({allPriorityRows.length - visiblePriorityRows.length} أولويات متبقية)
+                      </>
+                    )}
+                  </Button>
                 </div>
-              </div>
-            ))
+              )}
+            </>
           )}
         </CardBody>
       </Card>
@@ -823,6 +889,26 @@ export function DuesPage() {
             <CardHeader
               title="فواتير بيع قطع الغيار المفتوحة"
               subtitle="السيارة ورقم الشاسيه والقطع والفرع ظاهرة مع كل استحقاق"
+              actions={
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-ink-muted hidden sm:inline">عدد العرض:</span>
+                  <Select
+                    value={displayLimit}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDisplayLimit(val === "all" ? "all" : Number(val));
+                      setShowAllRows(false);
+                    }}
+                    className="w-28 text-xs h-8 font-semibold"
+                  >
+                    <option value={5}>5 فواتير</option>
+                    <option value={10}>10 فواتير</option>
+                    <option value={20}>20 فاتورة</option>
+                    <option value={50}>50 فاتورة</option>
+                    <option value="all">عرض الكل</option>
+                  </Select>
+                </div>
+              }
             />
             <CardBody>
               <Table>
@@ -842,7 +928,7 @@ export function DuesPage() {
                   {filteredSalesRows.length === 0 ? (
                     <EmptyRow colSpan={8} text="لا توجد فواتير قطع غيار مطابقة" />
                   ) : (
-                    filteredSalesRows.map((row) => (
+                    visibleSalesRows.map((row) => (
                       <TR key={row.invoice.id}>
                         <TD>
                           {canViewSales ? (
@@ -924,6 +1010,30 @@ export function DuesPage() {
                   )}
                 </TBody>
               </Table>
+
+              {filteredSalesRows.length > (typeof displayLimit === "number" ? displayLimit : filteredSalesRows.length) && (
+                <div className="pt-3 text-center border-t border-line mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs text-ink-faint">
+                    يتم عرض {visibleSalesRows.length} من أصل {filteredSalesRows.length} فاتورة
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAllRows(!showAllRows)}
+                    className="text-xs font-bold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-500/10 gap-1.5"
+                  >
+                    {showAllRows ? (
+                      <>
+                        <ChevronUp className="w-4 h-4" /> عرض أقل (عرض 5 فقط)
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4" /> عرض المزيد ({filteredSalesRows.length - visibleSalesRows.length} فواتير متبقية)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
             </CardBody>
           </Card>
         </TabsContent>
@@ -933,6 +1043,26 @@ export function DuesPage() {
             <CardHeader
               title="حسابات عملاء وموردي قطع الغيار"
               subtitle="الأرصدة الدائنة والمدينة وعدد فواتير البيع والتوريد المفتوحة"
+              actions={
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-ink-muted hidden sm:inline">عدد العرض:</span>
+                  <Select
+                    value={displayLimit}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDisplayLimit(val === "all" ? "all" : Number(val));
+                      setShowAllRows(false);
+                    }}
+                    className="w-28 text-xs h-8 font-semibold"
+                  >
+                    <option value={5}>5 عناصر</option>
+                    <option value={10}>10 عناصر</option>
+                    <option value={20}>20 عنصر</option>
+                    <option value={50}>50 عنصر</option>
+                    <option value="all">عرض الكل</option>
+                  </Select>
+                </div>
+              }
             />
             <CardBody>
               <Table>
@@ -952,7 +1082,7 @@ export function DuesPage() {
                   {filteredPartyRows.length === 0 ? (
                     <EmptyRow colSpan={8} text="لا توجد أرصدة مطابقة" />
                   ) : (
-                    filteredPartyRows.map((row) => (
+                    visiblePartyRows.map((row) => (
                       <TR key={`${row.type}-${row.id}`}>
                         <TD>
                           <div className="font-medium text-ink">{row.name}</div>
@@ -1036,6 +1166,30 @@ export function DuesPage() {
                   )}
                 </TBody>
               </Table>
+
+              {filteredPartyRows.length > (typeof displayLimit === "number" ? displayLimit : filteredPartyRows.length) && (
+                <div className="pt-3 text-center border-t border-line mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs text-ink-faint">
+                    يتم عرض {visiblePartyRows.length} من أصل {filteredPartyRows.length} سجل
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAllRows(!showAllRows)}
+                    className="text-xs font-bold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-500/10 gap-1.5"
+                  >
+                    {showAllRows ? (
+                      <>
+                        <ChevronUp className="w-4 h-4" /> عرض أقل (عرض 5 فقط)
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4" /> عرض المزيد ({filteredPartyRows.length - visiblePartyRows.length} سجلات متبقية)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
             </CardBody>
           </Card>
         </TabsContent>
@@ -1045,6 +1199,26 @@ export function DuesPage() {
             <CardHeader
               title="فواتير توريد قطع الغيار المفتوحة"
               subtitle="راجع القطع الموجودة في كل فاتورة قبل سداد مستحق المورد"
+              actions={
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-ink-muted hidden sm:inline">عدد العرض:</span>
+                  <Select
+                    value={displayLimit}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDisplayLimit(val === "all" ? "all" : Number(val));
+                      setShowAllRows(false);
+                    }}
+                    className="w-28 text-xs h-8 font-semibold"
+                  >
+                    <option value={5}>5 فواتير</option>
+                    <option value={10}>10 فواتير</option>
+                    <option value={20}>20 فاتورة</option>
+                    <option value={50}>50 فاتورة</option>
+                    <option value="all">عرض الكل</option>
+                  </Select>
+                </div>
+              }
             />
             <CardBody>
               <Table>
@@ -1064,7 +1238,7 @@ export function DuesPage() {
                   {filteredPurchaseRows.length === 0 ? (
                     <EmptyRow colSpan={8} text="لا توجد مستحقات موردي قطع غيار مطابقة" />
                   ) : (
-                    filteredPurchaseRows.map((row) => (
+                    visiblePurchaseRows.map((row) => (
                       <TR key={row.invoice.id}>
                         <TD>
                           {canViewPurchases ? (
@@ -1132,6 +1306,30 @@ export function DuesPage() {
                   )}
                 </TBody>
               </Table>
+
+              {filteredPurchaseRows.length > (typeof displayLimit === "number" ? displayLimit : filteredPurchaseRows.length) && (
+                <div className="pt-3 text-center border-t border-line mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs text-ink-faint">
+                    يتم عرض {visiblePurchaseRows.length} من أصل {filteredPurchaseRows.length} فاتورة
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAllRows(!showAllRows)}
+                    className="text-xs font-bold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-500/10 gap-1.5"
+                  >
+                    {showAllRows ? (
+                      <>
+                        <ChevronUp className="w-4 h-4" /> عرض أقل (عرض 5 فقط)
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4" /> عرض المزيد ({filteredPurchaseRows.length - visiblePurchaseRows.length} فواتير متبقية)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
             </CardBody>
           </Card>
         </TabsContent>

@@ -35,6 +35,28 @@ export function EmptyState({
   );
 }
 
+/**
+ * Compact "no results" hint for search dropdowns/lists (GlobalSearch,
+ * SearchableSelect, SearchableProductSelect) — those three each had their own
+ * slightly different markup for the same state; this is the one shared shape.
+ */
+export function NoResultsHint({
+  icon,
+  message,
+  className,
+}: {
+  icon?: ReactNode;
+  message: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("py-8 text-center text-sm text-ink-faint", className)}>
+      {icon ? <div className="mb-2 flex justify-center">{icon}</div> : null}
+      {message}
+    </div>
+  );
+}
+
 export function Skeleton({
   className,
   rounded = "md",

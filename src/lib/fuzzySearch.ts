@@ -120,6 +120,25 @@ export function isSubsequence(query: string, target: string): boolean {
   return qIdx === query.length;
 }
 
+export function getMakeSearchText(make: { name: string; nameAr?: string }): string {
+  const nameLower = make.name.toLowerCase().trim();
+  const aliases = ARABIC_BRAND_ALIASES[nameLower] || [];
+  const extraAliases = Object.entries(ARABIC_BRAND_ALIASES)
+    .filter(([key]) => nameLower.includes(key) || key.includes(nameLower))
+    .flatMap(([, list]) => list);
+  const all = new Set([make.name, make.nameAr ?? "", ...aliases, ...extraAliases]);
+  return Array.from(all).filter(Boolean).join(" ");
+}
+
+export function normalizeArabicPhonetic(text: string): string {
+  if (!text) return "";
+  const norm = normalizeArabicAndEnglish(text);
+  if (/[\u0621-\u064A]/.test(norm) && norm.length >= 3) {
+    return norm.replace(/[يوا]/g, "");
+  }
+  return norm;
+}
+
 /**
  * Main fuzzy match function.
  * Evaluates whether a search query matches candidate target text.
@@ -142,7 +161,14 @@ export function isFuzzyMatch(query: string, candidateTexts: (string | undefined 
       return true;
     }
 
-    // 2. Check Arabic Alias mappings (e.g., query "متسوبيشي" matching candidate "Mitsubishi")
+    // 2. Arabic Phonetic Skeleton match (handles vowel typos like متسوبيشي vs ميتسوبيشي)
+    const skelQuery = normalizeArabicPhonetic(query);
+    const skelCandidate = normalizeArabicPhonetic(rawCandidate);
+    if (skelQuery.length >= 3 && skelCandidate.includes(skelQuery)) {
+      return true;
+    }
+
+    // 3. Check Arabic Alias mappings (e.g., query "متسوبيشي" matching candidate "Mitsubishi")
     for (const [key, aliases] of Object.entries(ARABIC_BRAND_ALIASES)) {
       const matchKey = normCandidate.includes(key) || aliases.some((a) => normCandidate.includes(normalizeArabicAndEnglish(a)));
       if (matchKey) {
@@ -150,21 +176,21 @@ export function isFuzzyMatch(query: string, candidateTexts: (string | undefined 
           const normA = normalizeArabicAndEnglish(a);
           const strippedA = stripWhitespaceAndPunctuation(a);
           return normQuery.includes(normA) ||
-                 normA.includes(normQuery) ||
-                 strippedQuery.includes(strippedA) ||
-                 strippedA.includes(strippedQuery) ||
-                 levenshteinDistance(strippedQuery, strippedA) <= (strippedQuery.length > 5 ? 2 : 1);
+            normA.includes(normQuery) ||
+            strippedQuery.includes(strippedA) ||
+            strippedA.includes(strippedQuery) ||
+            levenshteinDistance(strippedQuery, strippedA) <= (strippedQuery.length > 5 ? 2 : 1);
         });
         if (queryMatchesKey) return true;
       }
     }
 
-    // 3. Subsequence match for queries of length >= 3
+    // 4. Subsequence match for queries of length >= 3
     if (strippedQuery.length >= 3 && isSubsequence(strippedQuery, strippedCandidate)) {
       return true;
     }
 
-    // 4. Levenshtein edit distance for typo tolerance
+    // 5. Levenshtein edit distance for typo tolerance
     // Max allowed distance depends on query length:
     // 3-4 chars: max 1 typo
     // 5+ chars: max 2 typos

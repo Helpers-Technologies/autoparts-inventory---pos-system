@@ -16,7 +16,7 @@ const IS_MAC = typeof navigator !== "undefined" && /mac/i.test(navigator.platfor
 // order matters: more specific paths must precede their prefixes (startsWith match)
 const TITLES: Record<string, string> = {
   "/": "لوحة التحكم",
-  "/products": "المنتجات",
+  "/products": "قطع الغيار",
   "/inventory": "المخزون",
   "/stocktakes": "الجرد الدوري",
   "/suppliers": "الموردين",

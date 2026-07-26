@@ -56,6 +56,7 @@ const ACTION_META: Record<
   user_logout:             { label: "تسجيل خروج المستخدم",     tone: "rose" },
   settings_updated:        { label: "تعديل إعدادات النظام",     tone: "indigo" },
   backup_created:          { label: "إنشاء نسخة احتياطية",     tone: "emerald" },
+  backup_failed:           { label: "فشل النسخ الاحتياطي",     tone: "red" },
   backup_restored:         { label: "استعادة نسخة احتياطية",   tone: "amber" },
   quotation_created:       { label: "إنشاء عرض أسعار",         tone: "green" },
   quotation_updated:       { label: "تعديل عرض أسعار",         tone: "blue" },
@@ -64,6 +65,11 @@ const ACTION_META: Record<
   branch_created:          { label: "إضافة فرع جديد",          tone: "green" },
   branch_updated:          { label: "تعديل بيانات فرع",        tone: "blue" },
   branch_deleted:          { label: "حذف فرع",                 tone: "red" },
+  user_created:            { label: "إضافة مستخدم جديد",       tone: "green" },
+  user_updated:            { label: "تعديل بيانات مستخدم",     tone: "blue" },
+  user_permissions_updated:{ label: "تعديل صلاحيات مستخدم",    tone: "indigo" },
+  user_deleted:            { label: "حذف مستخدم",              tone: "red" },
+  stock_transfer_created:  { label: "تحويل مخزون بين فروع",    tone: "indigo" },
 };
 
 type Category = "all" | "sales" | "purchases" | "returns" | "stock" | "deletions" | "cash" | "parties" | "system";
@@ -73,11 +79,11 @@ const CATEGORY_ACTIONS: Record<Category, AuditAction[] | null> = {
   sales:     ["invoice_sale_created", "invoice_sale_updated", "invoice_sale_cancelled", "invoice_sale_deleted", "quotation_created", "quotation_updated", "quotation_deleted"],
   purchases: ["invoice_purchase_created", "invoice_purchase_updated", "invoice_purchase_deleted"],
   returns:   ["return_sale_created", "return_purchase_created"],
-  stock:     ["product_created", "product_updated", "product_deleted", "product_archived", "product_restored", "stock_adjusted", "stocktake_created"],
-  deletions: ["invoice_sale_deleted", "invoice_purchase_deleted", "product_deleted", "customer_deleted", "supplier_deleted", "driver_deleted", "quotation_deleted", "branch_deleted"],
+  stock:     ["product_created", "product_updated", "product_deleted", "product_archived", "product_restored", "stock_adjusted", "stocktake_created", "stock_transfer_created"],
+  deletions: ["invoice_sale_deleted", "invoice_purchase_deleted", "product_deleted", "customer_deleted", "supplier_deleted", "driver_deleted", "quotation_deleted", "branch_deleted", "user_deleted"],
   cash:      ["cash_manual_add", "cash_manual_remove", "shift_opened", "shift_closed"],
   parties:   ["customer_created", "customer_updated", "customer_deleted", "customer_archived", "customer_restored", "supplier_created", "supplier_updated", "supplier_deleted", "supplier_archived", "supplier_restored", "driver_created", "driver_updated", "driver_deleted"],
-  system:    ["user_login", "user_logout", "settings_updated", "backup_created", "backup_restored", "branch_created", "branch_updated", "branch_deleted"],
+  system:    ["user_login", "user_logout", "settings_updated", "backup_created", "backup_failed", "backup_restored", "branch_created", "branch_updated", "branch_deleted", "user_created", "user_updated", "user_permissions_updated", "user_deleted"],
 };
 
 const PAGE_SIZE = 50;
@@ -235,15 +241,15 @@ export function AuditLogPage() {
       <Card className="shadow-sm border border-line overflow-hidden">
         <CardHeader
           title={
-            <div className="flex items-center justify-between w-full">
-              <div className="flex items-center gap-2">
-                <Shield className="w-4.5 h-4.5 text-brand-500" />
-                <span>الإجراءات المسجلة</span>
-              </div>
-              <span className="text-xs px-2.5 py-1 rounded-full bg-surface-muted border border-line text-ink-muted font-mono">
-                {filtered.length.toLocaleString()} سجل
-              </span>
+            <div className="flex items-center gap-2">
+              <Shield className="w-4.5 h-4.5 text-brand-500" />
+              <span>الإجراءات المسجلة</span>
             </div>
+          }
+          actions={
+            <span className="text-xs px-3 py-1 rounded-full bg-surface-muted border border-line text-ink-muted font-mono font-medium">
+              {filtered.length.toLocaleString()} سجل
+            </span>
           }
         />
 

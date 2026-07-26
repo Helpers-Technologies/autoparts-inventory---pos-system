@@ -1,8 +1,9 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/Button";
 import { Table, TBody, TD, TH, THead, TR } from "../../components/ui/Table";
 import { useInvoicing } from "../../store/InvoicingContext";
+import { useCatalog } from "../../store/CatalogContext";
 import { useSettings } from "../../store/SettingsContext";
 import { useToast } from "../../components/ui/Toast";
 import type { PurchaseInvoice, ReturnLine } from "../../types";
@@ -18,22 +19,12 @@ export function PurchaseReturnDialog({
   onClose: () => void;
   invoice: PurchaseInvoice;
 }) {
-  const { addPurchaseReturn, purchaseReturns } = useInvoicing();
+  const { addPurchaseReturn } = useInvoicing();
+  const { products } = useCatalog();
   const { settings } = useSettings();
   const toast = useToast();
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-
-  // FIX-01: Track already-returned quantities per line so users can't over-return
-  const returnedQtyByLineId = new Map<string, number>();
-  purchaseReturns
-    .filter((r) => r.originalInvoiceId === invoice.id)
-    .forEach((r) =>
-      r.lines.forEach((rl) => {
-        const key = rl.sourceLineId ?? rl.id;
-        returnedQtyByLineId.set(key, (returnedQtyByLineId.get(key) ?? 0) + rl.quantity);
-      })
-    );
 
   const selectedLines = invoice.lines.filter((l) => (quantities[l.id] || 0) > 0);
   const total = selectedLines.reduce(
@@ -45,6 +36,20 @@ export function PurchaseReturnDialog({
     if (selectedLines.length === 0) {
       toast.error("الرجاء تحديد كميات للإرجاع");
       return;
+    }
+
+    // Verify stock availability for each returned product
+    for (const l of selectedLines) {
+      const q = quantities[l.id] || 0;
+      const product = products.find((p) => p.id === l.productId);
+      const stock = product ? product.quantity : 0;
+      if (q > stock) {
+        toast.error(
+          "الرصيد المتاح بالمخزون غير كافٍ للإرجاع",
+          `${l.productName} — الكمية المطلوبة للإرجاع: ${q}، الرصيد المتوفر حالياً بالمخزون: ${stock}`
+        );
+        return;
+      }
     }
 
     const returnLines: ReturnLine[] = selectedLines.map((l) => {
@@ -101,36 +106,41 @@ export function PurchaseReturnDialog({
             <TR>
               <TH>المنتج</TH>
               <TH>السعر</TH>
-              <TH>الكمية المتاحة</TH>
+              <TH>كمية الفاتورة</TH>
+              <TH>المتاح بالمخزون</TH>
               <TH className="w-32">كمية الإرجاع</TH>
               <TH className="text-end">القيمة</TH>
             </TR>
           </THead>
           <TBody>
             {invoice.lines
-              .map((l) => ({
-                ...l,
-                availableQty: Math.max(0, l.quantity - (returnedQtyByLineId.get(l.id) ?? 0)),
-              }))
-              .filter((l) => l.availableQty > 0)
+              .filter((l) => l.quantity > 0)
               .map((l) => {
+              // l.quantity already reflects previous returns
+              const availableQty = l.quantity;
+              const product = products.find((p) => p.id === l.productId);
+              const actualStock = product ? product.quantity : 0;
+              const maxReturnable = Math.min(availableQty, actualStock);
               const q = quantities[l.id] || 0;
               return (
                 <TR key={l.id}>
                   <TD>{l.productName}</TD>
                   <TD>{formatCurrency(l.price, settings.currency)}</TD>
-                  <TD>{l.availableQty}</TD>
+                  <TD>{availableQty}</TD>
+                  <TD className={actualStock < availableQty ? "text-amber-600 font-semibold" : ""}>
+                    {actualStock}
+                  </TD>
                   <TD>
                     <input
                       type="number"
                       min={0}
-                      max={l.availableQty}
+                      max={maxReturnable}
                       className="w-full border-line rounded-md text-sm p-1.5 focus:border-brand-500 focus:ring-brand-500"
                       value={q || ""}
                       onChange={(e) => {
                         let val = Number(e.target.value);
                         if (val < 0) val = 0;
-                        if (val > l.availableQty) val = l.availableQty;
+                        if (val > maxReturnable) val = maxReturnable;
                         setQuantities((prev) => ({ ...prev, [l.id]: val }));
                       }}
                     />

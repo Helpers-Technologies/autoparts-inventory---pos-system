@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/Button";
 import { Table, TBody, TD, TH, THead, TR } from "../../components/ui/Table";
@@ -6,7 +7,7 @@ import { useInvoicing } from "../../store/InvoicingContext";
 import { useSettings } from "../../store/SettingsContext";
 import { useToast } from "../../components/ui/Toast";
 import type { SalesInvoice, ReturnLine } from "../../types";
-import { formatCurrency } from "../../lib/format";
+import { formatCurrency, formatDate } from "../../lib/format";
 import { todayISO, uid } from "../../lib/utils";
 
 export function SalesReturnDialog({
@@ -25,6 +26,13 @@ export function SalesReturnDialog({
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [refundCash, setRefundCash] = useState(false);
 
+  // Return policy days limit verification
+  const maxReturnDays = settings.maxReturnDays ?? 14;
+  const invoiceDateMs = new Date(invoice.date).getTime();
+  const todayMs = new Date().getTime();
+  const diffDays = Math.max(0, Math.floor((todayMs - invoiceDateMs) / (1000 * 60 * 60 * 24)));
+  const isExpired = maxReturnDays !== 999 && diffDays > maxReturnDays;
+
   // Compute already-returned quantities per line so users can't over-return
   const returnedQtyByLineId = new Map<string, number>();
   salesReturns
@@ -41,18 +49,24 @@ export function SalesReturnDialog({
     (acc, l) => acc + (quantities[l.id] || 0) * l.price,
     0
   );
-  // FIX-05: Track cumulative returns to prevent exceeding invoice total
+  // Track cumulative returns to prevent exceeding invoice total
   const previousReturnsTotal = salesReturns
     .filter((r) => r.originalInvoiceId === invoice.id)
     .reduce((sum, r) => sum + r.total, 0);
   const maxReturnable = Math.max(0, invoice.total - previousReturnsTotal);
 
   function handleSave() {
+    if (isExpired) {
+      toast.error(
+        "تجاوزت الفاتورة مهلة المرتجعات",
+        `تاريخ الفاتورة (${invoice.date}) مضى عليه ${diffDays} يوماً. الحد الأقصى: ${maxReturnDays} يوماً`
+      );
+      return;
+    }
     if (selectedLines.length === 0) {
       toast.error("الرجاء تحديد كميات للإرجاع");
       return;
     }
-    // FIX-05: Prevent total return value from exceeding invoice total
     if (total > maxReturnable + 0.005) {
       toast.error(
         "قيمة المرتجع تتجاوز المتبقي من الفاتورة",
@@ -115,13 +129,26 @@ export function SalesReturnDialog({
           <Button variant="outline" onClick={onClose}>
             إلغاء
           </Button>
-          <Button onClick={handleSave} disabled={total === 0}>
+          <Button onClick={handleSave} disabled={total === 0 || isExpired}>
             اعتماد المرتجع
           </Button>
         </>
       }
     >
       <div className="space-y-4">
+        {isExpired && (
+          <div className="p-3.5 rounded-xl border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/10 text-sm text-red-700 dark:text-red-300 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <div className="font-bold">ممنوع الاسترجاع - تجاوز مهلة المرتجعات ({maxReturnDays} يوماً)</div>
+              <div className="text-xs text-red-600/80 dark:text-red-300/80 mt-1 leading-relaxed">
+                تم إصدار هذه الفاتورة بتاريخ <strong>{formatDate(invoice.date)}</strong> (مضى عليها {diffDays} يوماً).
+                تنص سياسة النظام على منع عمل المرتجعات بعد مرور أكثر من {maxReturnDays} يوماً من تاريخ الشراء.
+              </div>
+            </div>
+          </div>
+        )}
+
         <Table>
           <THead>
             <TR>
@@ -151,7 +178,8 @@ export function SalesReturnDialog({
                         type="number"
                         min={0}
                         max={l.availableQty}
-                        className="w-full border-line rounded-md text-sm p-1.5 focus:border-brand-500 focus:ring-brand-500"
+                        disabled={isExpired}
+                        className="w-full border-line rounded-md text-sm p-1.5 focus:border-brand-500 focus:ring-brand-500 disabled:opacity-50"
                         value={q || ""}
                         onChange={(e) => {
                           let val = Number(e.target.value);
@@ -175,8 +203,9 @@ export function SalesReturnDialog({
             <input
               type="checkbox"
               checked={refundCash}
+              disabled={isExpired}
               onChange={(e) => setRefundCash(e.target.checked)}
-              className="rounded border-line text-brand-600 focus:ring-brand-500"
+              className="rounded border-line text-brand-600 focus:ring-brand-500 disabled:opacity-50"
             />
             رد القيمة كاش (تسجيل حركة سحب من الخزينة)
           </label>

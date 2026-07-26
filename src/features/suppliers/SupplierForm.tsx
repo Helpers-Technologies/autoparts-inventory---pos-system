@@ -4,14 +4,13 @@ import {
   Hash,
   Phone,
   MapPin,
-  Percent,
   FileText,
   AlertCircle,
   Sparkles,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
-import { Input, Textarea } from "../../components/ui/Input";
+import { HintIcon, Input, Textarea } from "../../components/ui/Input";
 import { cn } from "../../lib/utils";
 import type { Supplier } from "../../types";
 import { useCatalog } from "../../store/CatalogContext";
@@ -19,7 +18,7 @@ import { useToast } from "../../components/ui/Toast";
 import { formatSupplierCode } from "../../lib/codes";
 import { isValidEgyptianMobile, normalizePhoneInput } from "../../lib/utils";
 
-type FormState = Pick<Supplier, "code" | "name" | "phone" | "address" | "notes" | "commissionNote">;
+type FormState = Pick<Supplier, "code" | "name" | "phone" | "address" | "notes">;
 
 const EMPTY: FormState = {
   code: "",
@@ -27,7 +26,6 @@ const EMPTY: FormState = {
   phone: "",
   address: "",
   notes: "",
-  commissionNote: "",
 };
 
 /**
@@ -64,7 +62,6 @@ export function SupplierFormDialog({
         phone: editing.phone ?? "",
         address: editing.address ?? "",
         notes: editing.notes ?? "",
-        commissionNote: editing.commissionNote ?? "",
       });
     } else {
       setForm({ ...EMPTY, code: formatSupplierCode(nextSupplierCode) });
@@ -161,18 +158,10 @@ export function SupplierFormDialog({
           </div>
         </section>
 
-        {/* Section: commercial terms */}
+        {/* Section: notes */}
         <section className="space-y-3">
-          <SectionTitle icon={<Percent className="w-4 h-4" />}>الشروط التجارية والملاحظات</SectionTitle>
+          <SectionTitle icon={<FileText className="w-4 h-4" />}>الملاحظات</SectionTitle>
           <div className="space-y-3">
-            <Row icon={<Percent className="w-3.5 h-3.5" />} label="ملاحظة عمولة / هدف" hint="تظهر في ملف المورد">
-              <Input
-                value={form.commissionNote ?? ""}
-                onChange={(e) => set("commissionNote", e.target.value)}
-                placeholder="مثل: خصم 2% على الكميات الكبيرة"
-                className="text-start"
-              />
-            </Row>
             <Row icon={<FileText className="w-3.5 h-3.5" />} label="ملاحظات">
               <Textarea
                 rows={2}
@@ -210,6 +199,7 @@ function Row({
   label,
   required,
   hint,
+  infoHint,
   error,
   children,
   className,
@@ -218,6 +208,7 @@ function Row({
   label: string;
   required?: boolean;
   hint?: string;
+  infoHint?: string;
   error?: string;
   children: ReactNode;
   className?: string;
@@ -229,6 +220,7 @@ function Row({
         <span>{label}</span>
         {required ? <span className="text-red-500">*</span> : null}
         {hint ? <span className="font-normal text-ink-faint">— {hint}</span> : null}
+        {infoHint ? <HintIcon hint={infoHint} label={label} /> : null}
       </label>
       {children}
       {error ? (

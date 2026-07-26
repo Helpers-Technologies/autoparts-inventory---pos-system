@@ -44,9 +44,7 @@ const SIGNTOOL_CANDIDATES = [
 ];
 
 function findSigntool() {
-  const found = SIGNTOOL_CANDIDATES.find((p) => existsSync(p));
-  if (!found) throw new Error("signtool.exe not found in any known location.");
-  return found;
+  return SIGNTOOL_CANDIDATES.find((p) => existsSync(p)) ?? null;
 }
 
 exports.default = async function sign(configuration) {
@@ -81,6 +79,15 @@ exports.default = async function sign(configuration) {
 
   const signtool = findSigntool();
   const baseName = path.basename(file);
+
+  // No signtool/certificate on this machine — e.g. a CI runner that isn't the
+  // developer's own box. The fuse flip + integrity hash above still ran, so
+  // the package is fully functional; it's just unsigned (Windows SmartScreen
+  // will show the standard "unknown publisher" prompt on an unsigned .exe).
+  if (!signtool) {
+    console.warn(`[sign-win] signtool.exe/certificate not found — skipping signature for ${baseName} (unsigned build)`);
+    return;
+  }
 
   // Try each timestamp authority; fall back to an untimestamped signature only
   // if all of them are unreachable (preserves the previous build behaviour).

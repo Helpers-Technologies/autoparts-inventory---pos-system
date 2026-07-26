@@ -4,7 +4,7 @@ import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Field, Input, Select, Textarea } from "../components/ui/Input";
-import { Dialog } from "../components/ui/Dialog";
+import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
 import { useApp } from "../store/AppContext";
 import { useToast } from "../components/ui/Toast";
 import { lsGet } from "../lib/storage";
@@ -76,6 +76,8 @@ export function SettingsPage() {
   // Transient secret for password-protected MANUAL export/restore. Never
   // persisted — lives only for the current Settings view.
   const [backupPassphrase, setBackupPassphrase] = useState("");
+  const [pendingRestore, setPendingRestore] = useState<{ file: File; pass?: string; isProtected: boolean } | null>(null);
+  const [pendingInternalRestore, setPendingInternalRestore] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTab, setPreviewTab] = useState<"invoice" | "whatsapp">("invoice");
   const [whatsappTemplateExpanded, setWhatsappTemplateExpanded] = useState(false);
@@ -460,6 +462,23 @@ export function SettingsPage() {
                 </Select>
               </Field>
             )}
+
+            <Field
+              label="الحد الأقصى لمهلة الاسترجاع (سياسة المرتجعات)"
+              hint="الحد الأقصى المسموح به بالأيام لعمل مرتجع مبيعات بعد تاريخ الشراء"
+            >
+              <Select
+                value={String(form.maxReturnDays ?? 14)}
+                onChange={(e) => setForm({ ...form, maxReturnDays: Number(e.target.value) })}
+              >
+                <option value="3">3 أيام</option>
+                <option value="7">7 أيام</option>
+                <option value="14">14 يوماً (الحد الافتراضي/القانوني)</option>
+                <option value="30">30 يوماً</option>
+                <option value="60">60 يوماً</option>
+                <option value="999">بدون حد أقصى (مفتوح)</option>
+              </Select>
+            </Field>
 
             {featureOn("expiryTracking") ? (
               <Field
@@ -1115,17 +1134,7 @@ export function SettingsPage() {
                       toast.error("هذه النسخة محمية بكلمة سر — اكتبها في الحقل أعلاه ثم أعد الاستيراد");
                       return;
                     }
-                    const ok = await importBackup(file, pass);
-                    if (ok) {
-                      toast.success("تم الاستعادة — جاري إعادة التشغيل...");
-                      setTimeout(() => window.location.reload(), 900);
-                    } else {
-                      toast.error(
-                        isProtected
-                          ? "تعذر فك النسخة — تأكد من كلمة السر"
-                          : "فشل استيراد الملف، تأكد من صحته"
-                      );
-                    }
+                    setPendingRestore({ file, pass, isProtected });
                   }}
                 />
                 <Button variant="outline" className="w-full justify-start">
@@ -1145,13 +1154,7 @@ export function SettingsPage() {
                 onClick={() => {
                   const data = lsGet<unknown | null>("inventory_auto_backup_internal", null);
                   if (data) {
-                    const file = new File([JSON.stringify(data)], "internal_backup.json", { type: "application/json" });
-                    importBackup(file).then(ok => {
-                      if (ok) {
-                        toast.success("تم الاستعادة — جاري إعادة التشغيل...");
-                        setTimeout(() => window.location.reload(), 900);
-                      }
-                    });
+                    setPendingInternalRestore(true);
                   } else {
                     toast.error("لا توجد نسخة تلقائية مخزنة حالياً");
                   }
@@ -1381,6 +1384,56 @@ export function SettingsPage() {
           </div>
         </Dialog>
       </div>
+
+      <ConfirmDialog
+        open={pendingRestore !== null}
+        onClose={() => setPendingRestore(null)}
+        title="استعادة نسخة احتياطية"
+        message="هذا الإجراء سيستبدل كل البيانات الحيّة الحالية (فواتير، منتجات، عملاء، ...) ببيانات الملف المستورد نهائيًا ولا يمكن التراجع عنه. هل أنت متأكد؟"
+        confirmText="استبدال كل البيانات"
+        variant="danger"
+        onConfirm={async () => {
+          if (!pendingRestore) return;
+          const { file, pass, isProtected } = pendingRestore;
+          setPendingRestore(null);
+          const ok = await importBackup(file, pass);
+          if (ok) {
+            toast.success("تم الاستعادة — جاري إعادة التشغيل...");
+            setTimeout(() => window.location.reload(), 900);
+          } else {
+            toast.error(
+              isProtected
+                ? "تعذر فك النسخة — تأكد من كلمة السر"
+                : "فشل استيراد الملف، تأكد من صحته"
+            );
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={pendingInternalRestore}
+        onClose={() => setPendingInternalRestore(false)}
+        title="استعادة من النسخة التلقائية الداخلية"
+        message="هذا الإجراء سيستبدل كل البيانات الحيّة الحالية بآخر نسخة تلقائية داخلية محفوظة، ولا يمكن التراجع عنه. هل أنت متأكد؟"
+        confirmText="استبدال كل البيانات"
+        variant="danger"
+        onConfirm={async () => {
+          setPendingInternalRestore(false);
+          const data = lsGet<unknown | null>("inventory_auto_backup_internal", null);
+          if (!data) {
+            toast.error("لا توجد نسخة تلقائية مخزنة حالياً");
+            return;
+          }
+          const file = new File([JSON.stringify(data)], "internal_backup.json", { type: "application/json" });
+          const ok = await importBackup(file);
+          if (ok) {
+            toast.success("تم الاستعادة — جاري إعادة التشغيل...");
+            setTimeout(() => window.location.reload(), 900);
+          } else {
+            toast.error("فشل استيراد النسخة الداخلية");
+          }
+        }}
+      />
     </>
   );
 }

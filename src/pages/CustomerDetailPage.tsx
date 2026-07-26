@@ -37,6 +37,7 @@ import { formatCurrency, formatDate } from "../lib/format";
 import type { Customer } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { printAppRoute } from "../lib/print";
+import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleFormDialog";
 
 function whatsappHref(phone: string | undefined, message: string) {
   const digits = String(phone ?? "").replace(/\D/g, "");
@@ -66,6 +67,8 @@ export function CustomerDetailPage() {
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [vehicleDialogOpen, setVehicleDialogOpen] = useState(false);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [invoiceQuery, setInvoiceQuery] = useState("");
   const [form, setForm] = useState<Omit<Customer, "id" | "createdAt">>({
     code: "",
@@ -73,6 +76,7 @@ export function CustomerDetailPage() {
     phone: "",
     address: "",
     marketingConsent: "unknown",
+    creditLimit: undefined,
     notes: "",
   });
 
@@ -125,6 +129,7 @@ export function CustomerDetailPage() {
       phone: customer.phone ?? "",
       address: customer.address ?? "",
       marketingConsent: customer.marketingConsent ?? "unknown",
+      creditLimit: customer.creditLimit,
       notes: customer.notes ?? "",
     });
     setEditOpen(true);
@@ -233,8 +238,12 @@ export function CustomerDetailPage() {
           icon={<Wallet className="w-5 h-5" />}
           label="الرصيد الحالي"
           value={balance > 0 ? formatCurrency(balance, settings.currency) : balance < 0 ? formatCurrency(-balance, settings.currency) : "لا يوجد مستحق"}
-          detail={balance > 0 ? "مديونية على العميل" : balance < 0 ? "رصيد دائن للعميل" : "الحساب متوازن"}
-          tone={balance > 0 ? "amber" : balance < 0 ? "green" : "blue"}
+          detail={
+            customer.creditLimit
+              ? `${balance > 0 ? "مديونية على العميل" : balance < 0 ? "رصيد دائن للعميل" : "الحساب متوازن"} — الحد الائتماني: ${formatCurrency(customer.creditLimit, settings.currency)}`
+              : balance > 0 ? "مديونية على العميل" : balance < 0 ? "رصيد دائن للعميل" : "الحساب متوازن"
+          }
+          tone={customer.creditLimit && balance > customer.creditLimit ? "red" : balance > 0 ? "amber" : balance < 0 ? "green" : "blue"}
         />
         <StatCard
           icon={<ShoppingBag className="w-5 h-5" />}
@@ -296,11 +305,16 @@ export function CustomerDetailPage() {
           title="سيارات العميل"
           subtitle={vehicles.length > 0 ? `${vehicles.length} سيارة مسجّلة` : undefined}
           actions={
-            <Link to="/customer-garage">
-              <Button size="sm" variant="outline" className="gap-1.5">
-                <Car className="w-3.5 h-3.5" /> إدارة السيارات
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => { setEditingVehicleId(null); setVehicleDialogOpen(true); }} className="gap-1.5">
+                <Car className="w-3.5 h-3.5" /> إضافة مركبة جديدة
               </Button>
-            </Link>
+              <Link to="/customer-garage">
+                <Button size="sm" variant="outline" className="gap-1.5">
+                  <Car className="w-3.5 h-3.5" /> إدارة السيارات
+                </Button>
+              </Link>
+            </div>
           }
         />
         <CardBody>
@@ -308,12 +322,8 @@ export function CustomerDetailPage() {
             <EmptyState
               icon={<Car className="w-5 h-5" />}
               title="لا توجد سيارات مسجّلة"
-              description="سجّل سيارات العميل من صفحة جراج العملاء لربطها بفواتير البيع."
-              action={
-                <Link to="/customer-garage">
-                  <Button size="sm"><Car className="w-4 h-4" /> تسجيل سيارة</Button>
-                </Link>
-              }
+              description="سجّل أول سيارة للعميل لربطها بفواتير البيع."
+              action={<Button size="sm" onClick={() => setVehicleDialogOpen(true)}><Car className="w-4 h-4" /> تسجيل سيارة</Button>}
             />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -326,9 +336,19 @@ export function CustomerDetailPage() {
                         <Car className="w-4 h-4 text-brand-600 shrink-0" />
                         {vehicleDisplayName(v, vehicleMakes, vehicleModels)}
                       </div>
-                      {vehicleInvoiceCount > 0 ? (
-                        <Badge tone="slate">{vehicleInvoiceCount} فاتورة</Badge>
-                      ) : null}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {vehicleInvoiceCount > 0 ? (
+                          <Badge tone="slate">{vehicleInvoiceCount} فاتورة</Badge>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => { setEditingVehicleId(v.id); setVehicleDialogOpen(true); }}
+                          className="rounded-md p-1 text-ink-faint hover:bg-surface hover:text-brand-600"
+                          title="تعديل بيانات السيارة"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-ink-faint" dir="ltr">
                       {v.plateNumber ? <span>PLATE {v.plateNumber}</span> : null}
@@ -452,6 +472,16 @@ export function CustomerDetailPage() {
           <Field label="العنوان" required>
             <Input value={form.address ?? ""} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           </Field>
+          <Field label="الحد الائتماني" hint="أقصى مديونية مسموحة للبيع الآجل — اتركه فارغاً لعدم وضع حد">
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.creditLimit ?? ""}
+              onChange={(e) => setForm({ ...form, creditLimit: e.target.value === "" ? undefined : Number(e.target.value) })}
+              placeholder="بدون حد"
+            />
+          </Field>
           <Field
             label="الموافقة على التواصل التسويقي"
             hint="لا ترسل عروضًا للعميل إذا اختار عدم استقبال الرسائل."
@@ -480,6 +510,13 @@ export function CustomerDetailPage() {
         message={`هل أنت متأكد من حذف "${customer.name}"؟`}
         variant="danger"
         confirmText="حذف"
+      />
+
+      <CustomerVehicleFormDialog
+        open={vehicleDialogOpen}
+        onClose={() => setVehicleDialogOpen(false)}
+        initialCustomerId={customer.id}
+        editingVehicle={customerVehicles.find((v) => v.id === editingVehicleId) ?? null}
       />
     </>
   );

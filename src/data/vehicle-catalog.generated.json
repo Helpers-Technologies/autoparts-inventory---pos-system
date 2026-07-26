@@ -34125,6 +34125,966 @@
       "sourceId": 35222,
       "active": true,
       "source": "nhtsa-vpic"
+    },
+    {
+      "id": "model_gac-group_ga3",
+      "makeId": "make_gac-group",
+      "name": "GA3",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_ga4",
+      "makeId": "make_gac-group",
+      "name": "GA4",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_ga6",
+      "makeId": "make_gac-group",
+      "name": "GA6",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_ga8",
+      "makeId": "make_gac-group",
+      "name": "GA8",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_gs3",
+      "makeId": "make_gac-group",
+      "name": "GS3",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_gs4",
+      "makeId": "make_gac-group",
+      "name": "GS4",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_gs8",
+      "makeId": "make_gac-group",
+      "name": "GS8",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_empow",
+      "makeId": "make_gac-group",
+      "name": "Empow",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_aion-s",
+      "makeId": "make_gac-group",
+      "name": "Aion S",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gac-group_aion-y",
+      "makeId": "make_gac-group",
+      "name": "Aion Y",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_alsvin",
+      "makeId": "make_changan",
+      "name": "Alsvin",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_eado",
+      "makeId": "make_changan",
+      "name": "Eado",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_cs35",
+      "makeId": "make_changan",
+      "name": "CS35",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_cs35-plus",
+      "makeId": "make_changan",
+      "name": "CS35 Plus",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_cs55",
+      "makeId": "make_changan",
+      "name": "CS55",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_cs55-plus",
+      "makeId": "make_changan",
+      "name": "CS55 Plus",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_cs75",
+      "makeId": "make_changan",
+      "name": "CS75",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_cs75-plus",
+      "makeId": "make_changan",
+      "name": "CS75 Plus",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_cs85",
+      "makeId": "make_changan",
+      "name": "CS85",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_cs95",
+      "makeId": "make_changan",
+      "name": "CS95",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_uni-t",
+      "makeId": "make_changan",
+      "name": "UNI-T",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_uni-k",
+      "makeId": "make_changan",
+      "name": "UNI-K",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_changan_hunter",
+      "makeId": "make_changan",
+      "name": "Hunter",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_h220",
+      "makeId": "make_brilliance",
+      "name": "H220",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_h230",
+      "makeId": "make_brilliance",
+      "name": "H230",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_h320",
+      "makeId": "make_brilliance",
+      "name": "H320",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_h330",
+      "makeId": "make_brilliance",
+      "name": "H330",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_h530",
+      "makeId": "make_brilliance",
+      "name": "H530",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_v3",
+      "makeId": "make_brilliance",
+      "name": "V3",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_v5",
+      "makeId": "make_brilliance",
+      "name": "V5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_v6",
+      "makeId": "make_brilliance",
+      "name": "V6",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_brilliance_v7",
+      "makeId": "make_brilliance",
+      "name": "V7",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_foton_tunland",
+      "makeId": "make_foton",
+      "name": "Tunland",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_foton_view-c2",
+      "makeId": "make_foton",
+      "name": "View C2",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_foton_sauvana",
+      "makeId": "make_foton",
+      "name": "Sauvana",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_foton_aumark",
+      "makeId": "make_foton",
+      "name": "Aumark",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_foton_ollin",
+      "makeId": "make_foton",
+      "name": "Ollin",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_landwind_x2",
+      "makeId": "make_landwind",
+      "name": "X2",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_landwind_x5",
+      "makeId": "make_landwind",
+      "name": "X5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_landwind_x6",
+      "makeId": "make_landwind",
+      "name": "X6",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_landwind_x7",
+      "makeId": "make_landwind",
+      "name": "X7",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_landwind_x8",
+      "makeId": "make_landwind",
+      "name": "X8",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_landwind_cv9",
+      "makeId": "make_landwind",
+      "name": "CV9",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_haima_3",
+      "makeId": "make_haima",
+      "name": "3",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_haima_7",
+      "makeId": "make_haima",
+      "name": "7",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_haima_s5",
+      "makeId": "make_haima",
+      "name": "S5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_haima_s7",
+      "makeId": "make_haima",
+      "name": "S7",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_haima_m3",
+      "makeId": "make_haima",
+      "name": "M3",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_haima_family",
+      "makeId": "make_haima",
+      "name": "Family",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_soueast_dx3",
+      "makeId": "make_soueast",
+      "name": "DX3",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_soueast_dx5",
+      "makeId": "make_soueast",
+      "name": "DX5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_soueast_dx7",
+      "makeId": "make_soueast",
+      "name": "DX7",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_soueast_dx8",
+      "makeId": "make_soueast",
+      "name": "DX8",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_soueast_v3-lingyue",
+      "makeId": "make_soueast",
+      "name": "V3 Lingyue",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hawtai_santa-fe",
+      "makeId": "make_hawtai",
+      "name": "Santa Fe",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hawtai_b11",
+      "makeId": "make_hawtai",
+      "name": "B11",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hawtai_boliger",
+      "makeId": "make_hawtai",
+      "name": "Boliger",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hawtai_xiongshi",
+      "makeId": "make_hawtai",
+      "name": "Xiongshi",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hawtai_ev",
+      "makeId": "make_hawtai",
+      "name": "EV",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gonow_ga200",
+      "makeId": "make_gonow",
+      "name": "GA200",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gonow_ga202",
+      "makeId": "make_gonow",
+      "name": "GA202",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gonow_way",
+      "makeId": "make_gonow",
+      "name": "Way",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gonow_aoosed",
+      "makeId": "make_gonow",
+      "name": "Aoosed",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_gonow_riich",
+      "makeId": "make_gonow",
+      "name": "Riich",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_saipa_pride",
+      "makeId": "make_saipa",
+      "name": "Pride",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_saipa_tiba",
+      "makeId": "make_saipa",
+      "name": "Tiba",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_saipa_quick",
+      "makeId": "make_saipa",
+      "name": "Quick",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_saipa_saina",
+      "makeId": "make_saipa",
+      "name": "Saina",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_saipa_shahin",
+      "makeId": "make_saipa",
+      "name": "Shahin",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_saipa_aria",
+      "makeId": "make_saipa",
+      "name": "Aria",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_ikco_samand",
+      "makeId": "make_ikco",
+      "name": "Samand",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_ikco_peugeot-pars",
+      "makeId": "make_ikco",
+      "name": "Peugeot Pars",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_ikco_dena",
+      "makeId": "make_ikco",
+      "name": "Dena",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_ikco_runna",
+      "makeId": "make_ikco",
+      "name": "Runna",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_ikco_soren",
+      "makeId": "make_ikco",
+      "name": "Soren",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_ikco_tara",
+      "makeId": "make_ikco",
+      "name": "Tara",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_jmc_vigus",
+      "makeId": "make_jmc",
+      "name": "Vigus",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_jmc_yuhu",
+      "makeId": "make_jmc",
+      "name": "Yuhu",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_jmc_n601",
+      "makeId": "make_jmc",
+      "name": "N601",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_jmc_n720",
+      "makeId": "make_jmc",
+      "name": "N720",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_jmc_kaiyun",
+      "makeId": "make_jmc",
+      "name": "Kaiyun",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_jmc_baodian",
+      "makeId": "make_jmc",
+      "name": "Baodian",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_zotye_t600",
+      "makeId": "make_zotye",
+      "name": "T600",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_zotye_t700",
+      "makeId": "make_zotye",
+      "name": "T700",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_zotye_t800",
+      "makeId": "make_zotye",
+      "name": "T800",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_zotye_z300",
+      "makeId": "make_zotye",
+      "name": "Z300",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_zotye_z500",
+      "makeId": "make_zotye",
+      "name": "Z500",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_zotye_sr9",
+      "makeId": "make_zotye",
+      "name": "SR9",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_zotye_damai",
+      "makeId": "make_zotye",
+      "name": "Damai",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_faw_besturn-b30",
+      "makeId": "make_faw",
+      "name": "Besturn B30",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_faw_besturn-b50",
+      "makeId": "make_faw",
+      "name": "Besturn B50",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_faw_besturn-b70",
+      "makeId": "make_faw",
+      "name": "Besturn B70",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_faw_besturn-x40",
+      "makeId": "make_faw",
+      "name": "Besturn X40",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_faw_besturn-x80",
+      "makeId": "make_faw",
+      "name": "Besturn X80",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_faw_v2",
+      "makeId": "make_faw",
+      "name": "V2",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_faw_n5",
+      "makeId": "make_faw",
+      "name": "N5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_320",
+      "makeId": "make_lifan",
+      "name": "320",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_330",
+      "makeId": "make_lifan",
+      "name": "330",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_520",
+      "makeId": "make_lifan",
+      "name": "520",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_620",
+      "makeId": "make_lifan",
+      "name": "620",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_720",
+      "makeId": "make_lifan",
+      "name": "720",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_x50",
+      "makeId": "make_lifan",
+      "name": "X50",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_x60",
+      "makeId": "make_lifan",
+      "name": "X60",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_x70",
+      "makeId": "make_lifan",
+      "name": "X70",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_solano",
+      "makeId": "make_lifan",
+      "name": "Solano",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_lifan_myway",
+      "makeId": "make_lifan",
+      "name": "Myway",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_mg_mg-7",
+      "makeId": "make_mg",
+      "name": "MG 7",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_mg_mg-rx8",
+      "makeId": "make_mg",
+      "name": "MG RX8",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_roewe_rx5",
+      "makeId": "make_roewe",
+      "name": "RX5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_roewe_rx8",
+      "makeId": "make_roewe",
+      "name": "RX8",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_roewe_i5",
+      "makeId": "make_roewe",
+      "name": "i5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_roewe_i6",
+      "makeId": "make_roewe",
+      "name": "i6",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_roewe_ei5",
+      "makeId": "make_roewe",
+      "name": "ei5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hongqi_h5",
+      "makeId": "make_hongqi",
+      "name": "H5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hongqi_h9",
+      "makeId": "make_hongqi",
+      "name": "H9",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hongqi_hs5",
+      "makeId": "make_hongqi",
+      "name": "HS5",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_hongqi_e-hs9",
+      "makeId": "make_hongqi",
+      "name": "E-HS9",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_wuling_hongguang",
+      "makeId": "make_wuling",
+      "name": "Hongguang",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_wuling_hongguang-mini-ev",
+      "makeId": "make_wuling",
+      "name": "Hongguang Mini EV",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
+    },
+    {
+      "id": "model_wuling_zhiguang",
+      "makeId": "make_wuling",
+      "name": "Zhiguang",
+      "vehicleType": "Passenger Car",
+      "active": true,
+      "source": "regional-seed"
     }
   ]
 }

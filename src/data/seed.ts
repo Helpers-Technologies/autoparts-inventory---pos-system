@@ -35,6 +35,7 @@ export const seedSettings: Settings = {
   autoBackupEnabled: true,
   autoBackupFrequency: "daily",
   lastBackupDate: "",
+  lastInternalBackupDate: "",
   backupPath: "",
   invoicesSavePath: "",
   subscriptionType: "limited",
@@ -45,6 +46,7 @@ export const seedSettings: Settings = {
   warrantyMonths: 0,
   idleLockMinutes: 0,
   paymentTermDays: 7,
+  maxReturnDays: 14,
   backupOnClose: true,
 };
 

@@ -4,13 +4,20 @@ import { Dialog } from "../ui/Dialog";
 import { Button } from "../ui/Button";
 import { useSettings } from "../../store/SettingsContext";
 import { formatCurrency, formatDateTime } from "../../lib/format";
-import type { CashierShift } from "../../types";
+import type { CashierShift, PaymentMethod } from "../../types";
 
 interface ShiftReportModalProps {
   shift: CashierShift | null;
   open: boolean;
   onClose: () => void;
 }
+
+const NON_CASH_METHOD_LABELS: Partial<Record<PaymentMethod, string>> = {
+  bank: "تحويل بنكي",
+  vodafone: "فودافون كاش",
+  instapay: "إنستاباي",
+  other: "أخرى (غير نقدي)",
+};
 
 export function ShiftReportModal({ shift, open, onClose }: ShiftReportModalProps) {
   const { settings } = useSettings();
@@ -114,6 +121,7 @@ export function ShiftReportModal({ shift, open, onClose }: ShiftReportModalProps
           </div>
           <div className="text-[11px] text-ink-faint mt-1">
             الكاشير: <span className="font-semibold text-ink">{shift.cashierName}</span>
+            {shift.branchName ? <> — الفرع: <span className="font-semibold text-ink">{shift.branchName}</span></> : null}
           </div>
         </div>
 
@@ -147,10 +155,23 @@ export function ShiftReportModal({ shift, open, onClose }: ShiftReportModalProps
             <span>+ إضافات نقدية أخرى:</span>
             <span className="font-bold">{formatCurrency(shift.totalCashAdditions ?? 0, settings.currency)}</span>
           </div>
-          <div className="flex justify-between py-1 text-blue-700 dark:text-blue-400">
-            <span>مبيعات الشبكة (فيزا/بطاقة):</span>
-            <span className="font-bold">{formatCurrency(shift.totalVisaSales, settings.currency)}</span>
-          </div>
+          {shift.paymentMethodTotals && Object.keys(shift.paymentMethodTotals).length > 0 ? (
+            Object.entries(shift.paymentMethodTotals)
+              .filter(([, amount]) => (amount ?? 0) !== 0)
+              .map(([method, amount]) => (
+                <div key={method} className="flex justify-between py-1 text-blue-700 dark:text-blue-400">
+                  <span>{NON_CASH_METHOD_LABELS[method as PaymentMethod] ?? method}:</span>
+                  <span className="font-bold">{formatCurrency(amount ?? 0, settings.currency)}</span>
+                </div>
+              ))
+          ) : (
+            // Old shift records closed before the per-method breakdown existed —
+            // fall back to the legacy lumped-together "Visa" total.
+            <div className="flex justify-between py-1 text-blue-700 dark:text-blue-400">
+              <span>مبيعات غير نقدية (شبكة/محافظ):</span>
+              <span className="font-bold">{formatCurrency(shift.totalVisaSales, settings.currency)}</span>
+            </div>
+          )}
           <div className="flex justify-between py-1 text-indigo-700 dark:text-indigo-400">
             <span>المبيعات الآجلة (حساب عميل):</span>
             <span className="font-bold">{formatCurrency(shift.totalCreditSales, settings.currency)}</span>

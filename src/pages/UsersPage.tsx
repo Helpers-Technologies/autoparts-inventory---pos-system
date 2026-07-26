@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Users, Plus, Shield, Trash2, Edit, KeyRound, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Users, Plus, Shield, Trash2, Edit, KeyRound, RefreshCw, BarChart3 } from "lucide-react";
 import { useUsers } from "../store/UsersContext";
+import { useAutoPartsPro } from "../store/AutoPartsProContext";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
-import { Field, Input } from "../components/ui/Input";
+import { Field, Input, Select } from "../components/ui/Input";
 import { useToast } from "../components/ui/Toast";
 import type { AppUser, MfaUserStatus, UserPermissions } from "../types";
 import { hashPassword } from "../lib/auth";
@@ -27,11 +29,14 @@ function UserFormDialog({
   editing?: AppUser | null;
 }) {
   const { addUser, updateUser, users } = useUsers();
+  const pro = useAutoPartsPro();
+  const activeBranches = pro.branches.filter((b) => b.active);
   const toast = useToast();
 
   const [name, setName] = useState(editing?.name || editing?.username || "");
   const [username, setUsername] = useState(editing?.username || "");
   const [password, setPassword] = useState("");
+  const [branchId, setBranchId] = useState(editing?.branchId ?? "");
   const [permissions, setPermissions] = useState<UserPermissions>(
     normalizePermissions(editing?.permissions)
   );
@@ -71,6 +76,7 @@ function UserFormDialog({
       editing?.role !== "owner"
         ? {
             monthlySalary: salary,
+            branchId: branchId || undefined,
           }
         : {};
     if (editing) {
@@ -151,6 +157,16 @@ function UserFormDialog({
                   placeholder="جنيه"
                 />
               </Field>
+              {activeBranches.length > 1 && (
+                <Field label="الفرع" hint="يقيّد هذا الموظف بفرع واحد في الكاشير والورديات — اتركه فارغاً للسماح بكل الفروع">
+                  <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+                    <option value="">كل الفروع (بدون تقييد)</option>
+                    {activeBranches.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -352,11 +368,20 @@ export function UsersPage() {
                 ) : null}
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
+                    <Link
+                      to={`/employees/${user.id}`}
+                      className="h-8 px-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-500/10 rounded-md transition-colors border border-brand-200 dark:border-brand-500/20"
+                      title="عرض ملف الأداء والإنتاجية والصلاحيات"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      الأداء
+                    </Link>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setFormState({ open: true, editing: user })}
                       className="h-8 px-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:bg-blue-500/10"
+                      title="تعديل المستخدم"
                     >
                       <Edit className="w-4 h-4" />
                     </Button>
@@ -436,8 +461,13 @@ export function UsersPage() {
         open={delUserId !== null}
         onClose={() => setDelUserId(null)}
         onConfirm={() => {
-          if (delUserId && deleteUser(delUserId)) {
-            toast.success("تم حذف المستخدم");
+          if (delUserId) {
+            const ok = deleteUser(delUserId);
+            if (ok) {
+              toast.success("تم حذف المستخدم");
+            } else {
+              toast.error("لا يمكن حذف مستخدم لديه ورديات أو فواتير مرتبطة");
+            }
           }
           setDelUserId(null);
         }}

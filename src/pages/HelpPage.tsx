@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
+  ArrowRight,
   BookOpen,
   BookOpenCheck,
   Bot,
@@ -348,12 +349,22 @@ export function HelpPage() {
           ) : null}
 
           {!isSearching && activeSectionId ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-muted/45 px-3 py-2">
-              <span className="text-xs text-ink-muted">
-                تعرض الآن: <strong className="text-ink">{available.find((section) => section.id === activeSectionId)?.title}</strong>
-              </span>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setActiveSectionId(null)}>
-                كل الموضوعات
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-200 dark:border-cyan-500/30 bg-cyan-50/50 dark:bg-cyan-500/10 p-3 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Badge tone="cyan">قسم مفصّل</Badge>
+                <span className="text-sm font-semibold text-ink">
+                  تعرض الآن: <strong className="text-brand-600 dark:text-brand-400">{available.find((section) => section.id === activeSectionId)?.title}</strong>
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveSectionId(null)}
+                className="gap-1.5 font-bold border-brand-300 dark:border-brand-500/40 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-500/20"
+              >
+                <ArrowRight className="h-4 w-4" />
+                الرجوع لكل الموضوعات والأسئلة الرئيسية
               </Button>
             </div>
           ) : null}
@@ -379,6 +390,20 @@ export function HelpPage() {
               <CardHeader
                 title={<span className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-cyan-600" />{section.title}</span>}
                 subtitle={`${section.items.length} سؤال`}
+                actions={
+                  activeSectionId ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setActiveSectionId(null)}
+                      className="gap-1 text-xs font-bold border-line"
+                    >
+                      <ArrowRight className="h-3.5 w-3.5" />
+                      الرجوع للرئيسية
+                    </Button>
+                  ) : undefined
+                }
               />
               <CardBody className="p-0">
                 <ul className="divide-y divide-line-soft">

@@ -94,8 +94,8 @@ export function productVehicleFitmentStatus(
   const matches = links.some((fitment) => {
     if (fitment.makeId !== vehicle.makeId) return false;
     if (fitment.modelId && fitment.modelId !== vehicle.modelId) return false;
-    if (fitment.generationId && fitment.generationId !== vehicle.generationId) return false;
-    if (fitment.engineId && fitment.engineId !== vehicle.engineId) return false;
+    if (fitment.generationId && vehicle.generationId && fitment.generationId !== vehicle.generationId) return false;
+    if (fitment.engineId && vehicle.engineId && fitment.engineId !== vehicle.engineId) return false;
     if (vehicle.year && fitment.yearFrom && vehicle.year < fitment.yearFrom) return false;
     if (vehicle.year && fitment.yearTo && vehicle.year > fitment.yearTo) return false;
     return true;
@@ -191,6 +191,7 @@ export interface AutoPartsProContextValue {
   transferStock: (input: Omit<StockTransfer, "id" | "transferNumber" | "createdAt" | "status">) => StockTransfer | null;
   branchQuantity: (branchId: string, productId: string) => number;
   consumeBranchStock: (branchId: string, lines: Array<{ productId: string; quantity: number }>) => void;
+  receivePurchaseStock: (branchId: string, lines: Array<{ productId: string; quantity: number }>) => void;
   addPriceTier: (input: NewPriceTier) => PriceTier;
   updatePriceTier: (id: string, patch: Partial<PriceTier>) => void;
   deletePriceTier: (id: string) => boolean;
@@ -210,10 +211,20 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   const [branchStocks, setBranchStocks] = useState<BranchStock[]>(() => lsGet("branchStocks", initialBranchStocks(products)));
   const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>(() => lsGet("stockTransfers", []));
   const [priceTiers, setPriceTiers] = useState<PriceTier[]>(() => lsGet("priceTiers", DEFAULT_PRICE_TIERS));
+  // Hard execution lock for transferStock — a double-click fires two calls
+  // before React re-renders, so both would read the same stale `branchStocks`
+  // availability snapshot and both could pass the check. The lock rejects the
+  // second call outright, and only clears once branchStocks has actually
+  // committed (see the effect below), so the next real transfer sees fresh data.
+  const transferInFlightRef = useRef(false);
 
   useEffect(() => {
     productsRef.current = products;
   }, [products]);
+
+  useEffect(() => {
+    transferInFlightRef.current = false;
+  }, [branchStocks]);
 
   const reloadProData = useCallback(() => {
     const storedBranches = lsGet<Branch[]>("branches", DEFAULT_BRANCHES);
@@ -325,9 +336,11 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   ), [branchStocks]);
 
   const transferStock = useCallback((input: Omit<StockTransfer, "id" | "transferNumber" | "createdAt" | "status">) => {
+    if (transferInFlightRef.current) return null;
     if (input.fromBranchId === input.toBranchId || input.quantity <= 0) return null;
     const available = branchStocks.find((row) => row.branchId === input.fromBranchId && row.productId === input.productId)?.quantity ?? 0;
     if (available < input.quantity) return null;
+    transferInFlightRef.current = true;
     const now = new Date().toISOString();
     const item: StockTransfer = {
       ...input,
@@ -341,7 +354,9 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
       const fromKey = `${input.fromBranchId}:${input.productId}`;
       const toKey = `${input.toBranchId}:${input.productId}`;
       const from = map.get(fromKey)!;
-      from.quantity -= input.quantity;
+      // Re-check against the freshest state (not the closure snapshot above)
+      // and clamp to zero — a hard backstop even if the lock above is ever bypassed.
+      from.quantity = Math.max(0, from.quantity - input.quantity);
       from.updatedAt = now;
       const to = map.get(toKey) ?? { branchId: input.toBranchId, productId: input.productId, quantity: 0, updatedAt: now };
       to.quantity += input.quantity;
@@ -350,7 +365,7 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
       return [...map.values()];
     });
     setStockTransfers((items) => [item, ...items]);
-    logAudit?.("stock_adjusted", input.productName, `تحويل مخزون: ${input.quantity} وحدة`);
+    logAudit?.("stock_transfer_created", input.productName, `تحويل مخزون: ${input.quantity} وحدة`);
     return item;
   }, [branchStocks, stockTransfers.length, logAudit]);
 
@@ -361,6 +376,26 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     setBranchStocks((rows) => rows.map((row) => row.branchId === branchId && soldByProduct.has(row.productId)
       ? { ...row, quantity: Math.max(0, row.quantity - soldByProduct.get(row.productId)!), updatedAt: now }
       : row));
+  }, []);
+
+  // Routes incoming purchase-invoice stock to the branch that actually
+  // received it, instead of leaving it for reconcileBranchStocks' generic
+  // diff-reconciliation to silently dump onto the main branch.
+  const receivePurchaseStock = useCallback((branchId: string, lines: Array<{ productId: string; quantity: number }>) => {
+    const receivedByProduct = new Map<string, number>();
+    for (const line of lines) receivedByProduct.set(line.productId, (receivedByProduct.get(line.productId) ?? 0) + line.quantity);
+    const now = new Date().toISOString();
+    setBranchStocks((rows) => {
+      const map = new Map(rows.map((row) => [`${row.branchId}:${row.productId}`, { ...row }]));
+      for (const [productId, quantity] of receivedByProduct) {
+        const key = `${branchId}:${productId}`;
+        const existing = map.get(key) ?? { branchId, productId, quantity: 0, updatedAt: now };
+        existing.quantity += quantity;
+        existing.updatedAt = now;
+        map.set(key, existing);
+      }
+      return [...map.values()];
+    });
   }, []);
 
   const addPriceTier = useCallback((input: NewPriceTier) => {
@@ -391,8 +426,8 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers,
     addCustomerVehicle, updateCustomerVehicle, archiveCustomerVehicle,
     addWarrantyClaim, updateWarrantyClaim, addBranch, updateBranch, transferStock,
-    branchQuantity, consumeBranchStock, addPriceTier, updatePriceTier, deletePriceTier, reloadProData,
-  }), [customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers, addCustomerVehicle, updateCustomerVehicle, archiveCustomerVehicle, addWarrantyClaim, updateWarrantyClaim, addBranch, updateBranch, transferStock, branchQuantity, consumeBranchStock, addPriceTier, updatePriceTier, deletePriceTier, reloadProData]);
+    branchQuantity, consumeBranchStock, receivePurchaseStock, addPriceTier, updatePriceTier, deletePriceTier, reloadProData,
+  }), [customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers, addCustomerVehicle, updateCustomerVehicle, archiveCustomerVehicle, addWarrantyClaim, updateWarrantyClaim, addBranch, updateBranch, transferStock, branchQuantity, consumeBranchStock, receivePurchaseStock, addPriceTier, updatePriceTier, deletePriceTier, reloadProData]);
 
   return <AutoPartsProContext.Provider value={value}>{children}</AutoPartsProContext.Provider>;
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { TrendingUp, Coins, Percent, Boxes, Info } from "lucide-react";
+import { TrendingUp, Coins, Percent, Boxes, Info, ChevronDown, ChevronUp, Download } from "lucide-react";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -7,6 +7,7 @@ import {
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
+import { Button } from "../components/ui/Button";
 import { Field, Input } from "../components/ui/Input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/Tabs";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
@@ -19,6 +20,7 @@ import {
   aggregateProductSales, computeAbc, computeTurnover, computeMovement,
   computeCustomerProfitability, computeSalesTrend,
 } from "../lib/analytics";
+import { buildXlsx, type XlsxSheet } from "../lib/xlsx";
 
 const ABC_COLORS: Record<"A" | "B" | "C", string> = { A: "#16a34a", B: "#f59e0b", C: "#94a3b8" };
 const pct = (frac: number) => `${(frac * 100).toFixed(1)}%`;
@@ -61,7 +63,7 @@ export function AdvancedAnalyticsPage() {
   const abc = useMemo(() => computeAbc(aggs), [aggs]);
   const turnover = useMemo(() => computeTurnover(aggs, products), [aggs, products]);
   const movement = useMemo(
-    () => computeMovement(salesInvoices, products, from, to, to),
+    () => computeMovement(salesInvoices, products, from, to, to, 100),
     [salesInvoices, products, from, to]
   );
   const custProfit = useMemo(
@@ -88,6 +90,54 @@ export function AdvancedAnalyticsPage() {
 
   const topCustomers = custProfit.slice(0, 8).map((c) => ({ name: c.customerName, profit: c.profit }));
 
+  function exportAnalytics() {
+    const sheets: XlsxSheet[] = [
+      {
+        name: "اتجاه المبيعات",
+        headers: ["الشهر", "الإيراد", "الربح", "النمو الشهري %"],
+        rows: trend.map((t) => [t.month, t.revenue, t.profit, t.growthPct ?? ""]),
+      },
+      {
+        name: "تصنيف ABC",
+        headers: ["الصنف", "الفئة", "الإيراد", "النسبة التراكمية %"],
+        rows: abc.map((r) => [r.productName, r.abcClass, r.revenue, Math.round(r.cumulativeShare * 1000) / 10]),
+      },
+      {
+        name: "دوران المخزون",
+        headers: ["الصنف", "تكلفة المبيعات", "قيمة المخزون", "معدل الدوران"],
+        rows: turnover.map((r) => [r.productName, r.cogs, r.stockValue, r.turnover ?? "∞"]),
+      },
+      {
+        name: "الأسرع حركة",
+        headers: ["الصنف", "المباع", "آخر بيع (يوم)"],
+        rows: movement.fastMovers.map((r) => [r.productName, r.qtySold, r.daysSinceLastSale ?? ""]),
+      },
+      {
+        name: "الأبطأ حركة",
+        headers: ["الصنف", "المباع", "آخر بيع (يوم)"],
+        rows: movement.slowMovers.map((r) => [r.productName, r.qtySold, r.daysSinceLastSale ?? ""]),
+      },
+      {
+        name: "مخزون راكد",
+        headers: ["الصنف", "المخزون", "آخر بيع (يوم)"],
+        rows: movement.deadStock.map((r) => [r.productName, r.stockUnits, r.daysSinceLastSale ?? ""]),
+      },
+      {
+        name: "ربحية العملاء",
+        headers: ["العميل", "عدد الفواتير", "الإيراد", "الربح", "الهامش %"],
+        rows: custProfit.map((c) => [c.customerName, c.invoiceCount, c.revenue, c.profit, Math.round(c.margin * 1000) / 10]),
+      },
+    ];
+    const bytes = buildXlsx(sheets);
+    const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `التحليلات_المتقدمة_${from}_${to}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <>
       <PageHeader
@@ -97,6 +147,9 @@ export function AdvancedAnalyticsPage() {
           <div className="flex items-end gap-2">
             <Field label="من"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" /></Field>
             <Field label="إلى"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" /></Field>
+            <Button variant="outline" onClick={exportAnalytics} disabled={!hasData}>
+              <Download className="w-4 h-4" /> تصدير Excel
+            </Button>
           </div>
         }
       />
@@ -290,41 +343,75 @@ function MovementCard({
   rows: { productId: string; productName: string; qtySold: number; stockUnits: number; daysSinceLastSale: number | null }[];
   kind: "fast" | "slow" | "dead";
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const INITIAL_LIMIT = 5;
+  const visibleRows = showAll ? rows : rows.slice(0, INITIAL_LIMIT);
+  const hasMore = rows.length > INITIAL_LIMIT;
+
   return (
-    <Card>
-      <CardHeader title={title} />
-      <CardBody className="max-h-[360px] overflow-auto">
+    <Card className="flex flex-col h-full">
+      <CardHeader
+        title={title}
+        actions={
+          <span className="text-xs px-2.5 py-0.5 rounded-full bg-surface-muted border border-line text-ink-muted font-mono font-medium">
+            {rows.length} أصناف
+          </span>
+        }
+      />
+      <CardBody className="flex-1 overflow-auto max-h-[420px] space-y-2">
         {rows.length === 0 ? (
           <EmptyHint>لا توجد أصناف</EmptyHint>
         ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH>الصنف</TH>
-                {kind === "dead" ? <TH className="text-end">المخزون</TH> : <TH className="text-end">المباع</TH>}
-                <TH className="text-end">آخر بيع</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {rows.map((r) => (
-                <TR key={r.productId}>
-                  <TD className="font-medium">{r.productName}</TD>
-                  <TD className="text-end font-mono">
-                    {kind === "dead" ? r.stockUnits.toFixed(r.stockUnits % 1 === 0 ? 0 : 1) : r.qtySold.toFixed(r.qtySold % 1 === 0 ? 0 : 1)}
-                  </TD>
-                  <TD className="text-end text-xs">
-                    {r.daysSinceLastSale === null ? (
-                      <span className="text-rose-500">لم يُبع</span>
-                    ) : r.daysSinceLastSale === 0 ? (
-                      <span className="text-emerald-600 dark:text-emerald-400">اليوم</span>
-                    ) : (
-                      <span className="text-ink-faint">منذ {r.daysSinceLastSale} يوم</span>
-                    )}
-                  </TD>
+          <>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>الصنف</TH>
+                  {kind === "dead" ? <TH className="text-end">المخزون</TH> : <TH className="text-end">المباع</TH>}
+                  <TH className="text-end">آخر بيع</TH>
                 </TR>
-              ))}
-            </TBody>
-          </Table>
+              </THead>
+              <TBody>
+                {visibleRows.map((r) => (
+                  <TR key={r.productId}>
+                    <TD className="font-medium text-xs">{r.productName}</TD>
+                    <TD className="text-end font-mono text-xs">
+                      {kind === "dead" ? r.stockUnits.toFixed(r.stockUnits % 1 === 0 ? 0 : 1) : r.qtySold.toFixed(r.qtySold % 1 === 0 ? 0 : 1)}
+                    </TD>
+                    <TD className="text-end text-xs">
+                      {r.daysSinceLastSale === null ? (
+                        <span className="text-rose-500 font-medium">لم يُبع</span>
+                      ) : r.daysSinceLastSale === 0 ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">اليوم</span>
+                      ) : (
+                        <span className="text-ink-faint">منذ {r.daysSinceLastSale} يوم</span>
+                      )}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            {hasMore && (
+              <div className="pt-2 text-center border-t border-line-soft">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowAll(!showAll)}
+                  className="w-full text-xs font-bold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-500/10 justify-center gap-1.5"
+                >
+                  {showAll ? (
+                    <>
+                      <ChevronUp className="w-4 h-4" /> عرض أقل
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4" /> عرض المزيد ({rows.length - INITIAL_LIMIT} أصناف إضافية)
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </CardBody>
     </Card>

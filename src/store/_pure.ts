@@ -9,6 +9,7 @@ import type {
   CashEntry,
   OfflineEmployee,
   OfflineEmployeeTransaction,
+  PaymentMethod,
 } from "../types";
 
 export type PaymentStatusResult = "paid" | "partial" | "unpaid";
@@ -357,6 +358,51 @@ export function employeeCollectedCash(
     .reduce((sum, ce) => sum + ce.amount, 0);
 }
 
+/**
+ * Same result as calling {@link employeeCollectedCash} once per user, but in
+ * a single pass over salesInvoices/salesReturns/cashEntries instead of
+ * re-scanning all three arrays per employee — O(invoices+entries) instead of
+ * O(employees × (invoices+entries)), which is what made per-employee report
+ * pages slow once the shop had a real amount of sales history.
+ */
+export function employeeCollectedCashBatch(
+  salesInvoices: Pick<SalesInvoice, "id" | "createdByUserId" | "cancelled">[],
+  salesReturns: Pick<SalesReturn, "id" | "originalInvoiceId">[],
+  cashEntries: Pick<CashEntry, "referenceId" | "date" | "type" | "amount">[],
+  userIds: string[],
+  from: string,
+  to: string,
+): Map<string, number> {
+  const result = new Map<string, number>(userIds.map((id) => [id, 0]));
+  const wantedUsers = new Set(userIds);
+
+  const invoiceOwner = new Map<string, string>();
+  for (const inv of salesInvoices) {
+    if (inv.cancelled || !inv.createdByUserId || !wantedUsers.has(inv.createdByUserId)) continue;
+    invoiceOwner.set(inv.id, inv.createdByUserId);
+  }
+  const returnOwner = new Map<string, string>();
+  for (const ret of salesReturns) {
+    if (ret.originalInvoiceId == null) continue;
+    const owner = invoiceOwner.get(ret.originalInvoiceId);
+    if (owner) returnOwner.set(ret.id, owner);
+  }
+
+  for (const ce of cashEntries) {
+    if (ce.referenceId == null || ce.date < from || ce.date > to) continue;
+    const invoiceUser = invoiceOwner.get(ce.referenceId);
+    if (invoiceUser && (ce.type === "sales-receipt" || ce.type === "adjustment")) {
+      result.set(invoiceUser, (result.get(invoiceUser) ?? 0) + ce.amount);
+      continue;
+    }
+    const returnUser = returnOwner.get(ce.referenceId);
+    if (returnUser && ce.type === "adjustment") {
+      result.set(returnUser, (result.get(returnUser) ?? 0) + ce.amount);
+    }
+  }
+  return result;
+}
+
 export function settleSalesInvoiceReturn(
   invoice: SalesInvoice,
   ret: Pick<SalesReturn, "lines" | "total" | "refundCash">,
@@ -471,9 +517,18 @@ export function computeShiftSummary(args: {
   const totalCashAdditions = shiftEntries
     .filter((entry) => isPhysicalCash(entry) && entry.type !== "sales-receipt" && entry.amount > 0)
     .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalVisaSales = shiftEntries
-    .filter((entry) => !isPhysicalCash(entry) && entry.paymentMethod !== "credit" && entry.amount > 0)
-    .reduce((sum, entry) => sum + entry.amount, 0);
+  const nonCashSalesEntries = shiftEntries.filter(
+    (entry) => !isPhysicalCash(entry) && entry.paymentMethod !== "credit" && entry.amount > 0,
+  );
+  const totalVisaSales = nonCashSalesEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  // Real per-method breakdown (بنكي/فودافون كاش/انستاباي/أخرى) — totalVisaSales
+  // above lumps all of these under one legacy "Visa" bucket for old records;
+  // new shift reports should read from here instead.
+  const paymentMethodTotals: Partial<Record<PaymentMethod, number>> = {};
+  for (const entry of nonCashSalesEntries) {
+    const method = entry.paymentMethod ?? "other";
+    paymentMethodTotals[method] = Math.round(((paymentMethodTotals[method] ?? 0) + entry.amount) * 100) / 100;
+  }
   const totalRefunds = shiftEntries
     .filter((entry) => isPhysicalCash(entry) && isSalesRefund(entry))
     .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
@@ -496,6 +551,7 @@ export function computeShiftSummary(args: {
     totalCashAdditions: Math.round(totalCashAdditions * 100) / 100,
     totalCashSales: Math.round(totalCashSales * 100) / 100,
     totalVisaSales: Math.round(totalVisaSales * 100) / 100,
+    paymentMethodTotals,
     totalCreditSales: Math.round(totalCreditSales * 100) / 100,
     totalRefunds: Math.round(totalRefunds * 100) / 100,
     totalExpenses: Math.round(totalExpenses * 100) / 100,

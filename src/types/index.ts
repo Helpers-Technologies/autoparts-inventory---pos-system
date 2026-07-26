@@ -128,7 +128,16 @@ export interface BranchActivationResult {
 }
 
 export interface UserPermissions {
-  pos: { view: boolean; createSale: boolean; applyDiscount: boolean; holdCart: boolean };
+  pos: {
+    view: boolean;
+    createSale: boolean;
+    openShift: boolean;
+    closeShift: boolean;
+    viewShifts: boolean;
+    supervisorOverride: boolean;
+    applyDiscount: boolean;
+    holdCart: boolean;
+  };
   products: { view: boolean; add: boolean; edit: boolean; delete: boolean; printBarcode: boolean };
   inventory: { view: boolean; adjust: boolean; stocktakes: boolean; transfers: boolean };
   purchaseInvoices: { view: boolean; add: boolean; edit: boolean; pay: boolean; delete: boolean; purchasingAssistant: boolean };
@@ -145,6 +154,9 @@ export interface UserPermissions {
 export interface MonthlyEmployeeConfig {
   target?: number;
   commissionPct?: number;
+  bonus?: number;
+  penalty?: number;
+  advance?: number;
 }
 
 export interface AppUser {
@@ -154,6 +166,12 @@ export interface AppUser {
   passwordHash: string;
   role: UserRole;
   permissions: UserPermissions;
+  /**
+   * The branch this user is restricted to (POS, shifts, stock views…).
+   * Absent ⇒ unrestricted (all branches) — always true for "owner", and can
+   * be left unset for employees who legitimately need multi-branch access.
+   */
+  branchId?: ID;
   monthlySalary?: number;
   salesCommissionPct?: number;
   monthlySalesTarget?: number;
@@ -193,6 +211,8 @@ export interface Customer {
   shippingDirection?: "qibli" | "bahri";
   /** Consent captured by the shop before sending promotional messages. */
   marketingConsent?: "unknown" | "opted_in" | "opted_out";
+  /** Maximum allowed outstanding balance (on-account sales). Unset/0 ⇒ no limit enforced. */
+  creditLimit?: number;
   notes?: string;
   archived?: boolean;
   createdAt: string;
@@ -203,6 +223,7 @@ export interface Driver {
   name: string;
   phone?: string;
   licenseNumber?: string;
+  salary?: number;
   createdAt: string;
 }
 
@@ -342,11 +363,16 @@ export interface CashierShift {
   /** نقدية دخلت الدرج بخلاف تحصيلات المبيعات (عهدة/إضافة يدوية/مرتجع مشتريات). */
   totalCashAdditions?: number;
   totalCashSales: number;
+  /** @deprecated Kept for old records only — every non-cash, non-credit method used to be lumped in here as "Visa". New shifts populate {@link paymentMethodTotals} instead. */
   totalVisaSales: number;
   totalCreditSales: number;
+  /** Per-method breakdown of non-cash, non-credit sales (bank/vodafone/instapay/other), keyed by the real {@link PaymentMethod}. */
+  paymentMethodTotals?: Partial<Record<PaymentMethod, number>>;
   totalRefunds: number;
   totalExpenses: number;
   salesInvoiceIds: ID[];
+  branchId?: ID;
+  branchName?: string;
 }
 
 export type StockMovementType =
@@ -508,6 +534,11 @@ export interface Settings {
   autoBackupEnabled: boolean;
   autoBackupFrequency: "daily" | "weekly" | "monthly";
   lastBackupDate: string;
+  /** Timestamp of the last internal (in-browser localStorage) safety backup.
+   *  Kept separate from `lastBackupDate` which tracks external file-system
+   *  backups — otherwise the 30-minute internal timer gives false confidence
+   *  that the real backup (to an external drive/network share) ran recently. */
+  lastInternalBackupDate: string;
   /** Destination folder for automatic backups (local, external drive, or network/NAS share). */
   backupPath: string;
   invoicesSavePath: string;
@@ -525,6 +556,8 @@ export interface Settings {
   backupOnClose: boolean;
   /** Days before product expiry to show alert (default 14). */
   expiryAlertDays?: number;
+  /** Days after purchase date within which sales returns are allowed (default 14). */
+  maxReturnDays?: number;
   /**
    * Owner-controlled per-module visibility. Keys are FeatureKey (see
    * lib/features.ts). Missing key ⇒ that module's default state. This is the
@@ -609,6 +642,7 @@ export type AuditAction =
   | "user_logout"
   | "settings_updated"
   | "backup_created"
+  | "backup_failed"
   | "backup_restored"
   | "quotation_created"
   | "quotation_updated"
@@ -616,7 +650,12 @@ export type AuditAction =
   | "stocktake_created"
   | "branch_created"
   | "branch_updated"
-  | "branch_deleted";
+  | "branch_deleted"
+  | "user_created"
+  | "user_updated"
+  | "user_permissions_updated"
+  | "user_deleted"
+  | "stock_transfer_created";
 
 /**
  * Full snapshot captured when an invoice is deleted — everything the delete
@@ -682,6 +721,10 @@ export interface WarrantyClaim {
   complaint: string;
   serialNumber?: string;
   status: WarrantyClaimStatus;
+  /** Set once the "replaced" transition has deducted a replacement unit from stock — guards against double-deduction. */
+  stockDeducted?: boolean;
+  /** Cost of the replacement unit given to the customer (product avgCost/purchasePrice at the time of replacement). */
+  replacementCost?: number;
   openedAt: string;
   updatedAt: string;
 }

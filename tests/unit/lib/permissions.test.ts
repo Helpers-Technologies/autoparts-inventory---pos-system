@@ -169,8 +169,16 @@ describe("areAllPermissionsEnabled", () => {
   it("checks a specific module when provided", () => {
     const p = createPermissions(false);
     p.reports.view = true;
+    p.reports.analytics = true;
+    p.reports.export = true;
     expect(areAllPermissionsEnabled(p, "reports")).toBe(true);
     expect(areAllPermissionsEnabled(p, "products")).toBe(false);
+  });
+
+  it("requires every action within a module, not just one", () => {
+    const p = createPermissions(false);
+    p.reports.view = true;
+    expect(areAllPermissionsEnabled(p, "reports")).toBe(false);
   });
 });
 

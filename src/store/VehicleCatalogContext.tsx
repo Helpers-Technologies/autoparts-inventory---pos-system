@@ -21,6 +21,7 @@ import {
   isMakeIncludedInSpecialization,
 } from "../data/vehicleCountries";
 import {
+  seedVehicleGenerations,
   seedVehicleMakes,
   seedVehicleModels,
   vehicleCatalogSchemaVersion,
@@ -51,13 +52,21 @@ export interface VehicleCatalogContextValue {
   productAlternatives: ProductAlternative[];
   addVehicleMake: (input: NewMake) => VehicleMake;
   updateVehicleMake: (id: string, patch: Partial<VehicleMake>) => void;
+  deleteVehicleMake: (id: string) => void;
   addVehicleModel: (input: NewModel) => VehicleModel;
   updateVehicleModel: (id: string, patch: Partial<VehicleModel>) => void;
+  deleteVehicleModel: (id: string) => void;
   addVehicleGeneration: (input: NewGeneration) => VehicleGeneration;
   updateVehicleGeneration: (id: string, patch: Partial<VehicleGeneration>) => void;
+  deleteVehicleGeneration: (id: string) => void;
   addVehicleEngine: (input: NewEngine) => VehicleEngine;
   updateVehicleEngine: (id: string, patch: Partial<VehicleEngine>) => void;
+  deleteVehicleEngine: (id: string) => void;
   addProductFitment: (input: NewFitment) => ProductFitment;
+  addBulkProductFitments: (
+    productIds: string[],
+    fitmentSpec: Omit<ProductFitment, "id" | "productId" | "createdAt">
+  ) => void;
   deleteProductFitment: (id: string) => void;
   addProductAlternative: (input: NewAlternative) => ProductAlternative;
   deleteProductAlternative: (id: string) => void;
@@ -116,15 +125,17 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
     () => mergeSeedRecords(lsGet<VehicleModel[]>("vehicleModels", []), seedVehicleModels),
     [],
   );
+  const loadGenerations = useCallback(
+    () => mergeSeedRecords(lsGet<VehicleGeneration[]>("vehicleGenerations", []), seedVehicleGenerations),
+    [],
+  );
   const [vehicleMakes, setVehicleMakes] = useState<VehicleMake[]>(loadMakes);
   const [vehicleCatalogPreferences, setVehicleCatalogPreferences] =
     useState<VehicleCatalogPreferences>(() =>
       normalizePreferences(lsGet("vehicleCatalogPreferences", DEFAULT_VEHICLE_CATALOG_PREFERENCES)),
     );
   const [vehicleModels, setVehicleModels] = useState<VehicleModel[]>(loadModels);
-  const [vehicleGenerations, setVehicleGenerations] = useState<VehicleGeneration[]>(() =>
-    lsGet("vehicleGenerations", []),
-  );
+  const [vehicleGenerations, setVehicleGenerations] = useState<VehicleGeneration[]>(loadGenerations);
   const [vehicleEngines, setVehicleEngines] = useState<VehicleEngine[]>(() =>
     lsGet("vehicleEngines", []),
   );
@@ -146,7 +157,7 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
       normalizePreferences(lsGet("vehicleCatalogPreferences", DEFAULT_VEHICLE_CATALOG_PREFERENCES)),
     );
     setVehicleModels(loadModels());
-    setVehicleGenerations(lsGet("vehicleGenerations", []));
+    setVehicleGenerations(loadGenerations());
     setVehicleEngines(lsGet("vehicleEngines", []));
     setProductFitments(
       buildStarterProductFitments(
@@ -157,7 +168,7 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
       ),
     );
     setProductAlternatives(lsGet("productAlternatives", []));
-  }, [loadMakes, loadModels, products]);
+  }, [loadMakes, loadModels, loadGenerations, products]);
 
   useEffect(() => {
     setProductFitments((current) =>
@@ -215,6 +226,27 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
     setVehicleMakes((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }, []);
 
+  // Deleting a make/model/generation/engine cascades to whatever hangs off it
+  // (models/generations/engines/fitments) so the catalog never keeps rows
+  // pointing at an id that no longer exists.
+  const deleteVehicleMake = useCallback((id: string) => {
+    setVehicleModels((models) => {
+      const modelIdsUnderMake = new Set(models.filter((m) => m.makeId === id).map((m) => m.id));
+      setVehicleGenerations((generations) => {
+        const generationIdsUnderMake = new Set(
+          generations.filter((g) => modelIdsUnderMake.has(g.modelId)).map((g) => g.id),
+        );
+        setVehicleEngines((engines) =>
+          engines.filter((e) => !generationIdsUnderMake.has(e.generationId)),
+        );
+        return generations.filter((g) => !modelIdsUnderMake.has(g.modelId));
+      });
+      setProductFitments((fitments) => fitments.filter((f) => f.makeId !== id));
+      return models.filter((m) => m.makeId !== id);
+    });
+    setVehicleMakes((items) => items.filter((item) => item.id !== id));
+  }, []);
+
   const addVehicleModel = useCallback((input: NewModel) => {
     const item: VehicleModel = { ...input, id: uid("model"), source: "user", createdAt: now() };
     setVehicleModels((items) => [...items, item]);
@@ -223,6 +255,20 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
 
   const updateVehicleModel = useCallback((id: string, patch: Partial<VehicleModel>) => {
     setVehicleModels((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
+
+  const deleteVehicleModel = useCallback((id: string) => {
+    setVehicleGenerations((generations) => {
+      const generationIdsUnderModel = new Set(
+        generations.filter((g) => g.modelId === id).map((g) => g.id),
+      );
+      setVehicleEngines((engines) =>
+        engines.filter((e) => !generationIdsUnderModel.has(e.generationId)),
+      );
+      return generations.filter((g) => g.modelId !== id);
+    });
+    setProductFitments((fitments) => fitments.filter((f) => f.modelId !== id));
+    setVehicleModels((items) => items.filter((item) => item.id !== id));
   }, []);
 
   const addVehicleGeneration = useCallback((input: NewGeneration) => {
@@ -240,6 +286,12 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const deleteVehicleGeneration = useCallback((id: string) => {
+    setVehicleEngines((engines) => engines.filter((e) => e.generationId !== id));
+    setProductFitments((fitments) => fitments.filter((f) => f.generationId !== id));
+    setVehicleGenerations((items) => items.filter((item) => item.id !== id));
+  }, []);
+
   const addVehicleEngine = useCallback((input: NewEngine) => {
     const item: VehicleEngine = { ...input, id: uid("engine"), createdAt: now() };
     setVehicleEngines((items) => [...items, item]);
@@ -252,11 +304,47 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const deleteVehicleEngine = useCallback((id: string) => {
+    setProductFitments((fitments) => fitments.filter((f) => f.engineId !== id));
+    setVehicleEngines((items) => items.filter((item) => item.id !== id));
+  }, []);
+
   const addProductFitment = useCallback((input: NewFitment) => {
     const item: ProductFitment = { ...input, id: uid("fitment"), createdAt: now() };
     setProductFitments((items) => [...items, item]);
     return item;
   }, []);
+
+  const addBulkProductFitments = useCallback(
+    (
+      productIds: string[],
+      fitmentSpec: Omit<ProductFitment, "id" | "productId" | "createdAt">
+    ) => {
+      const createdAt = now();
+      const newItems: ProductFitment[] = productIds.map((pid) => ({
+        ...fitmentSpec,
+        id: uid("fitment"),
+        productId: pid,
+        createdAt,
+      }));
+      setProductFitments((items) => {
+        const existingKeys = new Set(
+          items.map(
+            (f) =>
+              `${f.productId}:${f.makeId}:${f.modelId ?? ""}:${f.generationId ?? ""}:${f.engineId ?? ""}:${f.yearFrom ?? ""}:${f.yearTo ?? ""}`
+          )
+        );
+        const filteredNew = newItems.filter(
+          (f) =>
+            !existingKeys.has(
+              `${f.productId}:${f.makeId}:${f.modelId ?? ""}:${f.generationId ?? ""}:${f.engineId ?? ""}:${f.yearFrom ?? ""}:${f.yearTo ?? ""}`
+            )
+        );
+        return [...items, ...filteredNew];
+      });
+    },
+    []
+  );
 
   const deleteProductFitment = useCallback((id: string) => {
     setProductFitments((items) => items.filter((item) => item.id !== id));
@@ -311,13 +399,18 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
       productAlternatives,
       addVehicleMake,
       updateVehicleMake,
+      deleteVehicleMake,
       addVehicleModel,
       updateVehicleModel,
+      deleteVehicleModel,
       addVehicleGeneration,
       updateVehicleGeneration,
+      deleteVehicleGeneration,
       addVehicleEngine,
       updateVehicleEngine,
+      deleteVehicleEngine,
       addProductFitment,
+      addBulkProductFitments,
       deleteProductFitment,
       addProductAlternative,
       deleteProductAlternative,
@@ -336,13 +429,18 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
       productAlternatives,
       addVehicleMake,
       updateVehicleMake,
+      deleteVehicleMake,
       addVehicleModel,
       updateVehicleModel,
+      deleteVehicleModel,
       addVehicleGeneration,
       updateVehicleGeneration,
+      deleteVehicleGeneration,
       addVehicleEngine,
       updateVehicleEngine,
+      deleteVehicleEngine,
       addProductFitment,
+      addBulkProductFitments,
       deleteProductFitment,
       addProductAlternative,
       deleteProductAlternative,

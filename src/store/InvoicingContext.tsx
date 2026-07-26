@@ -58,7 +58,7 @@ export interface InvoicingContextValue {
   stockMovements: StockMovement[];
   shifts: CashierShift[];
   activeShift: CashierShift | null;
-  openShift: (opts: { openingCash: number; note?: string }) => CashierShift;
+  openShift: (opts: { openingCash: number; note?: string; branchId?: string; branchName?: string }) => CashierShift;
   closeShift: (shiftId: ID, closingCashActual: number, note?: string) => CashierShift;
   getShiftSummary: (shiftId: ID) => CashierShift;
   addSalesInvoice: (

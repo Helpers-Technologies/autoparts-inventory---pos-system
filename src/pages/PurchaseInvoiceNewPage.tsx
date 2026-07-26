@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useBlocker, useNavigate } from "react-router-dom";
+import { useBlocker, useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -22,6 +22,7 @@ import { useAuth } from "../store/AuthContext";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
 import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
+import { useAutoPartsPro } from "../store/AutoPartsProContext";
 
 interface LineDraft {
   id: string;
@@ -50,9 +51,12 @@ export function PurchaseInvoiceNewPage() {
   const { isEnabled } = useFeatures();
   const expiryTrackingEnabled = isEnabled("expiryTracking");
   const { currentUser } = useAuth();
+  const pro = useAutoPartsPro();
+  const activeBranches = useMemo(() => pro.branches.filter((b) => b.active), [pro.branches]);
   const canAddProduct = hasPermission(currentUser, "products", "add");
   const canAddSupplier = hasPermission(currentUser, "suppliers", "add");
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
 
   const [invoiceNumber] = useState(() =>
@@ -60,6 +64,9 @@ export function PurchaseInvoiceNewPage() {
   );
   const [date, setDate] = useState(() => todayISO());
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? "");
+  const [branchId, setBranchId] = useState(() =>
+    currentUser?.branchId ?? activeBranches.find((b) => b.isMain)?.id ?? activeBranches[0]?.id ?? ""
+  );
   const [amountPaid, setAmountPaid] = useState<number>(0);
   const [notes, setNotes] = useState("");
 
@@ -84,10 +91,41 @@ export function PurchaseInvoiceNewPage() {
     if (!supplierId && suppliers[0]) setSupplierId(suppliers[0].id);
   }, [suppliers, supplierId]);
 
+  // Load passed state from Purchasing Assistant plan
+  useEffect(() => {
+    const state = location.state as {
+      supplierId?: string;
+      lines?: { productId: string; quantity: number; price: number; expiryDate?: string }[];
+    } | null;
+
+    if (state?.lines && state.lines.length > 0) {
+      if (state.supplierId) {
+        setSupplierId(state.supplierId);
+      }
+      const draftLines: LineDraft[] = state.lines.map((l) => ({
+        id: uid("line"),
+        productId: l.productId,
+        quantity: l.quantity,
+        price: l.price,
+        expiryDate: l.expiryDate,
+      }));
+      setLines(draftLines);
+      toast.info("تم نقل خطة إعادة الطلب إلى الفاتورة", `${draftLines.length} صنف تم إدراجها تلقائيًا.`);
+    }
+  }, []);
+
   const total = useMemo(
     () => lines.reduce((a, l) => a + (l.quantity || 0) * (l.price || 0), 0),
     [lines]
   );
+
+  function getLatestPurchasePrice(p: Product): number {
+    const lastLine = purchaseInvoices
+      .flatMap((inv) => inv.lines)
+      .filter((l) => l.productId === p.id && l.price > 0)
+      .pop();
+    return lastLine?.price ?? p.purchasePrice ?? 0;
+  }
 
   function addLine(productId?: string) {
     const p = productId ? products.find((x) => x.id === productId) : undefined;
@@ -97,7 +135,7 @@ export function PurchaseInvoiceNewPage() {
         id: uid("line"),
         productId: p?.id ?? "",
         quantity: 1,
-        price: p?.purchasePrice ?? 0,
+        price: p ? getLatestPurchasePrice(p) : 0,
         expiryDate: p?.expiryDate,
       },
     ]);
@@ -129,7 +167,7 @@ export function PurchaseInvoiceNewPage() {
           id: uid("line"),
           productId: product.id,
           quantity: 1,
-          price: product.purchasePrice,
+          price: getLatestPurchasePrice(product),
           expiryDate: product.expiryDate,
         },
       ];
@@ -145,7 +183,7 @@ export function PurchaseInvoiceNewPage() {
         if (patch.productId !== undefined) {
           const p = products.find((x) => x.id === patch.productId);
           if (p) {
-            next.price = p.purchasePrice;
+            next.price = getLatestPurchasePrice(p);
             next.expiryDate = p.expiryDate;
           }
         }
@@ -175,6 +213,10 @@ export function PurchaseInvoiceNewPage() {
       toast.error("المبلغ المدفوع غير صحيح");
       return;
     }
+    if (activeBranches.length > 0 && !branchId) {
+      toast.error("اختر فرع الاستلام");
+      return;
+    }
 
     const supplier = suppliers.find((s) => s.id === supplierId)!;
     const invLines: InvoiceLine[] = lines.map((l) => {
@@ -202,8 +244,15 @@ export function PurchaseInvoiceNewPage() {
       lines: invLines,
       total,
       amountPaid,
+      branchId: branchId || undefined,
       notes: notes.trim() || undefined,
     });
+
+    // Route the received stock to the receiving branch itself, instead of
+    // letting the branch-stock reconciler dump the new quantity on main.
+    if (branchId) {
+      pro.receivePurchaseStock(branchId, invLines.map((line) => ({ productId: line.productId, quantity: line.quantity })));
+    }
 
     const issuedNum = parseInt(inv.invoiceNumber.replace(/\D/g, ""), 10);
     if (!Number.isNaN(issuedNum)) {
@@ -270,6 +319,17 @@ export function PurchaseInvoiceNewPage() {
                 )}
               </div>
             </Field>
+            {activeBranches.length > 1 ? (
+              <Field label="فرع الاستلام" required hint="الكمية المضافة هتتحسب على مخزون هذا الفرع تحديدًا">
+                <Select aria-label="فرع الاستلام" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+                  {activeBranches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
           </div>
         </CardBody>
       </Card>

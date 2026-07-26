@@ -130,7 +130,7 @@ export function InventoryPage() {
   }
 
   const counts = useMemo(() => {
-    const low = products.filter((p) => p.quantity <= p.minStock).length;
+    const low = products.filter((p) => p.quantity > 0 && p.quantity <= p.minStock).length;
     const soon = expiryTrackingEnabled ? products.filter((p) => {
       if (!p.hasExpiry || !p.expiryDate) return false;
       const du = daysUntil(p.expiryDate);

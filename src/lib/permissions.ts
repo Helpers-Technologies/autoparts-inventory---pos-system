@@ -11,10 +11,14 @@ export const PERMISSION_GROUPS: {
   {
     key: "pos",
     label: "الكاشير ونقطة البيع (POS)",
-    description: "إصدار فواتير الكاشير والتمرير السريع والخصومات",
+    description: "إصدار فواتير الكاشير والتمرير السريع والخصومات والورديات",
     actions: [
-      { key: "view", label: "فتح الكاشير" },
+      { key: "view", label: "دخول الكاشير" },
       { key: "createSale", label: "إصدار فواتير كاشير" },
+      { key: "openShift", label: "فتح وردية كاشير جديدة" },
+      { key: "closeShift", label: "إغلاق وتقفيل الوردية" },
+      { key: "viewShifts", label: "سجل وتقارير الورديات (Z-Report)" },
+      { key: "supervisorOverride", label: "مشرف الورديات (إدارة ورديات الآخرين)" },
       { key: "applyDiscount", label: "تطبيق الخصم" },
       { key: "holdCart", label: "تعليق واسترجاع السلات" },
     ],
@@ -143,7 +147,16 @@ export const PERMISSION_GROUPS: {
 
 export function createPermissions(enabled = false): UserPermissions {
   return {
-    pos: { view: enabled, createSale: enabled, applyDiscount: enabled, holdCart: enabled },
+    pos: {
+      view: enabled,
+      createSale: enabled,
+      openShift: enabled,
+      closeShift: enabled,
+      viewShifts: enabled,
+      supervisorOverride: enabled,
+      applyDiscount: enabled,
+      holdCart: enabled,
+    },
     products: { view: enabled, add: enabled, edit: enabled, delete: enabled, printBarcode: enabled },
     inventory: { view: enabled, adjust: enabled, stocktakes: enabled, transfers: enabled },
     purchaseInvoices: { view: enabled, add: enabled, edit: enabled, pay: enabled, delete: enabled, purchasingAssistant: enabled },
@@ -182,8 +195,26 @@ export function normalizePermissions(input?: Partial<UserPermissions> | null): U
   if (!source.pos) {
     permissions.pos.view = Boolean(legacySales?.view || legacySales?.add);
     permissions.pos.createSale = Boolean(legacySales?.add);
+    permissions.pos.openShift = Boolean(legacySales?.add || legacySales?.view);
+    permissions.pos.closeShift = Boolean(legacySales?.add || legacySales?.view);
+    permissions.pos.viewShifts = Boolean(legacySales?.view);
+    permissions.pos.supervisorOverride = false;
     permissions.pos.applyDiscount = Boolean(legacySales?.add);
     permissions.pos.holdCart = Boolean(legacySales?.view || legacySales?.add);
+  } else {
+    // Backwards compatibility for existing pos permissions objects without explicit shift keys
+    if (typeof source.pos.openShift !== "boolean") {
+      permissions.pos.openShift = Boolean(permissions.pos.view || permissions.pos.createSale);
+    }
+    if (typeof source.pos.closeShift !== "boolean") {
+      permissions.pos.closeShift = Boolean(permissions.pos.view || permissions.pos.createSale);
+    }
+    if (typeof source.pos.viewShifts !== "boolean") {
+      permissions.pos.viewShifts = Boolean(permissions.pos.view);
+    }
+    if (typeof source.pos.supervisorOverride !== "boolean") {
+      permissions.pos.supervisorOverride = false;
+    }
   }
 
   if (!source.inventory) {

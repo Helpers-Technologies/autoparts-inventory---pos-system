@@ -445,7 +445,7 @@ export function SalesInvoiceDetailPage() {
           </Field>
           <Field label="وسيلة الدفع">
             <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
-              {Object.entries(PAYMENT_METHOD_LABELS).filter(([k]) => k !== "credit" && k !== "other").map(([k, v]) => (
+              {Object.entries(PAYMENT_METHOD_LABELS).filter(([k]) => k !== "credit").map(([k, v]) => (
                 <option key={k} value={k}>{v}</option>
               ))}
             </Select>

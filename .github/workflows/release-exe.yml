@@ -1,0 +1,71 @@
+name: Build & Release Windows Installer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-exe:
+    name: Build Windows installer (electron-builder)
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # NOTE: this uses the placeholder/example license public key (same as
+      # ci.yml's build step) — the real production key is intentionally never
+      # committed (see electron/license-public-key.cjs in .gitignore) and is
+      # not provisioned as a CI secret. This build proves the packaging
+      # pipeline works end-to-end and is installable, but it will NOT verify
+      # real production license serials. A real release build must run
+      # locally on a machine that already has the real license-public-key.cjs
+      # (and the real code-signing certificate — see scripts/sign-win.cjs,
+      # which gracefully skips signing here since neither is present in CI).
+      - name: Prepare local license public key (placeholder — see note above)
+        shell: pwsh
+        run: Copy-Item electron/license-public-key.example.cjs electron/license-public-key.cjs
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Locate installer artifact
+        id: find_installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path release -Filter *.exe -Recurse | Select-Object -First 1
+          if (-not $installer) { throw "No .exe artifact found under release/" }
+          echo "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+          echo "name=$($installer.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-installer
+          path: ${{ steps.find_installer.outputs.path }}
+          retention-days: 90
+
+      - name: Create GitHub Release with installer attached
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ci-build-${{ github.run_number }}
+          name: "Preview build #${{ github.run_number }} (unsigned, placeholder license key)"
+          body: |
+            Automated CI build from commit ${{ github.sha }}.
+
+            ⚠️ This build is **unsigned** and uses the **placeholder** license
+            public key — it will install and run, but it will not verify real
+            production license serials. Build locally with `npm run dist:win`
+            for a real, signed, production-licensed release.
+          prerelease: true
+          files: ${{ steps.find_installer.outputs.path }}

@@ -15,6 +15,8 @@ import {
 } from "../../store/AutoPartsProContext";
 import { useCatalog } from "../../store/CatalogContext";
 import { useVehicleCatalog } from "../../store/VehicleCatalogContext";
+import { getMakeSearchText } from "../../lib/fuzzySearch";
+import type { CustomerVehicle } from "../../types";
 
 type VehicleDraft = {
   customerId: string;
@@ -22,6 +24,8 @@ type VehicleDraft = {
   plateNumber: string;
   makeId: string;
   modelId: string;
+  generationId: string;
+  engineId: string;
   year: string;
   engineCode: string;
   color: string;
@@ -35,6 +39,8 @@ const EMPTY_DRAFT: VehicleDraft = {
   plateNumber: "",
   makeId: "",
   modelId: "",
+  generationId: "",
+  engineId: "",
   year: "",
   engineCode: "",
   color: "",
@@ -46,11 +52,13 @@ export function CustomerVehicleFormDialog({
   open,
   onClose,
   initialCustomerId = "",
+  editingVehicle = null,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   initialCustomerId?: string;
+  editingVehicle?: CustomerVehicle | null;
   onCreated?: (vehicleId: string) => void;
 }) {
   const { customers } = useCatalog();
@@ -61,12 +69,35 @@ export function CustomerVehicleFormDialog({
 
   useEffect(() => {
     if (open) {
-      setDraft({ ...EMPTY_DRAFT, customerId: initialCustomerId });
+      setDraft(
+        editingVehicle
+          ? {
+              customerId: editingVehicle.customerId,
+              vin: editingVehicle.vin ?? "",
+              plateNumber: editingVehicle.plateNumber ?? "",
+              makeId: editingVehicle.makeId,
+              modelId: editingVehicle.modelId ?? "",
+              generationId: editingVehicle.generationId ?? "",
+              engineId: editingVehicle.engineId ?? "",
+              year: editingVehicle.year ? String(editingVehicle.year) : "",
+              engineCode: editingVehicle.engineCode ?? "",
+              color: editingVehicle.color ?? "",
+              mileageKm: editingVehicle.mileageKm ? String(editingVehicle.mileageKm) : "",
+              notes: editingVehicle.notes ?? "",
+            }
+          : { ...EMPTY_DRAFT, customerId: initialCustomerId },
+      );
     }
-  }, [open, initialCustomerId]);
+  }, [open, initialCustomerId, editingVehicle]);
 
   const availableModels = vehicleCatalog.vehicleModels.filter(
     (model) => model.makeId === draft.makeId && model.active
+  );
+  const availableGenerations = vehicleCatalog.vehicleGenerations.filter(
+    (generation) => generation.modelId === draft.modelId && generation.active
+  );
+  const availableEngines = vehicleCatalog.vehicleEngines.filter(
+    (engine) => engine.generationId === draft.generationId && engine.active
   );
 
   function setVin(value: string) {
@@ -96,28 +127,38 @@ export function CustomerVehicleFormDialog({
     }
     const duplicate = pro.customerVehicles.some(
       (vehicle) =>
-        (draft.vin && vehicle.vin === draft.vin) ||
-        (draft.plateNumber &&
-          vehicle.plateNumber?.toLowerCase() === draft.plateNumber.trim().toLowerCase())
+        vehicle.id !== editingVehicle?.id &&
+        ((draft.vin && vehicle.vin === draft.vin) ||
+          (draft.plateNumber &&
+            vehicle.plateNumber?.toLowerCase() === draft.plateNumber.trim().toLowerCase()))
     );
     if (duplicate) {
       toast.error("السيارة مسجلة بالفعل", "راجع رقم الشاسيه أو اللوحة.");
       return;
     }
-    const item = pro.addCustomerVehicle({
+    const payload = {
       customerId: draft.customerId,
       vin: draft.vin || undefined,
       plateNumber: draft.plateNumber || undefined,
       makeId: draft.makeId,
       modelId: draft.modelId || undefined,
+      generationId: draft.generationId || undefined,
+      engineId: draft.engineId || undefined,
       year: draft.year ? Number(draft.year) : undefined,
       engineCode: draft.engineCode || undefined,
       color: draft.color || undefined,
       mileageKm: draft.mileageKm ? Number(draft.mileageKm) : undefined,
       notes: draft.notes || undefined,
-    });
-    toast.success("تم تسجيل السيارة", "تمت إضافة السيارة بنجاح.");
-    onCreated?.(item.id);
+    };
+    if (editingVehicle) {
+      pro.updateCustomerVehicle(editingVehicle.id, payload);
+      toast.success("تم تحديث بيانات السيارة");
+      onCreated?.(editingVehicle.id);
+    } else {
+      const item = pro.addCustomerVehicle(payload);
+      toast.success("تم تسجيل السيارة", "تمت إضافة السيارة بنجاح.");
+      onCreated?.(item.id);
+    }
     onClose();
   }
 
@@ -125,8 +166,8 @@ export function CustomerVehicleFormDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="تسجيل سيارة عميل جديدة"
-      subtitle="أدخل بيانات السيارة لربطها بالعميل"
+      title={editingVehicle ? "تعديل بيانات السيارة" : "تسجيل سيارة عميل جديدة"}
+      subtitle={editingVehicle ? "حدّث بيانات السيارة، بما فيها الجيل والمحرك لضمان مطابقة التوافق" : "أدخل بيانات السيارة لربطها بالعميل"}
       width="lg"
       footer={
         <>
@@ -134,7 +175,7 @@ export function CustomerVehicleFormDialog({
             إلغاء
           </Button>
           <Button onClick={saveVehicle}>
-            <ShieldCheck className="h-4 w-4" /> حفظ وربط السيارة
+            <ShieldCheck className="h-4 w-4" /> {editingVehicle ? "حفظ التعديلات" : "حفظ وربط السيارة"}
           </Button>
         </>
       }
@@ -197,14 +238,14 @@ export function CustomerVehicleFormDialog({
         <Field label="الماركة" required>
           <SearchableSelect
             value={draft.makeId}
-            onChange={(val) => setDraft((current) => ({ ...current, makeId: val, modelId: "" }))}
+            onChange={(val) => setDraft((current) => ({ ...current, makeId: val, modelId: "", generationId: "", engineId: "" }))}
             options={vehicleCatalog.specializedVehicleMakes
               .filter((make) => make.active)
               .map((make) => ({
                 value: make.id,
                 label: make.nameAr ? `${make.nameAr} (${make.name})` : make.name,
                 image: make.logoPath || `/vehicle-logos/${make.slug}.png`,
-                searchText: `${make.name} ${make.nameAr ?? ""}`,
+                searchText: getMakeSearchText(make),
               }))}
             placeholder="اختر الماركة..."
             searchPlaceholder="ابحث عن ماركة السيارة..."
@@ -214,7 +255,7 @@ export function CustomerVehicleFormDialog({
         <Field label="الموديل">
           <SearchableSelect
             value={draft.modelId}
-            onChange={(val) => setDraft((current) => ({ ...current, modelId: val }))}
+            onChange={(val) => setDraft((current) => ({ ...current, modelId: val, generationId: "", engineId: "" }))}
             options={availableModels.map((model) => ({
               value: model.id,
               label: model.nameAr ? `${model.nameAr} (${model.name})` : model.name,
@@ -225,6 +266,34 @@ export function CustomerVehicleFormDialog({
             disabled={!draft.makeId}
             minChars={0}
           />
+        </Field>
+        <Field label="الجيل" hint="حدد الجيل لضمان مطابقة توافق القطع بدقة">
+          <Select
+            value={draft.generationId}
+            onChange={(event) => setDraft((current) => ({ ...current, generationId: event.target.value, engineId: "" }))}
+            disabled={!draft.modelId}
+          >
+            <option value="">اختر الجيل (اختياري)</option>
+            {availableGenerations.map((generation) => (
+              <option key={generation.id} value={generation.id}>
+                {generation.name} {generation.yearFrom ? `(${generation.yearFrom}${generation.yearTo ? `-${generation.yearTo}` : "+"})` : ""}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="المحرك">
+          <Select
+            value={draft.engineId}
+            onChange={(event) => setDraft((current) => ({ ...current, engineId: event.target.value }))}
+            disabled={!draft.generationId}
+          >
+            <option value="">اختر المحرك (اختياري)</option>
+            {availableEngines.map((engine) => (
+              <option key={engine.id} value={engine.id}>
+                {engine.name} {engine.capacityCc ? `· ${engine.capacityCc}cc` : ""}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field label="سنة الصنع">
           <YearSelect

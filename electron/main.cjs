@@ -41,7 +41,19 @@ const internalPrintWebContents = new Set();
 
 const APP_ID = "com.helperstechnologies.autoparts";
 const APP_SALT = "autoparts-inventory-system-v1-local-license";
-const CLOCK_SKEW_MS = 5 * 60 * 1000;
+// Backward clock-jump tolerance before flagging clock_tampered. 5 minutes was
+// too tight — ordinary NTP resyncs, DST transitions, and a user fixing a
+// slightly-wrong clock could all trip it. A rollback measured in hours buys a
+// trial-abuser nothing meaningful, so a generous tolerance here doesn't weaken
+// the actual protection (that's the signed subscriptionExpiresAt check above).
+const CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
+// If the recorded "last seen" timestamp is further in the future than this,
+// treat it as a corrupted/one-off bad reading rather than active tampering —
+// nobody rolls a clock back over a year to gain a few days of trial, since the
+// signed subscriptionExpiresAt is checked independently either way — and
+// self-heal by re-baselining, so a single bad clock read can't permanently
+// lock a paying customer out with no recovery path.
+const CLOCK_TAMPER_SELF_HEAL_MS = 365 * 24 * 60 * 60 * 1000;
 const MAX_TOKEN_LENGTH = 8192;
 const MAX_USERNAME_LENGTH = 80;
 const MAX_PASSWORD_LENGTH = 256;
@@ -433,7 +445,10 @@ const {
 } = require("./backup-crypto.cjs");
 
 function getBackupKey() {
-  return Buffer.from(sha256(`${APP_SALT}:backup`), "hex");
+  // Bind to the machine so v1 (silent/automatic) backups are not trivially
+  // decryptable on a different device. Previously this was just
+  // sha256(APP_SALT:backup) — identical on every installation.
+  return Buffer.from(sha256(`${APP_SALT}:backup:${getMachineMaterial()}`), "hex");
 }
 
 function normalizeBackupPassphrase(passphrase) {
@@ -448,15 +463,27 @@ function encryptBackup(plaintext, passphrase) {
   return encryptBackupContent(plaintext, getBackupKey());
 }
 
+// Legacy key used before per-machine binding was added. Needed to restore
+// v1 backups that were created before this change.
+function getLegacyBackupKey() {
+  return Buffer.from(sha256(`${APP_SALT}:backup`), "hex");
+}
+
 // Chooses the decryptor by envelope version. v2 requires the passphrase; v1
-// (and legacy) use the app key.
+// (and legacy) use the app key — try the new per-machine key first, then
+// fall back to the legacy global key for pre-migration backups.
 function decryptBackup(encryptedStr, passphrase) {
   if (getBackupEnvelopeVersion(encryptedStr) === 2) {
     const pass = normalizeBackupPassphrase(passphrase);
     if (!pass) throw new Error("passphrase_required");
     return decryptBackupWithPassphrase(encryptedStr, pass);
   }
-  return decryptBackupContent(encryptedStr, getBackupKey());
+  // Try per-machine key first (new backups), then legacy global key (old ones)
+  try {
+    return decryptBackupContent(encryptedStr, getBackupKey());
+  } catch {
+    return decryptBackupContent(encryptedStr, getLegacyBackupKey());
+  }
 }
 
 function openDatabase() {
@@ -1143,7 +1170,13 @@ function evaluateLicense(serial, persistSeen) {
   if (lastSeenRaw) {
     const lastSeenMs = parseDateMs(lastSeenRaw);
     if (lastSeenMs !== null && now.getTime() + CLOCK_SKEW_MS < lastSeenMs) {
-      return buildLicenseStatus("clock_tampered", { license });
+      if (lastSeenMs - now.getTime() > CLOCK_TAMPER_SELF_HEAL_MS) {
+        // Implausibly large gap — almost certainly a corrupted/stale reading,
+        // not genuine tampering. Re-baseline instead of a permanent lock.
+        storageSet(LICENSE_LAST_SEEN_KEY, now.toISOString());
+      } else {
+        return buildLicenseStatus("clock_tampered", { license });
+      }
     }
   }
 
@@ -2022,6 +2055,30 @@ function sanitizeFileName(value) {
     .replace(/-+/g, "-")
     .trim()
     .slice(0, 140) || "invoice";
+}
+
+// Automatic backups had no retention policy and accumulated in the backup
+// folder forever. Keep only the newest N — the filename embeds a sortable
+// timestamp (helpers-backup-YYYY-MM-DD-HHMM-SS.hwbak), so a plain string sort
+// orders them chronologically without needing to stat every file.
+const BACKUP_RETENTION_COUNT = 30;
+function pruneOldBackups(dir) {
+  try {
+    const files = fs
+      .readdirSync(dir)
+      .filter((name) => /^helpers-backup-.*\.hwbak$/i.test(name))
+      .sort()
+      .reverse();
+    for (const name of files.slice(BACKUP_RETENTION_COUNT)) {
+      try {
+        fs.unlinkSync(path.join(dir, name));
+      } catch {
+        // best-effort — a locked/in-use file just survives to the next prune
+      }
+    }
+  } catch {
+    // directory listing failed — never let cleanup break the backup itself
+  }
 }
 
 function sanitizeImageSrc(value) {
@@ -3401,6 +3458,7 @@ function registerIpc() {
       const base = sanitizeFileName(payload.fileName.replace(/\.(json|hwbak)$/i, "")) || "helpers-backup";
       const target = path.join(dir, `${base}.hwbak`);
       fs.writeFileSync(target, encryptBackup(payload.content, payload.passphrase), "utf8");
+      pruneOldBackups(dir);
       return { ok: true, path: target };
     } catch {
       return { ok: false, error: "write_failed" };
