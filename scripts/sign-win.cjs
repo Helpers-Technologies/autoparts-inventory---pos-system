@@ -18,6 +18,13 @@
 //     TSA is unreachable — that fallback preserves the previous behaviour and
 //     stays valid until the cert expires.
 //
+// Signing itself supports two modes, chosen automatically:
+//  - Store-based (the developer's own machine): the cert is already imported
+//    into the local certificate store, referenced by SHA1 thumbprint.
+//  - File-based (CI): when WIN_CSC_LINK (path to a .pfx) and
+//    WIN_CSC_KEY_PASSWORD are set, sign directly from that file instead —
+//    lets a runner sign without importing anything into a cert store first.
+//
 // Configured via package.json -> build.win.signtoolOptions.sign.
 
 const { existsSync, readFileSync, writeFileSync } = require("node:fs");
@@ -86,6 +93,14 @@ exports.default = async function sign(configuration) {
     return;
   }
 
+  // File-based (CI) if a pfx + password were provided via env, otherwise
+  // fall back to store-based (the developer's own machine, by thumbprint).
+  const cscLink = process.env.WIN_CSC_LINK;
+  const cscPassword = process.env.WIN_CSC_KEY_PASSWORD;
+  const identityArgs = cscLink && cscPassword
+    ? ["/f", cscLink, "/p", cscPassword]
+    : ["/sha1", CERT_SHA1];
+
   // Try each timestamp authority; fall back to an untimestamped signature only
   // if all of them are unreachable (preserves the previous build behaviour).
   let timestamped = false;
@@ -93,7 +108,7 @@ exports.default = async function sign(configuration) {
     try {
       execFileSync(
         signtool,
-        ["sign", "/sha1", CERT_SHA1, "/fd", "sha256", "/tr", tsUrl, "/td", "sha256", file],
+        ["sign", ...identityArgs, "/fd", "sha256", "/tr", tsUrl, "/td", "sha256", file],
         { stdio: "pipe" }
       );
       timestamped = true;
@@ -108,7 +123,7 @@ exports.default = async function sign(configuration) {
     try {
       execFileSync(
         signtool,
-        ["sign", "/sha1", CERT_SHA1, "/fd", "sha256", file],
+        ["sign", ...identityArgs, "/fd", "sha256", file],
         { stdio: "pipe" }
       );
       console.warn(

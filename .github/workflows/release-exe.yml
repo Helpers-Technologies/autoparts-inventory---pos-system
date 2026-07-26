@@ -23,25 +23,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # NOTE: this uses the placeholder/example license public key (same as
-      # ci.yml's build step) — the real production key is intentionally never
-      # committed (see electron/license-public-key.cjs in .gitignore) and is
-      # not provisioned as a CI secret. This build proves the packaging
-      # pipeline works end-to-end and is installable, but it will NOT verify
-      # real production license serials. A real release build must run
-      # locally on a machine that already has the real license-public-key.cjs
-      # (and the real code-signing certificate — see scripts/sign-win.cjs,
-      # which gracefully skips signing here since neither is present in CI).
-      - name: Prepare local license public key (placeholder — see note above)
+      # The AUTOPARTS_LICENSE_PUBLIC_KEY env-var override in this file only
+      # applies at runtime on whatever machine actually runs the packaged
+      # app — setting it during the build step here would have no effect on
+      # what ends up inside the shipped app.asar. The real key (otherwise
+      # intentionally never committed — see .gitignore) has to be written
+      # into the file itself before packaging.
+      - name: Write real license public key
         shell: pwsh
-        run: Copy-Item electron/license-public-key.example.cjs electron/license-public-key.cjs
+        env:
+          AUTOPARTS_LICENSE_PUBLIC_KEY: ${{ secrets.AUTOPARTS_LICENSE_PUBLIC_KEY }}
+        run: node scripts/write-license-public-key.cjs
+
+      - name: Decode code-signing certificate
+        shell: pwsh
+        env:
+          WIN_CSC_LINK_BASE64: ${{ secrets.WIN_CSC_LINK_BASE64 }}
+        run: |
+          $bytes = [Convert]::FromBase64String($env:WIN_CSC_LINK_BASE64)
+          $path = Join-Path $env:RUNNER_TEMP "code-signing-cert.pfx"
+          [IO.File]::WriteAllBytes($path, $bytes)
+          echo "WIN_CSC_LINK=$path" >> $env:GITHUB_ENV
 
       # electron-builder auto-detects CI and tries to publish the artifact
       # itself via its own GitHub integration, which needs GH_TOKEN and would
       # duplicate the dedicated release step below — disable that with
       # --publish never instead of running the shared dist:win script as-is.
+      #
+      # WIN_CSC_LINK (set above) + WIN_CSC_KEY_PASSWORD (secret) make
+      # scripts/sign-win.cjs sign from the decoded .pfx file instead of
+      # looking the cert up in a local certificate store by thumbprint — see
+      # that script for the store-based-vs-file-based signing switch.
       - name: Build Windows installer
         shell: pwsh
+        env:
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
           node scripts/prepare-dist-win.cjs
           npm run build
@@ -67,13 +83,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ci-build-${{ github.run_number }}
-          name: "Preview build #${{ github.run_number }} (unsigned, placeholder license key)"
+          name: "Build #${{ github.run_number }} — signed, real license key"
           body: |
             Automated CI build from commit ${{ github.sha }}.
 
-            ⚠️ This build is **unsigned** and uses the **placeholder** license
-            public key — it will install and run, but it will not verify real
-            production license serials. Build locally with `npm run dist:win`
-            for a real, signed, production-licensed release.
+            Signed with the Helpers Technologies code-signing certificate and
+            verifies real production license serials.
+
+            ⚠️ The certificate is **self-signed** (not issued by a public CA),
+            so Windows SmartScreen will still show an "unknown publisher"
+            prompt on first run regardless of signing — that only goes away
+            with a CA-issued certificate. Functionally, this build is
+            equivalent to a local `npm run dist:win` release.
           prerelease: true
           files: ${{ steps.find_installer.outputs.path }}
