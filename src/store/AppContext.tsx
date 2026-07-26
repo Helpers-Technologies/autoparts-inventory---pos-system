@@ -78,6 +78,7 @@ import {
 } from "./_pure";
 import { SettingsContext } from "./SettingsContext";
 import { AuditLogContext } from "./AuditLogContext";
+import { ShiftsContext } from "./ShiftsContext";
 import { AuthContext, type AuthState, type UpdateCurrentUserProfileResult } from "./AuthContext";
 import { CatalogContext } from "./CatalogContext";
 import { InvoicingContext } from "./InvoicingContext";
@@ -3561,24 +3562,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [products, suppliers, customers, drivers, stocktakes, offlineEmployees, offlineTransactions, nextProductCode, nextSupplierCode, nextCustomerCode]
   );
 
+  const shiftsValue = useMemo(
+    () => ({ shifts, activeShift, openShift, closeShift, getShiftSummary }),
+    [shifts, activeShift, openShift, closeShift, getShiftSummary]
+  );
+
   return (
     <SettingsContext.Provider value={settingsValue}>
       <AuditLogContext.Provider value={auditLogValue}>
-        <AuthContext.Provider value={authValue}>
-          <CatalogContext.Provider value={catalogValue}>
-            <VehicleCatalogProvider>
-              <AutoPartsProProvider>
-                <UsersContext.Provider value={usersValue}>
-                  <InvoicingContext.Provider value={invoicingValue}>
-                    <ReportingContext.Provider value={reportingValue}>
-                      <AppContext.Provider value={value}>{children}</AppContext.Provider>
-                    </ReportingContext.Provider>
-                  </InvoicingContext.Provider>
-                </UsersContext.Provider>
-              </AutoPartsProProvider>
-            </VehicleCatalogProvider>
-          </CatalogContext.Provider>
-        </AuthContext.Provider>
+        <ShiftsContext.Provider value={shiftsValue}>
+          <AuthContext.Provider value={authValue}>
+            <CatalogContext.Provider value={catalogValue}>
+              <VehicleCatalogProvider>
+                <AutoPartsProProvider>
+                  <UsersContext.Provider value={usersValue}>
+                    <InvoicingContext.Provider value={invoicingValue}>
+                      <ReportingContext.Provider value={reportingValue}>
+                        <AppContext.Provider value={value}>{children}</AppContext.Provider>
+                      </ReportingContext.Provider>
+                    </InvoicingContext.Provider>
+                  </UsersContext.Provider>
+                </AutoPartsProProvider>
+              </VehicleCatalogProvider>
+            </CatalogContext.Provider>
+          </AuthContext.Provider>
+        </ShiftsContext.Provider>
       </AuditLogContext.Provider>
     </SettingsContext.Provider>
   );

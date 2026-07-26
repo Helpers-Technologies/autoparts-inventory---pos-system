@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
 import {
   Plus,
   Minus,
@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { hasPermission } from "../lib/permissions";
 import { useAuth } from "../store/AuthContext";
+import { useShifts } from "../store/ShiftsContext";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useReporting } from "../store/ReportingContext";
@@ -124,10 +125,88 @@ function getProductPrice(product: Product, selectedPriceType: SalesPriceType = D
   return selectedPriceType === "retail" ? product.retailPrice : product.wholesalePrice;
 }
 
+interface POSProductCardProps {
+  prod: Product;
+  availableStock: number;
+  isOutOfStock: boolean;
+  fitmentStatus: string;
+  hasAlternatives: boolean;
+  price: number;
+  selectedVehicle: boolean;
+  onClick: () => void;
+}
+
+const POSProductCard = memo(function POSProductCard({
+  prod,
+  availableStock,
+  isOutOfStock,
+  fitmentStatus,
+  hasAlternatives,
+  price,
+  selectedVehicle,
+  onClick,
+}: POSProductCardProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isOutOfStock && !hasAlternatives}
+      className={`flex flex-col text-right justify-between p-2.5 border rounded-xl bg-surface transition-all select-none relative ${
+        isOutOfStock
+          ? hasAlternatives
+            ? "opacity-80 cursor-pointer border-amber-500/50 hover:border-amber-500 hover:shadow-md"
+            : "opacity-50 cursor-not-allowed border-line bg-surface-muted/30"
+          : "border-line hover:border-brand-500 hover:shadow-md hover:scale-[1.01] cursor-pointer"
+      }`}
+    >
+      {/* "يوجد بديل" badge for out-of-stock items with alternatives */}
+      {isOutOfStock && hasAlternatives && (
+        <span className="absolute -top-2 -right-2 z-10 bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow whitespace-nowrap">
+          يوجد بديل
+        </span>
+      )}
+      <div className="space-y-1">
+        <div className="flex justify-between items-start gap-1">
+          <span className="text-[10px] bg-surface-muted px-1.5 py-0.5 rounded text-ink-muted font-bold font-mono truncate max-w-[55px]" title={prod.code}>
+            {prod.code}
+          </span>
+          <Badge
+            tone={availableStock <= prod.minStock ? "red" : "green"}
+            className="text-[9px] px-1 py-0"
+          >
+            متاح: {availableStock}
+          </Badge>
+        </div>
+        {selectedVehicle ? (
+          <Badge
+            tone={fitmentStatus === "compatible" ? "green" : fitmentStatus === "incompatible" ? "red" : "amber"}
+            className="text-[9px]"
+          >
+            {fitmentStatus === "compatible" ? "متوافق" : fitmentStatus === "incompatible" ? "غير متوافق" : "يلزم مطابقة"}
+          </Badge>
+        ) : null}
+        <h3 className="font-semibold text-xs text-ink leading-snug line-clamp-2" title={prod.name}>
+          {prod.name}
+        </h3>
+      </div>
+
+      <div className="mt-2 border-t border-line/60 pt-1.5 flex justify-between items-center">
+        <span className="text-[10px] text-ink-faint truncate max-w-[45px]">
+          {prod.unit}
+        </span>
+        <span className="font-bold text-xs text-brand-600">
+          {formatCurrency(price)}
+        </span>
+      </div>
+    </button>
+  );
+});
+
 export function POSPage() {
   const { currentUser } = useAuth();
   const { products: allProducts, customers: allCustomers } = useCatalog();
-  const { salesInvoices, addSalesInvoice, applyCustomerCredit, activeShift } = useInvoicing();
+  const { salesInvoices, addSalesInvoice, applyCustomerCredit } = useInvoicing();
+  const { activeShift } = useShifts();
   const { customerBalance } = useReporting();
   const pro = useAutoPartsPro();
   const branchQuantity = pro.branchQuantity;
@@ -1300,9 +1379,18 @@ export function POSPage() {
                   const fitmentStatus = productVehicleFitmentStatus(prod.id, selectedVehicle, vehicleCatalog.productFitments);
                   const alternatives = isOutOfStock ? findAlternativesFor(prod) : [];
                   const hasAlternatives = alternatives.length > 0;
+                  const price = getProductPrice(prod, DEFAULT_PRICE_TYPE);
+
                   return (
-                    <button
+                    <POSProductCard
                       key={prod.id}
+                      prod={prod}
+                      availableStock={availableStock}
+                      isOutOfStock={isOutOfStock}
+                      fitmentStatus={fitmentStatus}
+                      hasAlternatives={hasAlternatives}
+                      price={price}
+                      selectedVehicle={!!selectedVehicle}
                       onClick={() => {
                         if (isOutOfStock && hasAlternatives) {
                           setStockAlternative({ product: prod, alternatives });
@@ -1310,48 +1398,7 @@ export function POSPage() {
                           addProductToCart(prod);
                         }
                       }}
-                      disabled={isOutOfStock && !hasAlternatives}
-                      className={`flex flex-col text-right justify-between p-2.5 border rounded-xl bg-surface transition-all select-none relative ${
-                        isOutOfStock
-                          ? hasAlternatives
-                            ? "opacity-80 cursor-pointer border-amber-500/50 hover:border-amber-500 hover:shadow-md"
-                            : "opacity-50 cursor-not-allowed border-line bg-surface-muted/30"
-                          : "border-line hover:border-brand-500 hover:shadow-md hover:scale-[1.01] cursor-pointer"
-                      }`}
-                    >
-                      {/* "يوجد بديل" badge for out-of-stock items with alternatives */}
-                      {isOutOfStock && hasAlternatives && (
-                        <span className="absolute -top-2 -right-2 z-10 bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow whitespace-nowrap">
-                          يوجد بديل
-                        </span>
-                      )}
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-start gap-1">
-                          <span className="text-[10px] bg-surface-muted px-1.5 py-0.5 rounded text-ink-muted font-bold font-mono truncate max-w-[55px]" title={prod.code}>
-                            {prod.code}
-                          </span>
-                          <Badge
-                            tone={availableStock <= prod.minStock ? "red" : "green"}
-                            className="text-[9px] px-1 py-0"
-                          >
-                            متاح: {availableStock}
-                          </Badge>
-                        </div>
-                        {selectedVehicle ? <Badge tone={fitmentStatus === "compatible" ? "green" : fitmentStatus === "incompatible" ? "red" : "amber"} className="text-[9px]">{fitmentStatus === "compatible" ? "متوافق" : fitmentStatus === "incompatible" ? "غير متوافق" : "يلزم مطابقة"}</Badge> : null}
-                        <h3 className="font-semibold text-xs text-ink leading-snug line-clamp-2" title={prod.name}>
-                          {prod.name}
-                        </h3>
-                      </div>
-                      
-                      <div className="mt-2 border-t border-line/60 pt-1.5 flex justify-between items-center">
-                        <span className="text-[10px] text-ink-faint truncate max-w-[45px]">
-                          {prod.unit}
-                        </span>
-                        <span className="font-bold text-xs text-brand-600">
-                          {formatCurrency(getProductPrice(prod, DEFAULT_PRICE_TYPE))}
-                        </span>
-                      </div>
-                    </button>
+                    />
                   );
                 })}
               </div>

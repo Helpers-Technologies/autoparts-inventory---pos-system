@@ -28,6 +28,7 @@ import type { AppUser, Branch, CashierShift } from "../../src/types";
 const mockUseAuth = vi.fn();
 const mockUseCatalog = vi.fn();
 const mockUseInvoicing = vi.fn();
+const mockUseShifts = vi.fn();
 const mockUseReporting = vi.fn();
 const mockUseAutoPartsPro = vi.fn();
 const mockUseVehicleCatalog = vi.fn();
@@ -36,6 +37,7 @@ const mockUseFeatures = vi.fn();
 vi.mock("../../src/store/AuthContext", () => ({ useAuth: () => mockUseAuth() }));
 vi.mock("../../src/store/CatalogContext", () => ({ useCatalog: () => mockUseCatalog() }));
 vi.mock("../../src/store/InvoicingContext", () => ({ useInvoicing: () => mockUseInvoicing() }));
+vi.mock("../../src/store/ShiftsContext", () => ({ useShifts: () => mockUseShifts() }));
 vi.mock("../../src/store/ReportingContext", () => ({ useReporting: () => mockUseReporting() }));
 vi.mock("../../src/store/VehicleCatalogContext", () => ({ useVehicleCatalog: () => mockUseVehicleCatalog() }));
 vi.mock("../../src/lib/useFeatures", () => ({ useFeatures: () => mockUseFeatures() }));
@@ -104,6 +106,13 @@ function setupMocks(currentUser: AppUser, branches: Branch[]) {
     addSalesInvoice: vi.fn(),
     applyCustomerCredit: vi.fn(),
     activeShift: OPEN_SHIFT,
+  });
+  mockUseShifts.mockReturnValue({
+    shifts: [OPEN_SHIFT],
+    activeShift: OPEN_SHIFT,
+    openShift: vi.fn(),
+    closeShift: vi.fn(),
+    getShiftSummary: vi.fn(),
   });
   mockUseReporting.mockReturnValue({ customerBalance: () => 0 });
   mockUseAutoPartsPro.mockReturnValue({
