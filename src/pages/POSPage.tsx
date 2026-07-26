@@ -33,6 +33,7 @@ import { Button } from "../components/ui/Button";
 import { Input, Select } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { todayISO, uid } from "../lib/utils";
+import { useVirtualizer } from "../lib/useVirtualizer";
 import type { CashierShift, InvoiceLine, PartAlternativeRelation, PaymentMethod, Product, SalesInvoice, SalesPaymentType, SalesPriceType } from "../types";
 import { formatCurrency, formatDateTime, formatQualityGradeLabel } from "../lib/format";
 import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
@@ -320,6 +321,12 @@ export function POSPage() {
       return matchesCategory && matchesSearch && matchesVehicle;
     });
   }, [compatibilityOnly, products, searchQuery, selectedCategory, selectedVehicle, vehicleCatalog.productFitments]);
+
+  const { containerRef: gridContainerRef, virtualItems, paddingTop: gridPaddingTop, paddingBottom: gridPaddingBottom } = useVirtualizer({
+    count: filteredProducts.length,
+    itemHeight: 135,
+    overscan: 4,
+  });
 
   // Totals calculations
   const gross = useMemo(
@@ -1275,14 +1282,19 @@ export function POSPage() {
           </div>
 
           {/* Grid list of Products */}
-          <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
+          <div ref={gridContainerRef} className="flex-1 overflow-y-auto p-3 scrollbar-thin">
             {filteredProducts.length === 0 ? (
               <div className="h-full flex items-center justify-center text-ink-faint text-xs">
                 لا توجد منتجات مطابقة للبحث
               </div>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
-                {filteredProducts.map((prod) => {
+              <div
+                className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2"
+                style={{ paddingTop: `${gridPaddingTop}px`, paddingBottom: `${gridPaddingBottom}px` }}
+              >
+                {virtualItems.map(({ index }) => {
+                  const prod = filteredProducts[index];
+                  if (!prod) return null;
                   const availableStock = branchAvailableAsBaseUnits(prod);
                   const isOutOfStock = availableStock <= 0;
                   const fitmentStatus = productVehicleFitmentStatus(prod.id, selectedVehicle, vehicleCatalog.productFitments);
