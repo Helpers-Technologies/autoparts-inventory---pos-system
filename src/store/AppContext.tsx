@@ -126,8 +126,8 @@ interface AppActions {
   updateSettings: (patch: Partial<Settings>) => void;
 
   // Shifts
-  openShift: (opts: { openingCash: number; note?: string; branchId?: string; branchName?: string }) => CashierShift;
-  closeShift: (shiftId: ID, closingCashActual: number, note?: string) => CashierShift;
+  openShift: (opts: { openingCash: number | string; note?: string; branchId?: string; branchName?: string }) => CashierShift;
+  closeShift: (shiftId: ID, closingCashActual: number | string, note?: string) => CashierShift;
   getShiftSummary: (shiftId: ID) => CashierShift;
 
   // Users

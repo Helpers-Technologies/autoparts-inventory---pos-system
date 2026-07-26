@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, FileDown, Filter, MessageCircle, Plus, Receipt, Search, Printer, Trash2 } from "lucide-react";
+import { Eye, FileDown, Filter, MessageCircle, Plus, Receipt, Search, Printer, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";

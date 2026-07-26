@@ -5,20 +5,8 @@ export interface ShiftsContextValue {
   shifts: CashierShift[];
   activeShift: CashierShift | null;
   openShift: (opts: { openingCash: number | string; note?: string; branchId?: string; branchName?: string }) => CashierShift;
-  closeShift: (shiftId: string, closingCash: number | string, note?: string) => boolean;
-  getShiftSummary: (shiftId: string) => {
-    openingCash: number;
-    expectedCash: number;
-    closingCash: number;
-    difference: number;
-    totalSalesAmount: number;
-    totalCashSales: number;
-    totalVisaSales: number;
-    totalCreditSales: number;
-    totalRefunds: number;
-    totalExpenses: number;
-    totalCashAdditions: number;
-  } | null;
+  closeShift: (shiftId: string, closingCashActual: number | string, note?: string) => CashierShift;
+  getShiftSummary: (shiftId: string) => any;
 }
 
 export const ShiftsContext = createContext<ShiftsContextValue | null>(null);

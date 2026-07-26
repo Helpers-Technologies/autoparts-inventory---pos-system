@@ -38,7 +38,7 @@ import { useVirtualizer } from "../lib/useVirtualizer";
 import { buildProductSearchIndex, searchProductSearchIndex } from "../lib/partSearchIndex";
 import type { CashierShift, InvoiceLine, PartAlternativeRelation, PaymentMethod, Product, SalesInvoice, SalesPaymentType, SalesPriceType } from "../types";
 import { formatCurrency, formatDateTime, formatQualityGradeLabel } from "../lib/format";
-import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
+import { findProductScanCandidates } from "../lib/partSearch";
 import { useFeatures } from "../lib/useFeatures";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
 import { printAppRoute } from "../lib/print";
