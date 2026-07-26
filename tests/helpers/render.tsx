@@ -1,8 +1,10 @@
-import React from "react";
+import React, { type ComponentProps } from "react";
 import { render, type RenderOptions } from "@testing-library/react";
-import { MemoryRouter, type InitialEntry } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "../../src/components/ui/Toast";
 import "@testing-library/jest-dom/vitest";
+
+type InitialEntry = NonNullable<ComponentProps<typeof MemoryRouter>["initialEntries"]>[number];
 
 /**
  * Custom render that wraps components in the providers required by most pages:
