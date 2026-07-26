@@ -1,4 +1,4 @@
-import { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, memo, useMemo, useRef, useState, useDeferredValue } from "react";
 import {
   Plus,
   Minus,
@@ -35,6 +35,7 @@ import { Input, Select } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { todayISO, uid } from "../lib/utils";
 import { useVirtualizer } from "../lib/useVirtualizer";
+import { buildProductSearchIndex, searchProductSearchIndex } from "../lib/partSearchIndex";
 import type { CashierShift, InvoiceLine, PartAlternativeRelation, PaymentMethod, Product, SalesInvoice, SalesPaymentType, SalesPriceType } from "../types";
 import { formatCurrency, formatDateTime, formatQualityGradeLabel } from "../lib/format";
 import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
@@ -390,16 +391,20 @@ export function POSPage() {
     return ["الكل", ...Array.from(new Set(cats))];
   }, [products]);
 
-  // Filter products by category and search query
+  const deferredQuery = useDeferredValue(searchQuery);
+
+  const productIndex = useMemo(() => buildProductSearchIndex(products), [products]);
+
+  // Filter products by category and search query using in-memory inverted index
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    const searched = searchProductSearchIndex(productIndex, deferredQuery, products);
+    return searched.filter((p) => {
       const matchesCategory = selectedCategory === "الكل" || p.category === selectedCategory;
-      const matchesSearch = productMatchesSearch(p, searchQuery);
       const fitmentStatus = productVehicleFitmentStatus(p.id, selectedVehicle, vehicleCatalog.productFitments);
       const matchesVehicle = !selectedVehicle || !compatibilityOnly || fitmentStatus === "compatible";
-      return matchesCategory && matchesSearch && matchesVehicle;
+      return matchesCategory && matchesVehicle;
     });
-  }, [compatibilityOnly, products, searchQuery, selectedCategory, selectedVehicle, vehicleCatalog.productFitments]);
+  }, [compatibilityOnly, deferredQuery, productIndex, products, selectedCategory, selectedVehicle, vehicleCatalog.productFitments]);
 
   const { containerRef: gridContainerRef, virtualItems, paddingTop: gridPaddingTop, paddingBottom: gridPaddingBottom } = useVirtualizer({
     count: filteredProducts.length,
