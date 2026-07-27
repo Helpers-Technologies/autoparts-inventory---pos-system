@@ -271,6 +271,10 @@ export interface Product {
   reorderQuantity?: number;
   manufacturer?: string;
   position?: string;
+  /** Whether a customer can return this product for a refund/credit. Defaults
+   * to true when unset, so existing products stay returnable unless someone
+   * explicitly marks them otherwise (e.g. electrical parts, special orders). */
+  returnable?: boolean;
   createdAt: string;
 }
 

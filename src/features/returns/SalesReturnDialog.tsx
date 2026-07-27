@@ -2,7 +2,9 @@ import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Dialog } from "../../components/ui/Dialog";
 import { Button } from "../../components/ui/Button";
+import { Badge } from "../../components/ui/Badge";
 import { Table, TBody, TD, TH, THead, TR } from "../../components/ui/Table";
+import { useCatalog } from "../../store/CatalogContext";
 import { useInvoicing } from "../../store/InvoicingContext";
 import { useSettings } from "../../store/SettingsContext";
 import { useToast } from "../../components/ui/Toast";
@@ -21,6 +23,7 @@ export function SalesReturnDialog({
   invoice: SalesInvoice;
 }) {
   const { addSalesReturn, salesReturns } = useInvoicing();
+  const { products } = useCatalog();
   const { settings } = useSettings();
   const toast = useToast();
   const { isEnabled } = useFeatures();
@@ -33,6 +36,12 @@ export function SalesReturnDialog({
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [refundCashChoice, setRefundCashChoice] = useState(false);
   const refundCash = creditPaymentEnabled ? refundCashChoice : true;
+
+  // Products deleted since the sale can't be checked — fail open rather than
+  // blocking a legitimate return over data we no longer have.
+  function isProductReturnable(productId: string): boolean {
+    return products.find((p) => p.id === productId)?.returnable !== false;
+  }
 
   // Return policy days limit verification
   const maxReturnDays = settings.maxReturnDays ?? 14;
@@ -73,6 +82,11 @@ export function SalesReturnDialog({
     }
     if (selectedLines.length === 0) {
       toast.error("الرجاء تحديد كميات للإرجاع");
+      return;
+    }
+    const blockedLine = selectedLines.find((l) => !isProductReturnable(l.productId));
+    if (blockedLine) {
+      toast.error("لا يمكن إرجاع هذا الصنف", `${blockedLine.productName} غير قابل للإرجاع حسب سياسة المنتج`);
       return;
     }
     if (total > maxReturnable + 0.005) {
@@ -176,9 +190,15 @@ export function SalesReturnDialog({
               .filter((l) => l.availableQty > 0)
               .map((l) => {
                 const q = quantities[l.id] || 0;
+                const returnable = isProductReturnable(l.productId);
                 return (
                   <TR key={l.id}>
-                    <TD>{l.productName}</TD>
+                    <TD>
+                      <div className="flex items-center gap-2">
+                        {l.productName}
+                        {!returnable && <Badge tone="rose">غير قابل للإرجاع</Badge>}
+                      </div>
+                    </TD>
                     <TD>{formatCurrency(l.price, settings.currency)}</TD>
                     <TD>{l.availableQty}</TD>
                     <TD>
@@ -186,7 +206,8 @@ export function SalesReturnDialog({
                         type="number"
                         min={0}
                         max={l.availableQty}
-                        disabled={isExpired}
+                        disabled={isExpired || !returnable}
+                        title={!returnable ? "هذا المنتج غير قابل للإرجاع حسب سياسة المنتج" : undefined}
                         className="w-full border-line rounded-md text-sm p-1.5 focus:border-brand-500 focus:ring-brand-500 disabled:opacity-50"
                         value={q || ""}
                         onChange={(e) => {

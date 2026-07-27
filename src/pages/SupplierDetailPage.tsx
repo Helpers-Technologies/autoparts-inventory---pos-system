@@ -35,6 +35,7 @@ import { useAuth } from "../store/AuthContext";
 import { useSettings } from "../store/SettingsContext";
 import { useFeatures } from "../lib/useFeatures";
 import { useToast } from "../components/ui/Toast";
+import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import { formatCurrency, formatDate } from "../lib/format";
 import type { CommissionTier, CommissionType } from "../types";
 import { hasPermission } from "../lib/permissions";
@@ -377,10 +378,7 @@ export function SupplierDetailPage() {
         <Card>
           <CardHeader title="نظام العمولات والبونص" subtitle="شرائح مكافآت المشتريات ونسبة تحقّقها خلال الفترة" />
           <CardBody>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
-              <div className="font-bold">ميزة عمولات وبونص الموردين معطلة</div>
-              <div className="mt-0.5">يرجى تفعيل ترخيص الميزة لإدارة شرائح العمولة لهذا المورد.</div>
-            </div>
+            <PaidFeatureNotice title="عمولات وبونص الموردين" featureKey="supplierCommissions" />
           </CardBody>
         </Card>
       )}

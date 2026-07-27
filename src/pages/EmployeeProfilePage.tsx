@@ -827,6 +827,7 @@ export function EmployeeProfilePage() {
           ) : (
             <PaidFeatureNotice
               title="المصادقة الثنائية والأكواد الاحتياطية"
+              featureKey="twoFactorAuth"
               description="تتيح هذه الإضافة حماية الحساب بأكواد جوجل وتطبيق الأمان."
             />
           )}

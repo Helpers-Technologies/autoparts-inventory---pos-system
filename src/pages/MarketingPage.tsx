@@ -593,7 +593,7 @@ export function MarketingPage() {
             </Card>
 
             <div className="space-y-4">
-              {!whatsappEnabled ? <PaidFeatureNotice title="التكامل مع واتساب" description="يمكنك حفظ الحملة وتصدير الجمهور ونسخ الرسائل الآن. فعّل إضافة واتساب لفتح المحادثات مباشرة من القائمة." /> : null}
+              {!whatsappEnabled ? <PaidFeatureNotice title="التكامل مع واتساب" featureKey="whatsappIntegration" description="يمكنك حفظ الحملة وتصدير الجمهور ونسخ الرسائل الآن. فعّل إضافة واتساب لفتح المحادثات مباشرة من القائمة." /> : null}
               <Card>
                 <CardHeader
                   title="قائمة الجمهور"

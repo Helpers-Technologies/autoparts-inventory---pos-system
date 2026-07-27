@@ -44,6 +44,7 @@ import { useAuth } from "../store/AuthContext";
 import { useSettings } from "../store/SettingsContext";
 import { useToast } from "../components/ui/Toast";
 import { useFeatures } from "../lib/useFeatures";
+import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import { formatCurrency, formatDate } from "../lib/format";
 import { daysUntil, getMonthsInRange, inRange, localISODate, todayISO } from "../lib/utils";
 import { downloadXlsxFile } from "../lib/xlsx";
@@ -1179,10 +1180,7 @@ export function ReportsPage() {
             <CardHeader title="تفاصيل عمولات وبونص الموردين" />
             <CardBody>
               {!supplierCommissionsEnabled ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
-                  <div className="font-bold">ميزة عمولات وبونص الموردين معطلة</div>
-                  <div className="mt-0.5">يرجى تفعيل ترخيص الميزة لعرض تقرير العمولات.</div>
-                </div>
+                <PaidFeatureNotice title="عمولات وبونص الموردين" featureKey="supplierCommissions" />
               ) : (
               <Table>
                 <THead>

@@ -4,7 +4,7 @@ import { AppLayout } from "./AppLayout";
 import { useToast } from "../ui/Toast";
 import { hasPermission } from "../../lib/permissions";
 import { useFeatures } from "../../lib/useFeatures";
-import type { FeatureKey } from "../../lib/features";
+import { FEATURE_MAP, FEATURE_TIER, TIER_LABELS, type FeatureKey } from "../../lib/features";
 import type { UserPermissions } from "../../types";
 
 export function ProtectedShell({
@@ -32,6 +32,16 @@ export function ProtectedShell({
   // Module disabled by the license package or hidden by the owner — keep the
   // route unreachable even via a direct URL.
   if (feature && !isEnabled(feature)) {
+    const tier = FEATURE_TIER[feature];
+    const label = FEATURE_MAP[feature]?.label ?? feature;
+    setTimeout(
+      () =>
+        toast.error(
+          "ميزة غير متاحة في باقتك الحالية",
+          tier !== "basic" ? `"${label}" متاحة ضمن الباقة ${TIER_LABELS[tier]} — تواصل مع المبيعات للترقية.` : `"${label}" غير مفعّلة لهذا الحساب.`
+        ),
+      0
+    );
     return <Navigate to="/" replace />;
   }
 

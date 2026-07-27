@@ -8,6 +8,7 @@ import type { PartAlternativeRelation, Product, ProductAlternative } from "../..
 import { useCatalog } from "../../store/CatalogContext";
 import { useToast } from "../../components/ui/Toast";
 import { useFeatures } from "../../lib/useFeatures";
+import { PaidFeatureNotice } from "../../components/PaidFeatureNotice";
 import { BarcodeScanInput } from "./BarcodeScanInput";
 import { findProductByScan } from "../../lib/partSearch";
 import { VEHICLE_COUNTRIES, normalizeVehicleCountryCode } from "../../data/vehicleCountries";
@@ -124,6 +125,7 @@ const EMPTY: FormState = {
   minStock: 5,
   hasExpiry: false,
   expiryDate: undefined,
+  returnable: true,
   supplierId: undefined,
   notes: "",
 };
@@ -1026,16 +1028,38 @@ export function ProductFormDialog({
           </Field>
         ) : null}
 
+        <Field label="قابل للإرجاع؟" className="col-span-1 sm:col-span-2">
+          <div className="flex items-center gap-3 min-h-[36px]">
+            <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none whitespace-nowrap">
+              <input
+                type="radio"
+                name="returnable"
+                checked={form.returnable !== false}
+                onChange={() => set("returnable", true)}
+                className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
+              />
+              نعم
+            </label>
+            <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none whitespace-nowrap">
+              <input
+                type="radio"
+                name="returnable"
+                checked={form.returnable === false}
+                onChange={() => set("returnable", false)}
+                className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
+              />
+              لا
+            </label>
+          </div>
+        </Field>
+
         <div className="col-span-1 sm:col-span-2 md:col-span-4 rounded-xl border border-line p-3 space-y-2.5">
           <div className="flex items-center justify-between gap-3">
             <div><div className="flex items-center gap-2 font-semibold"><CarFront className="w-4 h-4" />توافق القطعة مع السيارات</div><div className="text-xs text-ink-muted mt-0.5">يمكن ربط القطعة بأكثر من سيارة أو جيل أو محرك</div></div>
             <span className="text-xs text-ink-faint">{fitments.length} توافق</span>
           </div>
           {!vehicleCatalogEnabled ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
-              <div className="font-bold">ميزة كتالوج توافق السيارات معطلة</div>
-              <div className="mt-0.5">يرجى تفعيل ترخيص الميزة لتتمكن من ربط القطعة بالسيارات المتوافقة.</div>
-            </div>
+            <PaidFeatureNotice title="كتالوج توافق السيارات ومطابقة القطع" featureKey="vehicleCatalog" />
           ) : (
           <>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
@@ -1130,10 +1154,7 @@ export function ProductFormDialog({
         <div className="col-span-1 sm:col-span-2 md:col-span-4 rounded-xl border border-line p-3 space-y-2.5">
           <div><div className="font-semibold">البدائل والأرقام المحدّثة</div><div className="text-xs text-ink-muted mt-0.5">اربط القطعة ببديل مكافئ أو اقتصادي أو أعلى جودة ليظهر للبائع فورًا</div></div>
           {!isEnabled("partAlternatives") ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
-              <div className="font-bold">ميزة البدائل وCross Reference معطلة</div>
-              <div className="mt-0.5">يرجى تفعيل ترخيص الميزة لتتمكن من ربط وإدارة البدائل لقطع الغيار.</div>
-            </div>
+            <PaidFeatureNotice title="بدائل وCross Reference قطع الغيار" featureKey="partAlternatives" />
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-2 items-end">

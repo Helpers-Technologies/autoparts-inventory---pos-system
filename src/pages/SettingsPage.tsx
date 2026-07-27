@@ -25,7 +25,7 @@ const FEATURE_PREVIEW_LIMIT = 8;
 const PLAN_LABELS: Record<string, string> = {
   basic: "الباقة الأساسية",
   pro: "الباقة الاحترافية",
-  full: "الباقة الكاملة",
+  full: "الباقة الشاملة",
   custom: "باقة مخصّصة",
 };
 
@@ -64,7 +64,7 @@ function planDisplayLabel(license?: { plan?: string; features?: string[] } | nul
   if (license.plan && PLAN_LABELS[license.plan]) return PLAN_LABELS[license.plan];
   const f = license.features;
   if (Array.isArray(f) && f.length > 0) return `${f.length} ميزة مفعّلة`;
-  return "الباقة الكاملة";
+  return "الباقة الشاملة";
 }
 
 export function SettingsPage() {
@@ -501,7 +501,7 @@ export function SettingsPage() {
                 </Select>
               </Field>
             ) : (
-              <PaidFeatureNotice title="متابعة صلاحية المنتجات" />
+              <PaidFeatureNotice title="متابعة صلاحية المنتجات" featureKey="expiryTracking" />
             )}
 
             {featureOn("advancedSecurity") ? (
@@ -519,7 +519,7 @@ export function SettingsPage() {
                 </Select>
               </Field>
             ) : (
-              <PaidFeatureNotice title="قفل الشاشة والأمان المتقدم" />
+              <PaidFeatureNotice title="قفل الشاشة والأمان المتقدم" featureKey="advancedSecurity" />
             )}
 
             <Field
@@ -576,6 +576,7 @@ export function SettingsPage() {
               <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-500/30 dark:bg-amber-500/10 sm:flex-row sm:items-center sm:justify-between">
                 <PaidFeatureNotice
                   title="المصادقة الثنائية والأكواد الاحتياطية"
+                  featureKey="twoFactorAuth"
                   description="أضف حماية الدخول وأكواد الاسترداد كإضافة مستقلة أو ضمن ترقية الباقة."
                 />
                 <Button type="button" variant="outline" className="shrink-0" onClick={() => setLockedFeature(FEATURES.find((feature) => feature.key === "twoFactorAuth") ?? null)}>
@@ -787,7 +788,7 @@ export function SettingsPage() {
                   ) : null}
                 </div>
               ) : (
-                <PaidFeatureNotice title="التكامل مع واتساب" />
+                <PaidFeatureNotice title="التكامل مع واتساب" featureKey="whatsappIntegration" />
               )}
             </section>
           </CardBody>
@@ -798,7 +799,7 @@ export function SettingsPage() {
           <CardBody className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {!featureOn("advancedSecurity") && (
               <div className="xl:col-span-2">
-                <PaidFeatureNotice title="النسخ الاحتياطي التلقائي والأمان المتقدم" />
+                <PaidFeatureNotice title="النسخ الاحتياطي التلقائي والأمان المتقدم" featureKey="advancedSecurity" />
               </div>
             )}
             <section className="rounded-xl border border-line bg-surface-muted/25 p-4">
@@ -1209,7 +1210,7 @@ export function SettingsPage() {
           <CardBody className="grid grid-cols-2 gap-2">
             {!excelExportEnabled && (
               <div className="col-span-2">
-                <PaidFeatureNotice title="تصدير البيانات إلى Excel" />
+                <PaidFeatureNotice title="تصدير البيانات إلى Excel" featureKey="excelExport" />
               </div>
             )}
             <Button disabled={!excelExportEnabled} onClick={() => exportToExcel("products")} variant="outline" size="sm" className="justify-start">

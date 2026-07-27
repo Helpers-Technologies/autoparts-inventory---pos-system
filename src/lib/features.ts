@@ -204,6 +204,64 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
 ]);
 
 /**
+ * Package tiers, cumulative (Professional includes everything Basic has,
+ * Enterprise includes everything Professional has). MUST stay in sync with
+ * autoparts-license-studio/scripts/feature-keys.cjs's CORE_FREE/PRO_ADDS/
+ * ENTERPRISE_ADDS and docs/pricing-packages-report-ar.md §2 — the studio's
+ * `npm run check-features` verifies this file against that one.
+ */
+export type PackageTier = "basic" | "pro" | "full";
+
+export const TIER_LABELS: Record<PackageTier, string> = {
+  basic: "الأساسية",
+  pro: "الاحترافية",
+  full: "الشاملة",
+};
+
+/** The minimum package tier that includes a given feature. */
+export const FEATURE_TIER: Record<FeatureKey, PackageTier> = {
+  pos: "basic",
+  salesInvoices: "basic",
+  purchaseInvoices: "basic",
+  quotations: "basic",
+  returns: "basic",
+  products: "basic",
+  inventory: "basic",
+  stocktakes: "basic",
+  alerts: "basic",
+  customers: "basic",
+  suppliers: "basic",
+  drivers: "basic",
+  cashbox: "basic",
+  dues: "basic",
+  reports: "basic",
+  creditPayment: "basic",
+  vehicleCatalog: "pro",
+  barcodeSystem: "pro",
+  multiSalePrices: "pro",
+  creditSales: "pro",
+  partAlternatives: "pro",
+  expiryTracking: "pro",
+  excelExport: "pro",
+  dataImport: "pro",
+  employeesReport: "pro",
+  pricingRules: "pro",
+  supplierCommissions: "pro",
+  purchasingAssistant: "pro",
+  bulkProductTools: "pro",
+  posMultiHold: "pro",
+  warrantyCenter: "full",
+  advancedAnalytics: "full",
+  marketingHub: "full",
+  whatsappIntegration: "full",
+  advancedSecurity: "full",
+  twoFactorAuth: "full",
+  activityLog: "full",
+  advancedAlerts: "full",
+  darkMode: "full",
+};
+
+/**
  * License cap. When the serial carries an explicit feature whitelist, only those
  * keys are allowed. An absent/empty list means the license predates feature
  * packaging — allow everything so existing installs keep working.
