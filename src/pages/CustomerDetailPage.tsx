@@ -59,6 +59,7 @@ export function CustomerDetailPage() {
   const { vehicleMakes, vehicleModels } = useVehicleCatalog();
   const { isEnabled } = useFeatures();
   const whatsappEnabled = isEnabled("whatsappIntegration");
+  const vehicleCatalogEnabled = isEnabled("vehicleCatalog");
 
   const canEdit = hasPermission(currentUser, "customers", "edit");
   const canDelete = hasPermission(currentUser, "customers", "delete");
@@ -300,6 +301,7 @@ export function CustomerDetailPage() {
         </CardBody>
       </Card>
 
+      {vehicleCatalogEnabled && (
       <Card>
         <CardHeader
           title="سيارات العميل"
@@ -368,6 +370,7 @@ export function CustomerDetailPage() {
           )}
         </CardBody>
       </Card>
+      )}
 
       <Card>
         <CardHeader

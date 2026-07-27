@@ -219,6 +219,7 @@ export function POSPage() {
   const returnsEnabled = isEnabled("returns");
   const barcodeSystemEnabled = isEnabled("barcodeSystem");
   const partAlternativesEnabled = isEnabled("partAlternatives");
+  const vehicleCatalogEnabled = isEnabled("vehicleCatalog");
   const toast = useToast();
 
   const products = useMemo(() => allProducts.filter((p) => !p.archived), [allProducts]);
@@ -947,45 +948,47 @@ export function POSPage() {
               </div>
 
               {/* Vehicle select */}
-              <div className="flex items-center gap-1 min-w-0">
-                <span className="text-[11px] font-semibold text-ink-muted shrink-0 flex items-center gap-0.5">
-                  <CarFront className="w-3.5 h-3.5 text-cyan-600" /> السيارة:
-                </span>
-                <SearchableSelect
-                  value={selectedVehicleId}
-                  onChange={setSelectedVehicleId}
-                  options={customerVehicles.map((vehicle) => {
-                    const make = vehicleCatalog.vehicleMakes.find((m) => m.id === vehicle.makeId);
-                    const label = vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels);
-                    return {
-                      value: vehicle.id,
-                      label,
-                      image: make?.logoPath || (make?.slug ? `/vehicle-logos/${make.slug}.png` : undefined),
-                      searchText: `${label} ${vehicle.plateNumber ?? ""}`,
-                    };
-                  })}
-                  placeholder="بدون تحديد سيارة"
-                  searchPlaceholder="ابحث عن سيارة العميل..."
-                  minChars={0}
-                  className="flex-1 min-w-0 text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={() => setIsVehicleDialogOpen(true)}
-                  className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
-                  title="إضافة سيارة جديدة"
-                >
-                  <Plus className="w-3.5 h-3.5 text-cyan-600" />
-                </button>
-                <CustomerVehicleFormDialog
-                  open={isVehicleDialogOpen}
-                  onClose={() => setIsVehicleDialogOpen(false)}
-                  initialCustomerId={customerId}
-                  onCreated={(newVehicleId) => {
-                    setSelectedVehicleId(newVehicleId);
-                  }}
-                />
-              </div>
+              {vehicleCatalogEnabled && (
+                <div className="flex items-center gap-1 min-w-0">
+                  <span className="text-[11px] font-semibold text-ink-muted shrink-0 flex items-center gap-0.5">
+                    <CarFront className="w-3.5 h-3.5 text-cyan-600" /> السيارة:
+                  </span>
+                  <SearchableSelect
+                    value={selectedVehicleId}
+                    onChange={setSelectedVehicleId}
+                    options={customerVehicles.map((vehicle) => {
+                      const make = vehicleCatalog.vehicleMakes.find((m) => m.id === vehicle.makeId);
+                      const label = vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels);
+                      return {
+                        value: vehicle.id,
+                        label,
+                        image: make?.logoPath || (make?.slug ? `/vehicle-logos/${make.slug}.png` : undefined),
+                        searchText: `${label} ${vehicle.plateNumber ?? ""}`,
+                      };
+                    })}
+                    placeholder="بدون تحديد سيارة"
+                    searchPlaceholder="ابحث عن سيارة العميل..."
+                    minChars={0}
+                    className="flex-1 min-w-0 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsVehicleDialogOpen(true)}
+                    className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
+                    title="إضافة سيارة جديدة"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-cyan-600" />
+                  </button>
+                  <CustomerVehicleFormDialog
+                    open={isVehicleDialogOpen}
+                    onClose={() => setIsVehicleDialogOpen(false)}
+                    initialCustomerId={customerId}
+                    onCreated={(newVehicleId) => {
+                      setSelectedVehicleId(newVehicleId);
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Branch selector if active */}

@@ -27,6 +27,7 @@ import { findProductScanCandidates } from "../../lib/partSearch";
 import { uid } from "../../lib/utils";
 import { useCatalog } from "../../store/CatalogContext";
 import { useSettings } from "../../store/SettingsContext";
+import { useFeatures } from "../../lib/useFeatures";
 import {
   calculateTierPrice,
   productVehicleFitmentStatus,
@@ -90,6 +91,7 @@ export function QuotationForm({
   const { settings } = useSettings();
   const pro = useAutoPartsPro();
   const vehicleCatalog = useVehicleCatalog();
+  const vehicleCatalogEnabled = useFeatures().isEnabled("vehicleCatalog");
   const navigate = useNavigate();
   const toast = useToast();
   const products = useMemo(() => allProducts.filter((product) => !product.archived), [allProducts]);
@@ -427,19 +429,21 @@ export function QuotationForm({
                 minChars={0}
               />
             </Field>
-            <Field label="سيارة العميل" hint={customerId && customerVehicles.length === 0 ? "لا توجد سيارة مسجلة لهذا العميل" : undefined}>
-              <div className="relative">
-                <CarFront className="pointer-events-none absolute end-3 top-2.5 h-4 w-4 text-cyan-600" />
-                <Select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="pe-9">
-                  <option value="">بدون تحديد سيارة</option>
-                  {customerVehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels)}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            </Field>
+            {vehicleCatalogEnabled && (
+              <Field label="سيارة العميل" hint={customerId && customerVehicles.length === 0 ? "لا توجد سيارة مسجلة لهذا العميل" : undefined}>
+                <div className="relative">
+                  <CarFront className="pointer-events-none absolute end-3 top-2.5 h-4 w-4 text-cyan-600" />
+                  <Select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="pe-9">
+                    <option value="">بدون تحديد سيارة</option>
+                    {customerVehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels)}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </Field>
+            )}
             <Field label="الفرع" required>
               <div className="relative">
                 <Building2 className="pointer-events-none absolute end-3 top-2.5 h-4 w-4 text-indigo-600" />

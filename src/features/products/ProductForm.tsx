@@ -155,6 +155,7 @@ export function ProductFormDialog({
   const barcodeEnabled = isEnabled("barcodeSystem");
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const expiryTrackingEnabled = isEnabled("expiryTracking");
+  const vehicleCatalogEnabled = isEnabled("vehicleCatalog");
   const [form, setForm] = useState<FormState>(EMPTY);
   const [fitments, setFitments] = useState<FitmentDraft[]>([]);
   const [fitmentMakeId, setFitmentMakeId] = useState("");
@@ -1030,6 +1031,13 @@ export function ProductFormDialog({
             <div><div className="flex items-center gap-2 font-semibold"><CarFront className="w-4 h-4" />توافق القطعة مع السيارات</div><div className="text-xs text-ink-muted mt-0.5">يمكن ربط القطعة بأكثر من سيارة أو جيل أو محرك</div></div>
             <span className="text-xs text-ink-faint">{fitments.length} توافق</span>
           </div>
+          {!vehicleCatalogEnabled ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+              <div className="font-bold">ميزة كتالوج توافق السيارات معطلة</div>
+              <div className="mt-0.5">يرجى تفعيل ترخيص الميزة لتتمكن من ربط القطعة بالسيارات المتوافقة.</div>
+            </div>
+          ) : (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
             <Field label="الماركة" className="md:col-span-2">
               <SearchableSelect
@@ -1115,6 +1123,8 @@ export function ProductFormDialog({
               })}
             </div>
           ) : <div className="text-xs text-ink-faint">لم يتم ربط القطعة بسيارة بعد؛ ستظل قابلة للبحث برقم القطعة وOEM.</div>}
+          </>
+          )}
         </div>
 
         <div className="col-span-1 sm:col-span-2 md:col-span-4 rounded-xl border border-line p-3 space-y-2.5">

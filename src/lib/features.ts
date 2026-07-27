@@ -43,7 +43,9 @@ export type FeatureKey =
   | "creditSales"
   | "expiryTracking"
   | "partAlternatives"
-  | "pos";
+  | "pos"
+  | "vehicleCatalog"
+  | "warrantyCenter";
 
 export interface FeatureDef {
   key: FeatureKey;
@@ -86,6 +88,8 @@ export const FEATURES: FeatureDef[] = [
   { key: "creditSales", label: "البيع الآجل", description: "السماح بإنشاء فواتير مبيعات آجلة وتحديد تاريخ الاستحقاق", defaultEnabled: false },
   { key: "expiryTracking", label: "متابعة صلاحية المنتجات", description: "تسجيل تواريخ الصلاحية والتنبيه قبل الانتهاء", defaultEnabled: false },
   { key: "partAlternatives", label: "بدائل وCross Reference قطع الغيار", description: "البحث عن وتجميع الأرقام البديلة والمتطابقة لقطع الغيار (Cross Reference)", defaultEnabled: false },
+  { key: "vehicleCatalog", label: "كتالوج توافق السيارات ومطابقة القطع", description: "كتالوج الماركات والموديلات، مستكشف القطع حسب السيارة، سيارات العملاء، ومطابقة توافق القطع في نقطة البيع وعروض الأسعار", defaultEnabled: false },
+  { key: "warrantyCenter", label: "مركز الضمان", description: "تسجيل ومتابعة ضمانات القطع المباعة وحالتها وتاريخ انتهائها", defaultEnabled: false },
 ];
 
 export const FEATURE_MAP: Record<FeatureKey, FeatureDef> = FEATURES.reduce(
@@ -154,6 +158,8 @@ export const FEATURE_CATEGORY_BY_KEY: Record<FeatureKey, FeatureCategoryId> = {
   creditSales: "sales",
   expiryTracking: "inventory",
   partAlternatives: "inventory",
+  vehicleCatalog: "inventory",
+  warrantyCenter: "sales",
 };
 
 export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
@@ -173,6 +179,8 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
   "creditSales",
   "expiryTracking",
   "partAlternatives",
+  "vehicleCatalog",
+  "warrantyCenter",
 ]);
 
 /**

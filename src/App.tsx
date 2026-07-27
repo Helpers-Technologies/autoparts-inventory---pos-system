@@ -132,7 +132,7 @@ export default function App() {
       <Route
         path="/parts-finder"
         element={
-          <ProtectedShell permission="products" feature="products">
+          <ProtectedShell permission="products" feature="vehicleCatalog">
             <PartsFinderPage />
           </ProtectedShell>
         }
@@ -140,7 +140,7 @@ export default function App() {
       <Route
         path="/vehicle-catalog"
         element={
-          <ProtectedShell permission="products" feature="products">
+          <ProtectedShell permission="products" feature="vehicleCatalog">
             <VehicleCatalogPage />
           </ProtectedShell>
         }
@@ -148,7 +148,7 @@ export default function App() {
       <Route
         path="/customer-garage"
         element={
-          <ProtectedShell permission="customers">
+          <ProtectedShell permission="customers" feature="vehicleCatalog">
             <CustomerGaragePage />
           </ProtectedShell>
         }
@@ -164,7 +164,7 @@ export default function App() {
       <Route
         path="/warranty-center"
         element={
-          <ProtectedShell permission="returns">
+          <ProtectedShell permission="returns" feature="warrantyCenter">
             <WarrantyCenterPage />
           </ProtectedShell>
         }

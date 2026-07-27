@@ -47,6 +47,7 @@ export function InventoryPage() {
   const { isEnabled } = useFeatures();
   const vehicleCatalog = useVehicleCatalog();
   const expiryTrackingEnabled = isEnabled("expiryTracking");
+  const vehicleCatalogEnabled = isEnabled("vehicleCatalog");
   const toast = useToast();
   const canAdjustStock = hasPermission(currentUser, "inventory", "adjust");
   const [q, setQ] = useState("");
@@ -166,7 +167,7 @@ export function InventoryPage() {
     if (rackFilter) {
       list = list.filter((p) => p.rackLocation === rackFilter);
     }
-    if (makeFilter) {
+    if (makeFilter && vehicleCatalogEnabled) {
       const matchingProductIds = new Set(
         vehicleCatalog.productFitments
           .filter((f) => f.makeId === makeFilter)
@@ -198,7 +199,7 @@ export function InventoryPage() {
     return list;
   }, [
     products, q, category, supplier, brandFilter, originFilter, qualityFilter, conditionFilter,
-    rackFilter, makeFilter, vehicleCatalog.productFitments, qtyFilter, expiryFilter, expiryTrackingEnabled
+    rackFilter, makeFilter, vehicleCatalog.productFitments, qtyFilter, expiryFilter, expiryTrackingEnabled, vehicleCatalogEnabled
   ]);
 
   function submitAdjust() {
@@ -486,6 +487,7 @@ export function InventoryPage() {
                   />
                 </div>
 
+                {vehicleCatalogEnabled && (
                 <div>
                   <label className="block text-xs text-ink-muted mb-1">توافق ماركة السيارة</label>
                   <SearchableSelect
@@ -500,6 +502,7 @@ export function InventoryPage() {
                     searchPlaceholder="ابحث عن ماركة سيارة..."
                   />
                 </div>
+                )}
 
                 <div>
                   <label className="block text-xs text-ink-muted mb-1">موقع الرف / البِن</label>
