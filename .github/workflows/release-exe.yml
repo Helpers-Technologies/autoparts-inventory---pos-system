@@ -35,6 +35,16 @@ jobs:
           AUTOPARTS_LICENSE_PUBLIC_KEY: ${{ secrets.AUTOPARTS_LICENSE_PUBLIC_KEY }}
         run: node scripts/write-license-public-key.cjs
 
+      # Optional — see scripts/write-license-heartbeat-url.cjs. If this
+      # secret isn't set yet (e.g. the license portal isn't deployed yet),
+      # this writes a null URL and the build ships with remote block/unblock
+      # simply disabled, same as before this existed.
+      - name: Write license heartbeat URL
+        shell: pwsh
+        env:
+          AUTOPARTS_LICENSE_HEARTBEAT_URL: ${{ secrets.AUTOPARTS_LICENSE_HEARTBEAT_URL }}
+        run: node scripts/write-license-heartbeat-url.cjs
+
       - name: Decode code-signing certificate
         shell: pwsh
         env:

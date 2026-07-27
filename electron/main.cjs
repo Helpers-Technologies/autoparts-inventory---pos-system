@@ -24,6 +24,15 @@ try {
   throw e;
 }
 
+// Optional — unlike the public key above, a missing/unset heartbeat URL is
+// not fatal, it just means remote block/unblock stays off for this build.
+let LICENSE_HEARTBEAT_URL = null;
+try {
+  ({ LICENSE_HEARTBEAT_URL } = require("./license-heartbeat-url.cjs"));
+} catch (e) {
+  if (!e || (e.code !== "MODULE_NOT_FOUND" && e.code !== "ERR_MODULE_NOT_FOUND")) throw e;
+}
+
 if (!electronRuntime.app) {
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
@@ -1355,31 +1364,30 @@ function validateBranchStorageValue(value) {
 }
 
 // ── Heartbeat API Configuration ──────────────────────────────
-// AutoParts has no shared backend by default. Set its own URL when deployed.
-const FIREBASE_HEARTBEAT_URL = process.env.AUTOPARTS_LICENSE_HEARTBEAT_URL?.replace(/\/$/, "") || null;
+// Polls the license portal (autoparts-license-portal, a separate repo) for
+// whether this machine's license has been remotely blocked/unblocked by the
+// vendor. Endpoint shape intentionally matches the Firebase Realtime
+// Database REST convention (GET .../{key}.json → {status: "..."} or 404)
+// this code originally targeted, even though it isn't Firebase — see that
+// repo's src/routes/public.js. Fails silently and open: any network error,
+// or no URL configured at all (see license-heartbeat-url.cjs), leaves the
+// existing offline signature-only validation completely unaffected — a shop
+// with no internet keeps working exactly as before this existed.
+const HEARTBEAT_BASE_URL = LICENSE_HEARTBEAT_URL?.replace(/\/$/, "") || null;
 
 async function checkLicenseOnline() {
-  if (HW_E2E || !FIREBASE_HEARTBEAT_URL) return;
+  if (HW_E2E || !HEARTBEAT_BASE_URL) return;
   const token = storageGet(LICENSE_TOKEN_KEY);
   if (!token) return;
 
   try {
     const license = parseSignedPayload(token, "APLIC.", licenseSchema);
     const machineHash = getMachineHash();
-    const machineCode = getMachineCode();
-    
-    // Using Firebase Realtime Database REST API convention
-    let url = `${FIREBASE_HEARTBEAT_URL}/${machineHash}.json`;
-    let response = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
-    let data = response.ok ? await response.json() : null;
 
-    // Fallback to checking by machineCode (for older records manually added via web)
-    if (!data) {
-      url = `${FIREBASE_HEARTBEAT_URL}/${machineCode}.json`;
-      response = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
-      data = response.ok ? await response.json() : null;
-    }
-    
+    const url = `${HEARTBEAT_BASE_URL}/${machineHash}.json`;
+    const response = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
+    const data = response.ok ? await response.json() : null;
+
     if (data && data.status === "blocked") {
       storageSet("__license_server_status", "blocked");
       

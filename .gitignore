@@ -54,6 +54,11 @@ tasks-*.md
 # Deployment license public key (never commit — distribute via private channel)
 electron/license-public-key.cjs
 
+# Local override of the license portal's heartbeat URL (not secret, but
+# machine-local config written by scripts/write-license-heartbeat-url.cjs —
+# keep it out of commits so a dev's local/test URL never leaks into a PR)
+electron/license-heartbeat-url.cjs
+
 # AI coding assistant workspace (Claude Code, Copilot, Codex, etc.)
 .claude/
 .codex-dev/
