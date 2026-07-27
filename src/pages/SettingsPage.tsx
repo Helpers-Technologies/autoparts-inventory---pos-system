@@ -818,6 +818,7 @@ export function SettingsPage() {
                     <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-ink disabled:cursor-not-allowed">
                       <input
                         type="checkbox"
+                        className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer"
                         checked={featureOn("advancedSecurity") && form.autoBackupEnabled}
                         disabled={!featureOn("advancedSecurity")}
                         onChange={(e) => setForm({ ...form, autoBackupEnabled: e.target.checked })}
@@ -852,6 +853,7 @@ export function SettingsPage() {
                     <label className="flex min-h-8 cursor-pointer items-center gap-2 text-sm text-ink disabled:cursor-not-allowed">
                       <input
                         type="checkbox"
+                        className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer"
                         checked={featureOn("advancedSecurity") && (form.backupOnClose ?? true)}
                         disabled={!featureOn("advancedSecurity")}
                         onChange={(e) => setForm({ ...form, backupOnClose: e.target.checked })}

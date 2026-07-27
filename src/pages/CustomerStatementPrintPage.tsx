@@ -4,6 +4,7 @@ import { useInvoicing } from "../store/InvoicingContext";
 import { useCatalog } from "../store/CatalogContext";
 import { useAuth } from "../store/AuthContext";
 import { hasPermission } from "../lib/permissions";
+import { useFeatures } from "../lib/useFeatures";
 import { StatementPrintLayout, type StatementRow } from "../features/invoices/StatementPrintLayout";
 
 export function CustomerStatementPrintPage() {
@@ -11,6 +12,7 @@ export function CustomerStatementPrintPage() {
   const { salesInvoices, salesReturns, cashEntries } = useInvoicing();
   const { customers } = useCatalog();
   const { currentUser, auth } = useAuth();
+  const { isEnabled } = useFeatures();
 
   const customer = customers.find((c) => c.id === id);
 
@@ -124,7 +126,7 @@ export function CustomerStatementPrintPage() {
     });
   }, [id, salesInvoices, salesReturns, cashEntries]);
 
-  if (!auth.isAuthenticated || !hasPermission(currentUser, "salesInvoices")) {
+  if (!auth.isAuthenticated || !hasPermission(currentUser, "salesInvoices") || !isEnabled("customers")) {
     return (
       <div className="min-h-screen grid place-items-center text-sm text-ink-faint" dir="rtl">
         ليس لديك صلاحية لعرض هذا التقرير

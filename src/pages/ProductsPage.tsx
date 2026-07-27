@@ -62,6 +62,7 @@ export function ProductsPage() {
   const { isEnabled } = useFeatures();
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const expiryTrackingEnabled = isEnabled("expiryTracking");
+  const excelExportEnabled = isEnabled("excelExport");
   const toast = useToast();
   const loc = useLocation();
   const navigate = useNavigate();
@@ -374,10 +375,12 @@ export function ProductsPage() {
         description={`إدارة كل قطع الغيار والأسعار والمخزون (${products.length})`}
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={exportCatalogExcel} title="تصدير الكتالوج الحالي إلى Excel">
-              <Download className="w-4 h-4" />
-              تصدير الكتالوج
-            </Button>
+            {excelExportEnabled && (
+              <Button variant="outline" onClick={exportCatalogExcel} title="تصدير الكتالوج الحالي إلى Excel">
+                <Download className="w-4 h-4" />
+                تصدير الكتالوج
+              </Button>
+            )}
             {canAddProduct && (
               <Button
                 onClick={() => {
@@ -612,7 +615,7 @@ export function ProductsPage() {
                       type="checkbox"
                       checked={isAllSelected}
                       onChange={toggleSelectAll}
-                      className="rounded border-line text-brand-600 focus:ring-brand-500"
+                      className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                     />
                   </TH>
                   <TH>رقم القطعة</TH>
@@ -647,7 +650,7 @@ export function ProductsPage() {
                           type="checkbox"
                           checked={selectedIds.has(p.id)}
                           onChange={() => toggleSelect(p.id)}
-                          className="rounded border-line text-brand-600 focus:ring-brand-500"
+                          className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                         />
                       </TD>
                       <TD><div className="font-mono text-xs" dir="ltr">{p.partNumber || p.code}</div>{p.partBrand ? <div className="text-[11px] text-ink-faint" dir="ltr">{p.partBrand}</div> : null}</TD>

@@ -19,6 +19,7 @@ import { Button } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
 import { localISODate } from "../lib/utils";
 import { hasPermission } from "../lib/permissions";
+import { useFeatures } from "../lib/useFeatures";
 
 const ORIGIN_LABELS: Record<string, string> = {
   CN: "الصين 🇨🇳",
@@ -949,6 +950,8 @@ function PrintableReportView({
   reorderRows: any[];
   currency: string;
 }) {
+  const excelExportEnabled = useFeatures().isEnabled("excelExport");
+
   function downloadXlsx() {
     let headers: string[] = [];
     let rows: any[][] = [];
@@ -1039,13 +1042,15 @@ function PrintableReportView({
           ← رجوع للتقارير
         </button>
         <div className="flex gap-2">
-          <button
-            onClick={downloadXlsx}
-            className="h-9 px-4 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 flex items-center gap-1.5"
-          >
-            <Download className="w-4 h-4" />
-            تنزيل Excel
-          </button>
+          {excelExportEnabled && (
+            <button
+              onClick={downloadXlsx}
+              className="h-9 px-4 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 flex items-center gap-1.5"
+            >
+              <Download className="w-4 h-4" />
+              تنزيل Excel
+            </button>
+          )}
           <button
             onClick={() => window.print()}
             className="h-9 px-5 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800 flex items-center gap-1.5"

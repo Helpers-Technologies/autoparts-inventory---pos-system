@@ -925,6 +925,7 @@ export function InventoryPage() {
                   type="radio"
                   checked={adjType === "in"}
                   onChange={() => setAdjType("in")}
+                  className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                 />
                 إضافة للمخزون
               </label>
@@ -933,6 +934,7 @@ export function InventoryPage() {
                   type="radio"
                   checked={adjType === "out"}
                   onChange={() => setAdjType("out")}
+                  className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                 />
                 خصم من المخزون
               </label>

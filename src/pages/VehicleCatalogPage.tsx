@@ -903,6 +903,7 @@ export function VehicleCatalogPage() {
                 <label key={p.id} className="flex items-center gap-3 p-2.5 hover:bg-surface-muted cursor-pointer text-xs">
                   <input
                     type="checkbox"
+                    className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                     checked={bulkSelectedProductIds.has(p.id)}
                     onChange={() => {
                       setBulkSelectedProductIds((prev) => {
@@ -912,7 +913,6 @@ export function VehicleCatalogPage() {
                         return next;
                       });
                     }}
-                    className="rounded border-line text-brand-600 focus:ring-brand-500"
                   />
                   <div className="min-w-0 flex-1">
                     <span className="font-medium text-ink block truncate">{p.name}</span>

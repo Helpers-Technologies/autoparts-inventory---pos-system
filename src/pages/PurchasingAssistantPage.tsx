@@ -15,6 +15,7 @@ import { buildXlsx } from "../lib/xlsx";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useSettings } from "../store/SettingsContext";
+import { useFeatures } from "../lib/useFeatures";
 
 function daysAgo(days: number): string {
   const date = new Date();
@@ -26,6 +27,7 @@ export function PurchasingAssistantPage() {
   const { products, suppliers } = useCatalog();
   const { salesInvoices, purchaseInvoices, salesReturns } = useInvoicing();
   const { settings } = useSettings();
+  const excelExportEnabled = useFeatures().isEnabled("excelExport");
   const toast = useToast();
   const navigate = useNavigate();
   const [windowDays, setWindowDays] = useState(90);
@@ -349,12 +351,14 @@ export function PurchasingAssistantPage() {
               >
                 <Printer className="w-4 h-4" /> طباعة / حفظ PDF
               </button>
-              <button
-                onClick={downloadExcel}
-                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 h-9 rounded-lg shadow cursor-pointer"
-              >
-                <Download className="w-4 h-4" /> تصدير Excel
-              </button>
+              {excelExportEnabled && (
+                <button
+                  onClick={downloadExcel}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 h-9 rounded-lg shadow cursor-pointer"
+                >
+                  <Download className="w-4 h-4" /> تصدير Excel
+                </button>
+              )}
               <button
                 onClick={copyPlan}
                 className="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white text-sm font-semibold px-4 h-9 rounded-lg shadow cursor-pointer"

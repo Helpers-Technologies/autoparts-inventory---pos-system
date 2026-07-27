@@ -284,7 +284,7 @@ export default function App() {
       <Route
         path="/shifts"
         element={
-          <ProtectedShell permission="pos">
+          <ProtectedShell permission="pos" feature="pos">
             <ShiftsPage />
           </ProtectedShell>
         }

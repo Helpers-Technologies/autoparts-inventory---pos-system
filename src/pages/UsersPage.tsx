@@ -176,6 +176,7 @@ function UserFormDialog({
               <label className="inline-flex items-center gap-2 rounded-lg border border-brand-200 bg-surface px-3 py-2 text-sm font-medium text-brand-700">
                 <input
                   type="checkbox"
+                  className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                   checked={allPermissionsSelected}
                   onChange={(e) => setPermissions(createPermissions(e.target.checked))}
                 />
@@ -198,6 +199,7 @@ function UserFormDialog({
                       <label className="inline-flex items-center gap-1.5 text-xs text-ink-muted whitespace-nowrap">
                         <input
                           type="checkbox"
+                          className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                           checked={groupSelected}
                           onChange={(e) =>
                             setPermissions((current) =>
@@ -213,6 +215,7 @@ function UserFormDialog({
                         <label key={action.key} className="flex items-center gap-2 text-ink-muted">
                           <input
                             type="checkbox"
+                            className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                             checked={Boolean(groupPermissions[action.key])}
                             onChange={(e) =>
                               setPermissions((current) =>

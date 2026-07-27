@@ -71,7 +71,7 @@ const GROUPS: NavGroup[] = [
     label: "المبيعات والكاشير",
     items: [
       { to: "/pos", label: "نقطة البيع (POS)", icon: Monitor, permission: "pos", feature: "pos" },
-      { to: "/shifts", label: "ورديات الكاشير", icon: Clock, permission: "pos" },
+      { to: "/shifts", label: "ورديات الكاشير", icon: Clock, permission: "pos", feature: "pos" },
       { to: "/sales", label: "فواتير المبيعات", icon: Receipt, permission: "salesInvoices", feature: "salesInvoices" },
       { to: "/customer-garage", label: "سيارات العملاء", icon: CarFront, permission: "customers" },
       { to: "/quotations", label: "عروض الأسعار", icon: FileText, permission: "salesInvoices", feature: "quotations" },

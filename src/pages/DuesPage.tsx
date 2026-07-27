@@ -153,6 +153,7 @@ export function DuesPage() {
   const { customerBalance, customerCredit, supplierBalance, supplierCredit } = useReporting();
   const { customerVehicles, branches } = useAutoPartsPro();
   const { vehicleMakes, vehicleModels } = useVehicleCatalog();
+  const creditPaymentEnabled = useFeatures().isEnabled("creditPayment");
 
   const canViewSales = hasPermission(currentUser, "salesInvoices");
   const canReceiveSales = hasPermission(currentUser, "salesInvoices", "receive");
@@ -1114,6 +1115,7 @@ export function DuesPage() {
                           <div className="inline-flex items-center gap-1.5 justify-end">
                             {row.type === "customer" &&
                               canReceiveSales &&
+                              creditPaymentEnabled &&
                               customerCredit(row.id) > 0 &&
                               row.openInvoices > 0 && (
                                 <Button

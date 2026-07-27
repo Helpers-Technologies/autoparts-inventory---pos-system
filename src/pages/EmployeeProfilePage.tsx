@@ -930,6 +930,7 @@ export function EmployeeProfilePage() {
                 <label className="inline-flex items-center gap-2 rounded-lg border border-brand-200 bg-surface px-3 py-1.5 text-xs font-semibold text-brand-700 cursor-pointer">
                   <input
                     type="checkbox"
+                    className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                     checked={allPermissionsSelected}
                     onChange={(e) =>
                       setEditForm((prev) => ({
@@ -957,6 +958,7 @@ export function EmployeeProfilePage() {
                         <label className="inline-flex items-center gap-1.5 text-xs text-ink-muted whitespace-nowrap cursor-pointer">
                           <input
                             type="checkbox"
+                            className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                             checked={groupSelected}
                             onChange={(e) =>
                               setEditForm((prev) => ({
@@ -981,7 +983,7 @@ export function EmployeeProfilePage() {
                                   permissions: setPermission(prev.permissions, group.key, action.key, e.target.checked),
                                 }))
                               }
-                              className="rounded border-line text-brand-600 focus:ring-brand-500"
+                              className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                             />
                             <span>{action.label}</span>
                           </label>

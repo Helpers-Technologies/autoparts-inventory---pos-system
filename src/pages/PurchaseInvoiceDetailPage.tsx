@@ -35,6 +35,7 @@ export function PurchaseInvoiceDetailPage() {
   const { isEnabled } = useFeatures();
   const whatsappEnabled = isEnabled("whatsappIntegration");
   const expiryTrackingEnabled = isEnabled("expiryTracking");
+  const returnsEnabled = isEnabled("returns");
   const inv = purchaseInvoices.find((s) => s.id === id);
   const canEditPurchase = hasPermission(currentUser, "purchaseInvoices", "edit");
   const canPayPurchase = hasPermission(currentUser, "purchaseInvoices", "pay");
@@ -68,7 +69,7 @@ export function PurchaseInvoiceDetailPage() {
   const linkedReturns = purchaseReturns.filter((r) => r.originalInvoiceId === inv.id);
   const returnsTotal = linkedReturns.reduce((sum, r) => sum + r.total, 0);
   const originalTotal = inv.total + returnsTotal;
-  const canCreateReturn = canAddReturn && inv.lines.some((line) => line.quantity > 0);
+  const canCreateReturn = canAddReturn && returnsEnabled && inv.lines.some((line) => line.quantity > 0);
   const whatsappMessage = renderInvoiceWhatsappTemplate(settings.whatsappInvoiceTemplate, {
     partyName: inv.supplierName,
     partyLabel: "المورد",

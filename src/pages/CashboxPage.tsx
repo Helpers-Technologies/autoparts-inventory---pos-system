@@ -20,6 +20,7 @@ import { todayISO, uid } from "../lib/utils";
 import type { CashEntryType, PaymentMethod } from "../types";
 import { formatCurrency, formatDate, PAYMENT_METHOD_LABELS } from "../lib/format";
 import { hasPermission } from "../lib/permissions";
+import { useFeatures } from "../lib/useFeatures";
 
 function monthValue(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;
@@ -38,6 +39,7 @@ export function CashboxPage() {
   const canAddCash = hasPermission(currentUser, "cashbox", "add");
   const canSpendCash = hasPermission(currentUser, "cashbox", "spend");
   const canEditOpeningBalance = hasPermission(currentUser, "cashbox", "editOpeningBalance");
+  const driversEnabled = useFeatures().isEnabled("drivers");
 
   const [open, setOpen] = useState(false);
   const [entryType, setEntryType] = useState<CashEntryType>("manual-add");
@@ -516,7 +518,7 @@ export function CashboxPage() {
                 }}
               >
                 <option value="general">مصروفات عامة / نثرية</option>
-                <option value="driver">صرف مرتب / مستحقات سائق</option>
+                {driversEnabled && <option value="driver">صرف مرتب / مستحقات سائق</option>}
                 <option value="employee">صرف مرتب / مستحقات موظف</option>
               </Select>
             </Field>

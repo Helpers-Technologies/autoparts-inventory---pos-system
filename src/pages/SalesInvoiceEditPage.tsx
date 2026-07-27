@@ -61,6 +61,7 @@ export function SalesInvoiceEditPage() {
   const { isEnabled } = useFeatures();
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const creditSalesEnabled = isEnabled("creditSales");
+  const driversEnabled = isEnabled("drivers");
 
   const inv = salesInvoices.find((s) => s.id === id);
   const hasReturns = salesReturns.some((r) => r.originalInvoiceId === id);
@@ -381,14 +382,16 @@ export function SalesInvoiceEditPage() {
             <Field label="التاريخ" required>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
-            <Field label="السائق">
-              <Select value={driverId} onChange={(e) => setDriverId(e.target.value)}>
-                <option value="">— بدون سائق —</option>
-                {drivers.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </Select>
-            </Field>
+            {driversEnabled && (
+              <Field label="السائق">
+                <Select value={driverId} onChange={(e) => setDriverId(e.target.value)}>
+                  <option value="">— بدون سائق —</option>
+                  {drivers.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </Select>
+              </Field>
+            )}
           </div>
         </CardBody>
       </Card>
@@ -531,12 +534,12 @@ export function SalesInvoiceEditPage() {
             <Field label="طريقة الدفع" required>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="radio" checked={paymentType === "cash"} onChange={() => setPaymentType("cash")} disabled={hasReturns} />
+                  <input type="radio" checked={paymentType === "cash"} onChange={() => setPaymentType("cash")} disabled={hasReturns} className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer" />
                   كاش
                 </label>
                 {(creditSalesEnabled || inv.paymentType === "account") && (
                   <label className="flex items-center gap-2 text-sm">
-                    <input type="radio" checked={paymentType === "account"} onChange={() => setPaymentType("account")} disabled={hasReturns || !creditSalesEnabled} />
+                    <input type="radio" checked={paymentType === "account"} onChange={() => setPaymentType("account")} disabled={hasReturns || !creditSalesEnabled} className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer" />
                     آجل (حساب)
                   </label>
                 )}

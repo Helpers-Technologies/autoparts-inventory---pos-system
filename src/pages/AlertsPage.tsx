@@ -162,6 +162,7 @@ export function AlertsPage() {
 
   const { isEnabled } = useFeatures();
   const creditEnabled = isEnabled("creditSales");
+  const expiryTrackingEnabled = isEnabled("expiryTracking");
 
   useEffect(() => {
     if (!localStorage.getItem("alerts-credit-clean-v3")) {
@@ -195,8 +196,14 @@ export function AlertsPage() {
   const outOfStock = useMemo(() => products.filter((p) => p.quantity === 0), [products]);
   const lowStockOnly = useMemo(() => products.filter((p) => p.quantity > 0 && p.quantity <= p.minStock), [products]);
   const expiryAlertDays = settings.expiryAlertDays ?? 14;
-  const expiringSoon = useMemo(() => products.filter((p) => isExpiringSoon(p, expiryAlertDays)), [products, expiryAlertDays]);
-  const expired = useMemo(() => products.filter((p) => isExpired(p)), [products]);
+  const expiringSoon = useMemo(
+    () => (expiryTrackingEnabled ? products.filter((p) => isExpiringSoon(p, expiryAlertDays)) : []),
+    [products, expiryAlertDays, expiryTrackingEnabled]
+  );
+  const expired = useMemo(
+    () => (expiryTrackingEnabled ? products.filter((p) => isExpired(p)) : []),
+    [products, expiryTrackingEnabled]
+  );
 
   const matchesSearch = (p: Product) => {
     if (!searchQuery.trim()) return true;

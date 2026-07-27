@@ -38,6 +38,8 @@ export function SalesInvoiceDetailPage() {
   const { isEnabled } = useFeatures();
   const whatsappEnabled = isEnabled("whatsappIntegration");
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
+  const returnsEnabled = isEnabled("returns");
+  const creditPaymentEnabled = isEnabled("creditPayment");
   const inv = salesInvoices.find((s) => s.id === id);
   const canEditSales = hasPermission(currentUser, "salesInvoices", "edit");
   const canReceiveSales = hasPermission(currentUser, "salesInvoices", "receive");
@@ -76,7 +78,7 @@ export function SalesInvoiceDetailPage() {
   const totalReturns = linkedReturns.reduce((a, r) => a + r.total, 0);
   const cashReturnTotal = linkedReturns.filter((r) => r.refundCash).reduce((a, r) => a + r.total, 0);
   const creditReturnTotal = linkedReturns.filter((r) => !r.refundCash).reduce((a, r) => a + r.total, 0);
-  const canCreateReturn = canAddReturn && !inv.cancelled && totalReturns < inv.total;
+  const canCreateReturn = canAddReturn && returnsEnabled && !inv.cancelled && totalReturns < inv.total;
   const priceTypeLabel = salesInvoicePriceTypeLabel(inv);
   const paymentDisplay = salesPaymentDisplay(inv);
   const grossBeforeDiscount = inv.discount && inv.discount > 0 ? inv.total + inv.discount : inv.total;
@@ -456,7 +458,7 @@ export function SalesInvoiceDetailPage() {
         </div>
       </Dialog>
 
-      {totalCollected > 0 ? (
+      {totalCollected > 0 && creditPaymentEnabled ? (
         <Dialog
           open={cancelOpen}
           onClose={() => setCancelOpen(false)}
@@ -505,6 +507,20 @@ export function SalesInvoiceDetailPage() {
             </div>
           </div>
         </Dialog>
+      ) : totalCollected > 0 ? (
+        <ConfirmDialog
+          open={cancelOpen}
+          onClose={() => setCancelOpen(false)}
+          onConfirm={() => {
+            cancelSalesInvoice(inv.id, "cash");
+            setCancelOpen(false);
+            toast.success("تم إلغاء الفاتورة", "تمت إعادة الكميات للمخزون وردّ الكاش");
+          }}
+          title="إلغاء الفاتورة"
+          message={`المُحصَّل: ${formatCurrency(totalCollected, settings.currency)} — سيتم ردّه كاش من الخزنة وإعادة الكميات للمخزون (ميزة "الدفع بالرصيد الدائن" غير مفعّلة).`}
+          variant="danger"
+          confirmText="ردّ كاش وإلغاء"
+        />
       ) : (
         <ConfirmDialog
           open={cancelOpen}

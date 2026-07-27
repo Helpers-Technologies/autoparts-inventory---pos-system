@@ -55,6 +55,7 @@ export function QuotationDetailPage() {
   const { isEnabled } = useFeatures();
   const whatsappEnabled = isEnabled("whatsappIntegration");
   const creditSalesEnabled = isEnabled("creditSales");
+  const driversEnabled = isEnabled("drivers");
 
   const quot = quotations.find((q) => q.id === id);
   const canAdd = hasPermission(currentUser, "salesInvoices", "add");
@@ -401,7 +402,7 @@ export function QuotationDetailPage() {
               onChange={(e) => setAmountReceived(Number(e.target.value))}
             />
           </Field>
-          {drivers.length > 0 && (
+          {driversEnabled && drivers.length > 0 && (
             <Field label="السائق">
               <Select value={driverId} onChange={(e) => setDriverId(e.target.value)}>
                 <option value="">-- بدون سائق --</option>

@@ -581,7 +581,7 @@ export function MarketingPage() {
                   <strong className="text-ink">نصيحة الحملة:</strong> {CAMPAIGN_GOALS[goal].tip}
                 </div>
                 <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs leading-5 text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
-                  <input type="checkbox" checked={includeUnknownConsent} onChange={(event) => setIncludeUnknownConsent(event.target.checked)} className="mt-1" />
+                  <input type="checkbox" checked={includeUnknownConsent} onChange={(event) => setIncludeUnknownConsent(event.target.checked)} className="mt-1 w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer" />
                   <span><strong>تضمين العملاء بدون موافقة مسجلة ({unknownInSelection})</strong><br />استخدم هذا الخيار فقط بعد التأكد أن لديك إذنًا مناسبًا للتواصل. الرافضون مستبعدون دائمًا.</span>
                 </label>
                 <div className="flex flex-wrap gap-2">

@@ -21,6 +21,7 @@ import {
   computeCustomerProfitability, computeSalesTrend,
 } from "../lib/analytics";
 import { buildXlsx, type XlsxSheet } from "../lib/xlsx";
+import { useFeatures } from "../lib/useFeatures";
 
 const ABC_COLORS: Record<"A" | "B" | "C", string> = { A: "#16a34a", B: "#f59e0b", C: "#94a3b8" };
 const pct = (frac: number) => `${(frac * 100).toFixed(1)}%`;
@@ -46,6 +47,7 @@ function EmptyHint({ children }: { children: ReactNode }) {
 export function AdvancedAnalyticsPage() {
   const { products, customers } = useCatalog();
   const { salesInvoices, salesReturns } = useInvoicing();
+  const excelExportEnabled = useFeatures().isEnabled("excelExport");
   const { settings } = useSettings();
   const cur = settings.currency;
 
@@ -147,9 +149,11 @@ export function AdvancedAnalyticsPage() {
           <div className="flex items-end gap-2">
             <Field label="من"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" /></Field>
             <Field label="إلى"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" /></Field>
-            <Button variant="outline" onClick={exportAnalytics} disabled={!hasData}>
-              <Download className="w-4 h-4" /> تصدير Excel
-            </Button>
+            {excelExportEnabled && (
+              <Button variant="outline" onClick={exportAnalytics} disabled={!hasData}>
+                <Download className="w-4 h-4" /> تصدير Excel
+              </Button>
+            )}
           </div>
         }
       />

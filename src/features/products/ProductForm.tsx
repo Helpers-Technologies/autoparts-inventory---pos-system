@@ -996,6 +996,7 @@ export function ProductFormDialog({
                   name="hasExp"
                   checked={form.hasExpiry}
                   onChange={() => set("hasExpiry", true)}
+                  className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                 />
                 نعم
               </label>
@@ -1008,6 +1009,7 @@ export function ProductFormDialog({
                     set("hasExpiry", false);
                     set("expiryDate", undefined);
                   }}
+                  className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                 />
                 لا
               </label>

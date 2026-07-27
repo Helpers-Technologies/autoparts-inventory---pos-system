@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useSettings } from "../../store/SettingsContext";
 import { formatCurrency, formatDate } from "../../lib/format";
 import { buildXlsx } from "../../lib/xlsx";
+import { useFeatures } from "../../lib/useFeatures";
 
 export interface StatementRow {
   key: string;
@@ -23,6 +24,7 @@ interface Props {
 
 export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, rows }: Props) {
   const { settings } = useSettings();
+  const excelExportEnabled = useFeatures().isEnabled("excelExport");
 
   const title = kind === "customer" ? "كشف حساب عميل" : "كشف حساب مورد";
   const finalBalance = rows.length > 0 ? rows[rows.length - 1].balance : 0;
@@ -89,12 +91,14 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
           ← رجوع
         </button>
         <div className="flex gap-2">
-          <button
-            onClick={downloadXlsx}
-            className="h-9 px-4 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700"
-          >
-            ⬇ Excel
-          </button>
+          {excelExportEnabled && (
+            <button
+              onClick={downloadXlsx}
+              className="h-9 px-4 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700"
+            >
+              ⬇ Excel
+            </button>
+          )}
           <button
             onClick={() => window.print()}
             className="h-9 px-5 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800"

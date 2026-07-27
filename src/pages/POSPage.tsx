@@ -216,6 +216,9 @@ export function POSPage() {
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const creditPaymentEnabled = isEnabled("creditPayment");
   const creditSalesEnabled = isEnabled("creditSales");
+  const returnsEnabled = isEnabled("returns");
+  const barcodeSystemEnabled = isEnabled("barcodeSystem");
+  const partAlternativesEnabled = isEnabled("partAlternatives");
   const toast = useToast();
 
   const products = useMemo(() => allProducts.filter((p) => !p.archived), [allProducts]);
@@ -243,7 +246,7 @@ export function POSPage() {
   const [heldInvoices, setHeldInvoices] = useState<HeldInvoice[]>(loadHeldInvoices);
   const [isHeldListOpen, setIsHeldListOpen] = useState(false);
 
-  const canAddReturn = hasPermission(currentUser, "returns", "add");
+  const canAddReturn = hasPermission(currentUser, "returns", "add") && returnsEnabled;
 
   const canOpenShift = hasPermission(currentUser, "pos", "openShift");
   const canCloseShift = hasPermission(currentUser, "pos", "closeShift");
@@ -500,7 +503,7 @@ export function POSPage() {
     const available = branchAvailableAsBaseUnits(product);
 
     if (baseQtyRequested > available) {
-      const alternatives = findAlternativesFor(product);
+      const alternatives = partAlternativesEnabled ? findAlternativesFor(product) : [];
       if (alternatives.length > 0) {
         setStockAlternative({ product, alternatives });
       } else {
@@ -1014,22 +1017,27 @@ export function POSPage() {
               ) : null
             )}
 
-            {/* Barcode scanner box */}
-            <form onSubmit={handleBarcodeScan} className="flex gap-1.5">
-              <div className="relative flex-1">
-                <Scan className="absolute right-2.5 top-2 w-4 h-4 text-ink-faint" />
-                <Input
-                  ref={barcodeInputRef}
-                  value={barcodeInput}
-                  onChange={(e) => setBarcodeInput(e.target.value)}
-                  placeholder="امسح الباركود / Part No. / OEM..."
-                  className="pr-9 h-8 text-xs"
-                />
-              </div>
-              <Button type="submit" size="sm" className="px-3 h-8 text-xs font-semibold">
-                إضافة
-              </Button>
-            </form>
+            {/* Barcode scanner box — every other screen with scan support
+                (InventoryPage, SalesInvoiceNewPage, ...) uses the shared
+                BarcodeScanInput, which self-gates on barcodeSystem; this is
+                POS's own hand-rolled equivalent, so it needs the same gate. */}
+            {barcodeSystemEnabled && (
+              <form onSubmit={handleBarcodeScan} className="flex gap-1.5">
+                <div className="relative flex-1">
+                  <Scan className="absolute right-2.5 top-2 w-4 h-4 text-ink-faint" />
+                  <Input
+                    ref={barcodeInputRef}
+                    value={barcodeInput}
+                    onChange={(e) => setBarcodeInput(e.target.value)}
+                    placeholder="امسح الباركود / Part No. / OEM..."
+                    className="pr-9 h-8 text-xs"
+                  />
+                </div>
+                <Button type="submit" size="sm" className="px-3 h-8 text-xs font-semibold">
+                  إضافة
+                </Button>
+              </form>
+            )}
           </div>
 
           {/* Cart Table Container */}
@@ -1181,7 +1189,7 @@ export function POSPage() {
                       type="checkbox"
                       checked={useCredit}
                       onChange={(e) => setUseCredit(e.target.checked)}
-                      className="rounded text-brand-600 focus:ring-brand-500 w-3 h-3"
+                      className="w-3.5 h-3.5 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                     />
                     رصيد دائن ({formatCurrency(creditAvailable)})
                   </label>
@@ -1360,7 +1368,7 @@ export function POSPage() {
             {selectedVehicle ? (
               <label className="flex cursor-pointer items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50/60 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-900 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300">
                 <span className="flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> عرض القطع المتوافقة فقط</span>
-                <input type="checkbox" checked={compatibilityOnly} onChange={(event) => setCompatibilityOnly(event.target.checked)} className="h-3.5 w-3.5 rounded" />
+                <input type="checkbox" checked={compatibilityOnly} onChange={(event) => setCompatibilityOnly(event.target.checked)} className="h-3.5 w-3.5 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer" />
               </label>
             ) : null}
           </div>
@@ -1382,7 +1390,7 @@ export function POSPage() {
                   const availableStock = branchAvailableAsBaseUnits(prod);
                   const isOutOfStock = availableStock <= 0;
                   const fitmentStatus = productVehicleFitmentStatus(prod.id, selectedVehicle, vehicleCatalog.productFitments);
-                  const alternatives = isOutOfStock ? findAlternativesFor(prod) : [];
+                  const alternatives = isOutOfStock && partAlternativesEnabled ? findAlternativesFor(prod) : [];
                   const hasAlternatives = alternatives.length > 0;
                   const price = getProductPrice(prod, DEFAULT_PRICE_TYPE);
 

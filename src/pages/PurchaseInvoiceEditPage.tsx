@@ -98,7 +98,7 @@ export function PurchaseInvoiceEditPage() {
           const p = products.find((x) => x.id === patch.productId);
           if (p) {
             next.price = getLatestPurchasePrice(p);
-            next.expiryDate = p.expiryDate;
+            next.expiryDate = expiryTrackingEnabled ? p.expiryDate : undefined;
           }
         }
         return next;
@@ -134,7 +134,7 @@ export function PurchaseInvoiceEditPage() {
         unit: p.unit,
         quantity: l.quantity,
         price: l.price,
-        expiryDate: l.expiryDate,
+        expiryDate: expiryTrackingEnabled ? l.expiryDate : undefined,
         subtotal: l.quantity * l.price,
       };
     });

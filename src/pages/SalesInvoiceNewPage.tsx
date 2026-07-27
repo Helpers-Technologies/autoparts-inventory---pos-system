@@ -136,6 +136,7 @@ export function SalesInvoiceNewPage() {
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const creditPaymentEnabled = isEnabled("creditPayment");
   const creditSalesEnabled = isEnabled("creditSales");
+  const driversEnabled = isEnabled("drivers");
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -525,21 +526,23 @@ export function SalesInvoiceNewPage() {
                 )}
               </div>
             </Field>
-            <Field label="السائق (اختياري)">
-              <div className="flex items-center gap-2">
-                <Select value={driverId} onChange={(e) => setDriverId(e.target.value)} className="flex-1">
-                  <option value="">— اختر سائقاً —</option>
-                  {drivers.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </Select>
-                <Button variant="outline" size="icon" onClick={() => setNewDriverOpen(true)}>
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
-            </Field>
+            {driversEnabled && (
+              <Field label="السائق (اختياري)">
+                <div className="flex items-center gap-2">
+                  <Select value={driverId} onChange={(e) => setDriverId(e.target.value)} className="flex-1">
+                    <option value="">— اختر سائقاً —</option>
+                    {drivers.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button variant="outline" size="icon" onClick={() => setNewDriverOpen(true)}>
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+              </Field>
+            )}
           </div>
           {customer ? (
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-ink-faint">
@@ -705,6 +708,7 @@ export function SalesInvoiceNewPage() {
                     type="radio"
                     checked={paymentType === "cash"}
                     onChange={() => setPaymentType("cash")}
+                    className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                   />
                   كاش
                 </label>
@@ -714,6 +718,7 @@ export function SalesInvoiceNewPage() {
                       type="radio"
                       checked={paymentType === "account"}
                       onChange={() => setPaymentType("account")}
+                      className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                     />
                     آجل (حساب)
                   </label>

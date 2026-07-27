@@ -310,7 +310,7 @@ export function DashboardPage() {
 
   const canViewProducts  = hasPermission(currentUser, "products");
   const canViewInventory = hasPermission(currentUser, "inventory");
-  const canViewAlerts    = hasPermission(currentUser, "alerts");
+  const canViewAlerts    = hasPermission(currentUser, "alerts") && isEnabled("alerts");
   const canViewSales     = hasPermission(currentUser, "salesInvoices");
   const canAddSales      = hasPermission(currentUser, "salesInvoices", "add");
   const canViewPurchases = hasPermission(currentUser, "purchaseInvoices");
@@ -485,7 +485,7 @@ export function DashboardPage() {
     stockChart:      canViewInventory,
     topSellingChart: canViewSales,
     recentActivity:  canViewSales || canViewPurchases,
-    lowStockPanel:   canViewInventory || canViewAlerts,
+    lowStockPanel:   (canViewInventory || canViewAlerts) && isEnabled("alerts"),
     overduePanel:    canViewSales && creditSalesEnabled,
     quickActions:    canAddSales || canAddPurchases || canAddProduct || canAddCustomer || canViewProducts || canViewCustomers || canViewReturns || canViewInventory || canViewPOS,
   };
