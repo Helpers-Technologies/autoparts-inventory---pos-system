@@ -45,7 +45,12 @@ export type FeatureKey =
   | "partAlternatives"
   | "pos"
   | "vehicleCatalog"
-  | "warrantyCenter";
+  | "warrantyCenter"
+  | "pricingRules"
+  | "supplierCommissions"
+  | "purchasingAssistant"
+  | "bulkProductTools"
+  | "posMultiHold";
 
 export interface FeatureDef {
   key: FeatureKey;
@@ -90,6 +95,11 @@ export const FEATURES: FeatureDef[] = [
   { key: "partAlternatives", label: "بدائل وCross Reference قطع الغيار", description: "البحث عن وتجميع الأرقام البديلة والمتطابقة لقطع الغيار (Cross Reference)", defaultEnabled: false },
   { key: "vehicleCatalog", label: "كتالوج توافق السيارات ومطابقة القطع", description: "كتالوج الماركات والموديلات، مستكشف القطع حسب السيارة، سيارات العملاء، ومطابقة توافق القطع في نقطة البيع وعروض الأسعار", defaultEnabled: false },
   { key: "warrantyCenter", label: "مركز الضمان", description: "تسجيل ومتابعة ضمانات القطع المباعة وحالتها وتاريخ انتهائها", defaultEnabled: false },
+  { key: "pricingRules", label: "شرائح وقواعد الأسعار المتقدمة", description: "إنشاء شرائح تسعير غير محدودة (جملة، تجزئة، تكلفة) مع حد أدنى هامش ربح تلقائي ومعاينة حية للأسعار عبر الكتالوج", defaultEnabled: false },
+  { key: "supplierCommissions", label: "عمولات وبونص الموردين", description: "شرائح عمولة تلقائية حسب حجم المشتريات من كل مورد مع حساب العمولة المستحقة تلقائيًا", defaultEnabled: false },
+  { key: "purchasingAssistant", label: "مساعد المشتريات الذكي", description: "تحليل سرعة البيع وتغطية المخزون، اقتراح كميات إعادة الطلب لكل مورد، وتحويلها مباشرة لفاتورة شراء", defaultEnabled: false },
+  { key: "bulkProductTools", label: "أدوات التعديل الجماعي غير المحدودة", description: "تعديل السعر أو الرف أو التصنيف لعدد غير محدود من الأصناف دفعة واحدة (النسخة المجانية تدعم حتى 9 أصناف في المرة الواحدة)", defaultEnabled: false },
+  { key: "posMultiHold", label: "تعليق فواتير متعددة في نقطة البيع", description: "تعليق أكثر من فاتورة واحدة في نفس الوقت داخل نقطة البيع (النسخة المجانية تدعم فاتورة معلّقة واحدة فقط)", defaultEnabled: false },
 ];
 
 export const FEATURE_MAP: Record<FeatureKey, FeatureDef> = FEATURES.reduce(
@@ -160,6 +170,11 @@ export const FEATURE_CATEGORY_BY_KEY: Record<FeatureKey, FeatureCategoryId> = {
   partAlternatives: "inventory",
   vehicleCatalog: "inventory",
   warrantyCenter: "sales",
+  pricingRules: "sales",
+  supplierCommissions: "relationships",
+  purchasingAssistant: "sales",
+  bulkProductTools: "inventory",
+  posMultiHold: "sales",
 };
 
 export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
@@ -181,6 +196,11 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
   "partAlternatives",
   "vehicleCatalog",
   "warrantyCenter",
+  "pricingRules",
+  "supplierCommissions",
+  "purchasingAssistant",
+  "bulkProductTools",
+  "posMultiHold",
 ]);
 
 /**

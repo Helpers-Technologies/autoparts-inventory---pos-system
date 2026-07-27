@@ -28,6 +28,7 @@ import { useInvoicing } from "../store/InvoicingContext";
 import { useReporting } from "../store/ReportingContext";
 import { useAuth } from "../store/AuthContext";
 import { useSettings } from "../store/SettingsContext";
+import { useFeatures } from "../lib/useFeatures";
 import { useToast } from "../components/ui/Toast";
 import { formatCurrency, formatDate } from "../lib/format";
 import type { Supplier } from "../types";
@@ -54,6 +55,8 @@ export function SuppliersPage() {
   const { supplierBalance, calculateSupplierCommission } = useReporting();
   const { currentUser } = useAuth();
   const { settings } = useSettings();
+  const { isEnabled } = useFeatures();
+  const supplierCommissionsEnabled = isEnabled("supplierCommissions");
   const toast = useToast();
   const loc = useLocation();
   const canAddSupplier = hasPermission(currentUser, "suppliers", "add");
@@ -86,7 +89,9 @@ export function SuppliersPage() {
       const totalPurchases = invs.reduce((sum, p) => sum + p.total, 0);
       const lastActivity = invs.map((p) => p.date).sort().at(-1);
       const parts = products.filter((p) => p.supplierId === s.id && !p.archived).length;
-      const commissionEarned = calculateSupplierCommission(s.id).reduce((sum, r) => sum + r.earned, 0);
+      const commissionEarned = supplierCommissionsEnabled
+        ? calculateSupplierCommission(s.id).reduce((sum, r) => sum + r.earned, 0)
+        : 0;
       return {
         supplier: s,
         archived: !!s.archived,
@@ -98,7 +103,7 @@ export function SuppliersPage() {
         commissionEarned,
       };
     });
-  }, [suppliers, products, purchaseInvoices, supplierBalance, calculateSupplierCommission]);
+  }, [suppliers, products, purchaseInvoices, supplierBalance, calculateSupplierCommission, supplierCommissionsEnabled]);
 
   const rows = useMemo(() => allRows.filter((r) => !r.archived), [allRows]);
   const archivedRows = useMemo(() => allRows.filter((r) => r.archived), [allRows]);
@@ -228,8 +233,8 @@ export function SuppliersPage() {
         <StatCard
           icon={<Gift className="w-5 h-5" />}
           label="بونص عمولات مستحق"
-          value={formatCurrency(stats.commission, settings.currency)}
-          detail="من شرائح عمولات الموردين"
+          value={supplierCommissionsEnabled ? formatCurrency(stats.commission, settings.currency) : "—"}
+          detail={supplierCommissionsEnabled ? "من شرائح عمولات الموردين" : "ميزة معطلة"}
           tone="green"
         />
       </div>

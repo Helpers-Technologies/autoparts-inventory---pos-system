@@ -66,6 +66,7 @@ export function SupplierDetailPage() {
   const { settings } = useSettings();
   const { isEnabled } = useFeatures();
   const whatsappEnabled = isEnabled("whatsappIntegration");
+  const supplierCommissionsEnabled = isEnabled("supplierCommissions");
 
   const canEdit = hasPermission(currentUser, "suppliers", "edit");
   const canDelete = hasPermission(currentUser, "suppliers", "delete");
@@ -228,8 +229,14 @@ export function SupplierDetailPage() {
         <StatCard
           icon={<Gift className="w-5 h-5" />}
           label="بونص مستحق"
-          value={formatCurrency(commissionEarned, settings.currency)}
-          detail={commissions.length > 0 ? `${commissions.length} شريحة عمولة` : "لا توجد شرائح"}
+          value={supplierCommissionsEnabled ? formatCurrency(commissionEarned, settings.currency) : "—"}
+          detail={
+            supplierCommissionsEnabled
+              ? commissions.length > 0
+                ? `${commissions.length} شريحة عمولة`
+                : "لا توجد شرائح"
+              : "ميزة معطلة"
+          }
           tone="green"
         />
       </div>
@@ -262,109 +269,121 @@ export function SupplierDetailPage() {
         </CardBody>
       </Card>
 
-      <Card>
-        <CardHeader
-          title="نظام العمولات والبونص"
-          subtitle="شرائح مكافآت المشتريات ونسبة تحقّقها خلال الفترة"
-          actions={
-            canManageCommissions ? (
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={openNewTier}>
-                <Plus className="w-3.5 h-3.5" /> إضافة شريحة
-              </Button>
-            ) : undefined
-          }
-        />
-        <CardBody>
-          {commissions.length === 0 ? (
-            <EmptyState
-              icon={<Percent className="w-5 h-5" />}
-              title="لا توجد شرائح عمولة"
-              description="أضف شريحة عمولة لتتبّع البونص المستحق تلقائيًا مع كل عملية شراء."
-              action={
-                canManageCommissions ? (
-                  <Button size="sm" onClick={openNewTier}><Plus className="w-4 h-4" /> إضافة شريحة</Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {commissions.map((res) => {
-                  const pct = res.threshold > 0 ? Math.min(100, (res.totalPurchases / res.threshold) * 100) : 100;
-                  const achieved = res.totalPurchases >= res.threshold;
-                  return (
-                    <div key={res.tierId} className="bg-surface border border-line rounded-lg p-3 shadow-sm">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-sm font-semibold text-ink">
-                            شريحة {formatCurrency(res.threshold, settings.currency)} / {res.periodDays} يوم
+      {supplierCommissionsEnabled ? (
+        <Card>
+          <CardHeader
+            title="نظام العمولات والبونص"
+            subtitle="شرائح مكافآت المشتريات ونسبة تحقّقها خلال الفترة"
+            actions={
+              canManageCommissions ? (
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={openNewTier}>
+                  <Plus className="w-3.5 h-3.5" /> إضافة شريحة
+                </Button>
+              ) : undefined
+            }
+          />
+          <CardBody>
+            {commissions.length === 0 ? (
+              <EmptyState
+                icon={<Percent className="w-5 h-5" />}
+                title="لا توجد شرائح عمولة"
+                description="أضف شريحة عمولة لتتبّع البونص المستحق تلقائيًا مع كل عملية شراء."
+                action={
+                  canManageCommissions ? (
+                    <Button size="sm" onClick={openNewTier}><Plus className="w-4 h-4" /> إضافة شريحة</Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {commissions.map((res) => {
+                    const pct = res.threshold > 0 ? Math.min(100, (res.totalPurchases / res.threshold) * 100) : 100;
+                    const achieved = res.totalPurchases >= res.threshold;
+                    return (
+                      <div key={res.tierId} className="bg-surface border border-line rounded-lg p-3 shadow-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-semibold text-ink">
+                              شريحة {formatCurrency(res.threshold, settings.currency)} / {res.periodDays} يوم
+                            </div>
+                            <div className="text-[11px] text-ink-faint mt-0.5">
+                              العمولة: {res.commissionType === "percentage" ? `${res.commissionValue}%` : formatCurrency(res.commissionValue, settings.currency)}
+                            </div>
                           </div>
-                          <div className="text-[11px] text-ink-faint mt-0.5">
-                            العمولة: {res.commissionType === "percentage" ? `${res.commissionValue}%` : formatCurrency(res.commissionValue, settings.currency)}
+                          <div className="flex items-center gap-1">
+                            {achieved ? <Badge tone="green">مُحقّقة</Badge> : <Badge tone="amber">{Math.round(pct)}%</Badge>}
+                            {canManageCommissions && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    const t = supplier.commissionTiers?.find((x) => x.id === res.tierId);
+                                    if (t) {
+                                      setEditingTier(t);
+                                      setTierForm({ ...t });
+                                      setTierDialogOpen(true);
+                                    }
+                                  }}
+                                  className="p-1 hover:bg-surface-muted rounded text-ink-faint hover:text-brand-600 transition-colors"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => deleteCommissionTier(supplier.id, res.tierId)}
+                                  className="p-1 hover:bg-surface-muted rounded text-ink-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          {achieved ? <Badge tone="green">مُحقّقة</Badge> : <Badge tone="amber">{Math.round(pct)}%</Badge>}
-                          {canManageCommissions && (
-                            <>
-                              <button
-                                onClick={() => {
-                                  const t = supplier.commissionTiers?.find((x) => x.id === res.tierId);
-                                  if (t) {
-                                    setEditingTier(t);
-                                    setTierForm({ ...t });
-                                    setTierDialogOpen(true);
-                                  }
-                                }}
-                                className="p-1 hover:bg-surface-muted rounded text-ink-faint hover:text-brand-600 transition-colors"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => deleteCommissionTier(supplier.id, res.tierId)}
-                                className="p-1 hover:bg-surface-muted rounded text-ink-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
+
+                        <div className="mt-3 flex items-center justify-between text-xs">
+                          <div>
+                            <span className="text-ink-faint">المشتريات: </span>
+                            <span className="font-medium text-ink">{formatCurrency(res.totalPurchases, settings.currency)}</span>
+                          </div>
+                          <div>
+                            <span className="text-ink-faint">البونص: </span>
+                            <span className={`font-bold ${res.earned > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-ink-faint"}`}>
+                              {formatCurrency(res.earned, settings.currency)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 h-1.5 bg-surface-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${achieved ? "bg-emerald-500" : "bg-brand-400"}`}
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
                       </div>
+                    );
+                  })}
+                </div>
 
-                      <div className="mt-3 flex items-center justify-between text-xs">
-                        <div>
-                          <span className="text-ink-faint">المشتريات: </span>
-                          <span className="font-medium text-ink">{formatCurrency(res.totalPurchases, settings.currency)}</span>
-                        </div>
-                        <div>
-                          <span className="text-ink-faint">البونص: </span>
-                          <span className={`font-bold ${res.earned > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-ink-faint"}`}>
-                            {formatCurrency(res.earned, settings.currency)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-2 h-1.5 bg-surface-muted rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${achieved ? "bg-emerald-500" : "bg-brand-400"}`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-lg p-3 flex items-center justify-between text-emerald-900 dark:text-emerald-300">
-                <div className="text-xs font-medium opacity-80">إجمالي البونص المستحق حاليًا</div>
-                <div className="text-lg font-bold leading-tight">
-                  {formatCurrency(commissionEarned, settings.currency)}
+                <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-lg p-3 flex items-center justify-between text-emerald-900 dark:text-emerald-300">
+                  <div className="text-xs font-medium opacity-80">إجمالي البونص المستحق حاليًا</div>
+                  <div className="text-lg font-bold leading-tight">
+                    {formatCurrency(commissionEarned, settings.currency)}
+                  </div>
                 </div>
               </div>
+            )}
+          </CardBody>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader title="نظام العمولات والبونص" subtitle="شرائح مكافآت المشتريات ونسبة تحقّقها خلال الفترة" />
+          <CardBody>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+              <div className="font-bold">ميزة عمولات وبونص الموردين معطلة</div>
+              <div className="mt-0.5">يرجى تفعيل ترخيص الميزة لإدارة شرائح العمولة لهذا المورد.</div>
             </div>
-          )}
-        </CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader
@@ -481,7 +500,7 @@ export function SupplierDetailPage() {
 
       {/* Commission tier dialog */}
       <Dialog
-        open={tierDialogOpen}
+        open={supplierCommissionsEnabled && tierDialogOpen}
         onClose={() => setTierDialogOpen(false)}
         title={editingTier ? "تعديل شريحة عمولة" : "إضافة شريحة عمولة"}
         footer={

@@ -63,6 +63,7 @@ export function ProductsPage() {
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const expiryTrackingEnabled = isEnabled("expiryTracking");
   const excelExportEnabled = isEnabled("excelExport");
+  const bulkProductToolsEnabled = isEnabled("bulkProductTools");
   const toast = useToast();
   const loc = useLocation();
   const navigate = useNavigate();
@@ -253,6 +254,12 @@ export function ProductsPage() {
   }
 
   function handleBulkPriceUpdate() {
+    if (!bulkProductToolsEnabled && selectedIds.size >= 10) {
+      toast.error(
+        "النسخة المجانية تدعم التعديل الجماعي حتى 9 أصناف فقط في المرة الواحدة — لتعديل عدد أكبر يلزم تفعيل ميزة أدوات التعديل الجماعي غير المحدودة.",
+      );
+      return;
+    }
     if (selectedIds.size === 0 || !bulkPriceValue) return;
     let count = 0;
     selectedIds.forEach((id) => {
@@ -284,6 +291,12 @@ export function ProductsPage() {
   }
 
   function handleBulkRackUpdate() {
+    if (!bulkProductToolsEnabled && selectedIds.size >= 10) {
+      toast.error(
+        "النسخة المجانية تدعم التعديل الجماعي حتى 9 أصناف فقط في المرة الواحدة — لتعديل عدد أكبر يلزم تفعيل ميزة أدوات التعديل الجماعي غير المحدودة.",
+      );
+      return;
+    }
     if (selectedIds.size === 0) return;
     let count = 0;
     selectedIds.forEach((id) => {
@@ -296,6 +309,12 @@ export function ProductsPage() {
   }
 
   function handleBulkCatSupplierUpdate() {
+    if (!bulkProductToolsEnabled && selectedIds.size >= 10) {
+      toast.error(
+        "النسخة المجانية تدعم التعديل الجماعي حتى 9 أصناف فقط في المرة الواحدة — لتعديل عدد أكبر يلزم تفعيل ميزة أدوات التعديل الجماعي غير المحدودة.",
+      );
+      return;
+    }
     if (selectedIds.size === 0) return;
     let count = 0;
     selectedIds.forEach((id) => {
@@ -570,6 +589,11 @@ export function ProductsPage() {
                   {selectedIds.size}
                 </span>
                 <span>صنف محدد</span>
+                {!bulkProductToolsEnabled && selectedIds.size >= 9 && (
+                  <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                    (9/9 كحد أقصى للنسخة المجانية)
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="outline" onClick={() => setBulkPriceOpen(true)}>

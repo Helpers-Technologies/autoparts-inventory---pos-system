@@ -172,7 +172,7 @@ export default function App() {
       <Route
         path="/purchasing-assistant"
         element={
-          <ProtectedShell permission="purchaseInvoices">
+          <ProtectedShell permission="purchaseInvoices" feature="purchasingAssistant">
             <PurchasingAssistantPage />
           </ProtectedShell>
         }
@@ -188,7 +188,7 @@ export default function App() {
       <Route
         path="/pricing-rules"
         element={
-          <ProtectedShell ownerOnly>
+          <ProtectedShell ownerOnly feature="pricingRules">
             <PricingRulesPage />
           </ProtectedShell>
         }

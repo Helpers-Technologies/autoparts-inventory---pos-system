@@ -220,6 +220,7 @@ export function POSPage() {
   const barcodeSystemEnabled = isEnabled("barcodeSystem");
   const partAlternativesEnabled = isEnabled("partAlternatives");
   const vehicleCatalogEnabled = isEnabled("vehicleCatalog");
+  const posMultiHoldEnabled = isEnabled("posMultiHold");
   const toast = useToast();
 
   const products = useMemo(() => allProducts.filter((p) => !p.archived), [allProducts]);
@@ -721,13 +722,9 @@ export function POSPage() {
   };
 
   // ── Hold / Resume invoice helpers ──
-  const holdCurrentInvoice = () => {
-    if (lines.length === 0) {
-      toast.error("السلة فارغة — لا يوجد ما يُعلّق");
-      return;
-    }
+  const buildHeldInvoice = (): HeldInvoice => {
     const customer = customers.find((c) => c.id === customerId);
-    const held: HeldInvoice = {
+    return {
       id: uid("held"),
       heldAt: new Date().toISOString(),
       customerName: customer?.name ?? "عميل",
@@ -741,6 +738,20 @@ export function POSPage() {
       selectedBranchId,
       gross,
     };
+  };
+
+  const holdCurrentInvoice = () => {
+    if (lines.length === 0) {
+      toast.error("السلة فارغة — لا يوجد ما يُعلّق");
+      return;
+    }
+    if (!posMultiHoldEnabled && heldInvoices.length >= 1) {
+      toast.error(
+        "النسخة المجانية تدعم تعليق فاتورة واحدة فقط في نفس الوقت — لتعليق أكثر من فاتورة يلزم تفعيل ميزة تعليق الفواتير المتعددة."
+      );
+      return;
+    }
+    const held = buildHeldInvoice();
     const updated = [held, ...heldInvoices];
     setHeldInvoices(updated);
     saveHeldInvoices(updated);
@@ -751,9 +762,19 @@ export function POSPage() {
   const resumeHeldInvoice = (heldId: string) => {
     const held = heldInvoices.find((h) => h.id === heldId);
     if (!held) return;
-    // If current cart has items, hold it first
+    const remaining = heldInvoices.filter((h) => h.id !== heldId);
+    let nextHeldList = remaining;
+    // If current cart has items, park it first — swapping the resumed invoice
+    // for the current cart keeps the held count net-unchanged, so this is
+    // allowed even on the free (single-hold) tier.
     if (lines.length > 0) {
-      holdCurrentInvoice();
+      if (!posMultiHoldEnabled && remaining.length >= 1) {
+        toast.error(
+          "النسخة المجانية تدعم تعليق فاتورة واحدة فقط في نفس الوقت — أكمل البيع الحالي أو احذفه أولاً قبل استعادة فاتورة أخرى."
+        );
+        return;
+      }
+      nextHeldList = [buildHeldInvoice(), ...remaining];
     }
     setCustomerId(held.customerId);
     setLines(held.lines);
@@ -763,9 +784,8 @@ export function POSPage() {
     setPaymentMethod(held.paymentMethod);
     setSelectedVehicleId(held.selectedVehicleId);
     setSelectedBranchId(held.selectedBranchId);
-    const updated = heldInvoices.filter((h) => h.id !== heldId);
-    setHeldInvoices(updated);
-    saveHeldInvoices(updated);
+    setHeldInvoices(nextHeldList);
+    saveHeldInvoices(nextHeldList);
     setIsHeldListOpen(false);
     toast.info("تم استعادة الفاتورة المعلّقة");
     focusBarcode();

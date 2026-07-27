@@ -81,6 +81,7 @@ export function ReportsPage() {
   const whatsappEnabled = isEnabled("whatsappIntegration");
   const expiryTrackingEnabled = isEnabled("expiryTracking");
   const excelExportEnabled = isEnabled("excelExport");
+  const supplierCommissionsEnabled = isEnabled("supplierCommissions");
   const { products, customers, suppliers } = useCatalog();
   const { users } = useUsers();
   const { salesInvoices, purchaseInvoices, salesReturns, cashEntries } = useInvoicing();
@@ -168,11 +169,12 @@ export function ReportsPage() {
       .reduce((a, s) => a + s.total, 0) - returnsByPriceType.retail;
 
   const totalCommissions = useMemo(() => {
+    if (!supplierCommissionsEnabled) return 0;
     return suppliers.reduce((sum, s) => {
       const comms = calculateSupplierCommission(s.id);
       return sum + comms.reduce((a, c) => a + c.earned, 0);
     }, 0);
-  }, [suppliers, calculateSupplierCommission]);
+  }, [suppliers, calculateSupplierCommission, supplierCommissionsEnabled]);
 
   // OBS-01: estimated GROSS profit = Σ(line price − cost) − invoice discounts
   // − profit reversed by returns in the period.
@@ -527,7 +529,7 @@ export function ReportsPage() {
                 <option value="customers">كشف أرصدة العملاء</option>
                 <option value="suppliers">كشف أرصدة الموردين</option>
                 <option value="supplierDues">كشف فلوس علينا للموردين</option>
-                <option value="commissions">تقرير عمولات الموردين</option>
+                {supplierCommissionsEnabled && <option value="commissions">تقرير عمولات الموردين</option>}
                 <option value="monthlyProfit">تقرير الربح الشهري</option>
                 <option value="customerDues">كشف فلوس لدينا من عملاء</option>
               </Select>
@@ -564,7 +566,7 @@ export function ReportsPage() {
           <TabsTrigger value="customers">أرصدة العملاء</TabsTrigger>
           <TabsTrigger value="suppliers">أرصدة الموردين</TabsTrigger>
           <TabsTrigger value="supplierDues">فلوس علينا للموردين</TabsTrigger>
-          {canViewEmployeeBonuses ? <TabsTrigger value="commissions">عمولات الموردين</TabsTrigger> : null}
+          {canViewEmployeeBonuses && supplierCommissionsEnabled ? <TabsTrigger value="commissions">عمولات الموردين</TabsTrigger> : null}
           <TabsTrigger value="monthlyProfit">الربح الشهري</TabsTrigger>
           <TabsTrigger value="customerDues">فلوس لدينا من عملاء</TabsTrigger>
           {canViewEmployeeBonuses ? <TabsTrigger value="employeeBonuses">بونص الموظفين</TabsTrigger> : null}
@@ -1176,6 +1178,12 @@ export function ReportsPage() {
           <Card>
             <CardHeader title="تفاصيل عمولات وبونص الموردين" />
             <CardBody>
+              {!supplierCommissionsEnabled ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+                  <div className="font-bold">ميزة عمولات وبونص الموردين معطلة</div>
+                  <div className="mt-0.5">يرجى تفعيل ترخيص الميزة لعرض تقرير العمولات.</div>
+                </div>
+              ) : (
               <Table>
                 <THead>
                   <TR>
@@ -1209,6 +1217,7 @@ export function ReportsPage() {
                   )}
                 </TBody>
               </Table>
+              )}
             </CardBody>
           </Card>
         </TabsContent>
@@ -1518,6 +1527,7 @@ export function ReportsPage() {
               customerBalance={customerBalance} supplierBalance={supplierBalance}
               calculateSupplierCommission={calculateSupplierCommission}
               canViewEmployeeBonuses={canViewEmployeeBonuses}
+              supplierCommissionsEnabled={supplierCommissionsEnabled}
             />
           </div>
         </div>
@@ -1543,6 +1553,7 @@ export function ReportsPage() {
           customerBalance={customerBalance} supplierBalance={supplierBalance}
           calculateSupplierCommission={calculateSupplierCommission}
           canViewEmployeeBonuses={canViewEmployeeBonuses}
+          supplierCommissionsEnabled={supplierCommissionsEnabled}
         />
       </div>
 
@@ -1697,6 +1708,7 @@ type RCProps = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   calculateSupplierCommission: (id: string) => any[];
   canViewEmployeeBonuses: boolean;
+  supplierCommissionsEnabled: boolean;
 };
 
 function SectionHeader({ title }: { title: string }) {
@@ -1778,6 +1790,7 @@ function ReportContent({
   customerBalance, supplierBalance,
   calculateSupplierCommission,
   canViewEmployeeBonuses,
+  supplierCommissionsEnabled,
 }: RCProps) {
   const cur = settings.currency;
 
@@ -2106,7 +2119,7 @@ function ReportContent({
         )}
 
         {/* ════ COMMISSIONS ════ */}
-        {printMode === "commissions" && (
+        {printMode === "commissions" && supplierCommissionsEnabled && (
           <>
             <SectionHeader title="تقرير عمولات الموردين" />
             <PrintTable

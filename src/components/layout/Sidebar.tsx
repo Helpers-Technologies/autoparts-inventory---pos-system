@@ -96,10 +96,10 @@ const GROUPS: NavGroup[] = [
     label: "المشتريات والتوريد",
     items: [
       { to: "/purchases", label: "فواتير المشتريات", icon: ShoppingBag, permission: "purchaseInvoices", feature: "purchaseInvoices" },
-      { to: "/purchasing-assistant", label: "مساعد المشتريات الذكي", icon: Sparkles, permission: "purchaseInvoices" },
+      { to: "/purchasing-assistant", label: "مساعد المشتريات الذكي", icon: Sparkles, permission: "purchaseInvoices", feature: "purchasingAssistant" },
       { to: "/branches", label: "الفروع والتحويلات", icon: Building2, permission: "inventory" },
       { to: "/stocktakes", label: "الجرد الدوري", icon: ClipboardList, permission: "inventory", feature: "stocktakes" },
-      { to: "/pricing-rules", label: "شرائح وقواعد الأسعار", icon: BadgeDollarSign, ownerOnly: true },
+      { to: "/pricing-rules", label: "شرائح وقواعد الأسعار", icon: BadgeDollarSign, ownerOnly: true, feature: "pricingRules" },
     ],
   },
   {
