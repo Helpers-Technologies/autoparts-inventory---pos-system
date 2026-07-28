@@ -1026,7 +1026,6 @@ function PricingPanel({
   const [priceRouteFilter, setPriceRouteFilter] = useState("all");
   const [priceServiceFilter, setPriceServiceFilter] = useState("all");
   const [priceSizeFilter, setPriceSizeFilter] = useState("all");
-  const [priceSearch, setPriceSearch] = useState("");
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   const [priceSort, setPriceSort] = useState<
@@ -1073,7 +1072,6 @@ function PricingPanel({
   );
   const filteredApiPrices = useMemo(
     () => {
-      const search = priceSearch.trim().toLocaleLowerCase("ar-EG");
       const min = priceMin.trim() === "" ? undefined : Number(priceMin);
       const max = priceMax.trim() === "" ? undefined : Number(priceMax);
       const filtered = apiPrices.filter(
@@ -1082,10 +1080,6 @@ function PricingPanel({
           (priceServiceFilter === "all" ||
             row.service === priceServiceFilter) &&
           (priceSizeFilter === "all" || row.size === priceSizeFilter) &&
-          (!search ||
-            [row.route, row.service, row.size].some((value) =>
-              value.toLocaleLowerCase("ar-EG").includes(search),
-            )) &&
           (min === undefined || !Number.isFinite(min) || row.amount >= min) &&
           (max === undefined || !Number.isFinite(max) || row.amount <= max),
       );
@@ -1102,7 +1096,6 @@ function PricingPanel({
       priceMax,
       priceMin,
       priceRouteFilter,
-      priceSearch,
       priceServiceFilter,
       priceSizeFilter,
       priceSort,
@@ -1117,7 +1110,6 @@ function PricingPanel({
     priceRouteFilter !== "all",
     priceServiceFilter !== "all",
     priceSizeFilter !== "all",
-    Boolean(priceSearch.trim()),
     Boolean(priceMin.trim()),
     Boolean(priceMax.trim()),
     priceSort !== "default",
@@ -1127,7 +1119,6 @@ function PricingPanel({
     setPriceRouteFilter("all");
     setPriceServiceFilter("all");
     setPriceSizeFilter("all");
-    setPriceSearch("");
     setPriceMin("");
     setPriceMax("");
     setPriceSort("default");
@@ -1232,7 +1223,7 @@ function PricingPanel({
                 </div>
               </div>
 
-              <div className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-2 p-3 md:grid-cols-3">
                 <Field label="باقة الأسعار">
                   <Select
                     value={tierIdSelector}
@@ -1263,16 +1254,6 @@ function PricingPanel({
                     ))}
                   </Select>
                 </Field>
-                <div className="relative self-end">
-                  <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-                  <Input
-                    value={priceSearch}
-                    onChange={(event) => setPriceSearch(event.target.value)}
-                    placeholder="ابحث في الأسعار..."
-                    className="pr-9"
-                    aria-label="البحث في قائمة الأسعار"
-                  />
-                </div>
                 <label className="flex min-h-[42px] items-center gap-2 self-end rounded-xl border border-line px-3 text-sm text-ink">
                   <input
                     type="checkbox"
