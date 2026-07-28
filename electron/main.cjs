@@ -161,6 +161,7 @@ const BOSTA_API_KEY = "__integration_bosta_api_key";
 const BOSTA_WEBHOOK_HEADER_VALUE = "__integration_bosta_webhook_header_value";
 const BOSTA_WEBHOOK_POLL_TOKEN = "__integration_bosta_webhook_poll_token";
 const BOSTA_API_BASE = "https://app.bosta.co/api/v2";
+const BOSTA_TRACKING_API_BASE = "https://tracking.bosta.co";
 
 // ── SECURITY: Login brute-force protection ──────────────────────────────
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -888,6 +889,42 @@ async function bostaRequest(pathname, options = {}) {
           "bosta_request_failed",
       ).slice(0, 500);
       return { ok: false, status: response.status, error: message, data };
+    }
+    return { ok: true, status: response.status, data };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      error: error?.name === "AbortError" ? "request_timeout" : "network_error",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function bostaPublicTrackingRequest(reference) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await fetch(
+      `${BOSTA_TRACKING_API_BASE}/shipments/track/${encodeURIComponent(reference)}?lang=ar`,
+      {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      },
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error:
+          response.status === 404
+            ? "tracking_not_found"
+            : response.status === 429
+              ? "rate_limit_exceeded"
+              : "tracking_request_failed",
+      };
     }
     return { ok: true, status: response.status, data };
   } catch (error) {
@@ -4298,11 +4335,19 @@ function registerIpc() {
       const clean = String(reference || "").trim();
       if (!/^[A-Za-z0-9_-]{3,120}$/.test(clean))
         return { ok: false, error: "invalid_tracking_reference" };
-      let result = await bostaRequest(
-        `/deliveries/business/${encodeURIComponent(clean)}`,
-      );
+      let result;
+      if (/^\d{6,}$/.test(clean)) {
+        result = await bostaPublicTrackingRequest(clean);
+      } else {
+        result = await bostaRequest(
+          `/deliveries/business/${encodeURIComponent(clean)}`,
+        );
+        if (!result.ok) {
+          result = await bostaRequest(`/deliveries/${encodeURIComponent(clean)}`);
+        }
+      }
       if (!result.ok && result.status === 404) {
-        result = await bostaRequest(`/deliveries/${encodeURIComponent(clean)}`);
+        result = await bostaPublicTrackingRequest(clean);
       }
       return result.ok
         ? { ok: true, data: result.data }

@@ -136,6 +136,7 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
     "delivery.state",
     "currentStatus.code",
     "data.currentStatus.code",
+    "CurrentStatus.code",
   ]);
   const historyPaths = [
     "history",
@@ -145,6 +146,7 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
     "events",
     "data.events",
     "delivery.history",
+    "TransitEvents",
   ];
   const history = historyPaths
     .map((path) => nestedValue(data, path))
@@ -187,6 +189,7 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
       "timeStamp",
       "data.timeStamp",
       "delivery.updatedAt",
+      "CurrentStatus.timestamp",
     ]),
   );
   if (!timeline.length) {
@@ -202,6 +205,7 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
         "trackingNumber",
         "data.trackingNumber",
         "delivery.trackingNumber",
+        "TrackingNumber",
       ]) ?? fallback,
     status: arabicBostaStatus(code),
     updatedAt,
@@ -210,6 +214,7 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
         "deliveryPromiseDate",
         "data.deliveryPromiseDate",
         "delivery.deliveryPromiseDate",
+        "PromisedDate",
       ]),
     ),
     attempts: firstNumber(data, [
