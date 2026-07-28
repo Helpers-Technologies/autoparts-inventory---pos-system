@@ -371,65 +371,78 @@ export function ShippingManagementPage() {
 
       {tab !== "pricing" ? (
         <Card>
-          <CardBody className="p-3">
-            <div className="grid grid-cols-2 lg:grid-cols-[minmax(220px,1.4fr)_repeat(5,minmax(120px,.7fr))] gap-2">
-              <div className="relative col-span-2 lg:col-span-1">
-                <Search className="absolute right-3 top-2.5 h-4 w-4 text-ink-faint" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="فاتورة، عميل، هاتف أو رقم تتبع..."
-                  className="pr-9"
-                />
-              </div>
-              <Select
-                value={status}
-                onChange={(event) =>
-                  setStatus(event.target.value as typeof status)
-                }
-              >
-                <option value="all">كل الحالات</option>
-                {Object.entries(DELIVERY_STATUS_LABELS).map(
-                  ([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
+          <CardBody className="p-4">
+            <div className="grid grid-cols-2 items-end gap-3 lg:grid-cols-[minmax(240px,1.4fr)_repeat(5,minmax(130px,.7fr))]">
+              <Field label="بحث في أوامر التوصيل" className="col-span-2 lg:col-span-1 [&>label]:justify-center">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+                  <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="فاتورة، عميل، هاتف أو رقم تتبع..."
+                    className="h-11 rounded-xl pr-9"
+                  />
+                </div>
+              </Field>
+              <Field label="حالة الطلب" className="[&>label]:justify-center">
+                <Select
+                  className="h-11 rounded-xl"
+                  value={status}
+                  onChange={(event) =>
+                    setStatus(event.target.value as typeof status)
+                  }
+                >
+                  <option value="all">كل الحالات</option>
+                  {Object.entries(DELIVERY_STATUS_LABELS).map(
+                    ([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ),
+                  )}
+                </Select>
+              </Field>
+              <Field label="طريقة التوصيل" className="[&>label]:justify-center">
+                <Select
+                  className="h-11 rounded-xl"
+                  value={method}
+                  onChange={(event) =>
+                    setMethod(event.target.value as typeof method)
+                  }
+                >
+                  <option value="all">كل طرق التوصيل</option>
+                  <option value="branch_driver">سائق الفرع</option>
+                  <option value="shipping_company">شركة شحن</option>
+                </Select>
+              </Field>
+              <Field label="شركة الشحن" className="[&>label]:justify-center">
+                <Select
+                  className="h-11 rounded-xl"
+                  value={providerId}
+                  onChange={(event) => setProviderId(event.target.value)}
+                >
+                  <option value="all">كل شركات الشحن</option>
+                  {availableProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}
                     </option>
-                  ),
-                )}
-              </Select>
-              <Select
-                value={method}
-                onChange={(event) =>
-                  setMethod(event.target.value as typeof method)
-                }
-              >
-                <option value="all">كل طرق التوصيل</option>
-                <option value="branch_driver">سائق الفرع</option>
-                <option value="shipping_company">شركة شحن</option>
-              </Select>
-              <Select
-                value={providerId}
-                onChange={(event) => setProviderId(event.target.value)}
-              >
-                <option value="all">كل شركات الشحن</option>
-                {availableProviders.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.name}
-                  </option>
-                ))}
-              </Select>
-              <Field label="من تاريخ إنشاء الطلب">
+                  ))}
+                </Select>
+              </Field>
+              <Field label="من تاريخ إنشاء الطلب" className="[&>label]:justify-center">
                 <Input
                   type="date"
                   value={dateFrom}
                   onChange={(event) => setDateFrom(event.target.value)}
+                  className="h-11 rounded-xl"
                 />
               </Field>
-              <Field label="إلى تاريخ إنشاء الطلب">
+              <Field label="إلى تاريخ إنشاء الطلب" className="[&>label]:justify-center">
                 <Input
                   type="date"
                   value={dateTo}
                   onChange={(event) => setDateTo(event.target.value)}
+                  className="h-11 rounded-xl"
                 />
               </Field>
             </div>
