@@ -1206,7 +1206,7 @@ function PricingPanel({
                     ) : null}
                   </div>
                   <div className="mt-0.5 text-[11px] text-ink-faint">
-                    منطقة الانطلاق ومنطقة التسليم مختلفتان؛ بوسطة تجمع المحافظات في قطاعات تسعير.
+                    «من الفرع» هي نقطة استلام بوسطة للشحنة، و«إلى العميل» هي وجهة توصيلها.
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1251,8 +1251,8 @@ function PricingPanel({
                   </Select>
                 </Field>
                 <Field
-                  label="قطاع انطلاق الشحنة"
-                  hint="حسب تقسيم تسعير بوسطة"
+                  label="استلام الشحنة من فرعك (من)"
+                  hint="القطاع الذي يقع فيه فرعك وتستلم منه بوسطة الشحنة"
                 >
                   <Select
                     value={pickupSectorId}
@@ -1262,7 +1262,7 @@ function PricingPanel({
                   >
                     {BOSTA_PRICING_SECTORS.map((sector) => (
                       <option key={sector.id} value={sector.id}>
-                        {sector.label}
+                        من: {sector.label}
                       </option>
                     ))}
                   </Select>
@@ -1278,45 +1278,51 @@ function PricingPanel({
                 </label>
               </div>
 
-              <div className="grid gap-2 border-t border-line px-3 py-3 sm:grid-cols-3">
-                <Select
-                  aria-label="تصفية حسب قطاع التسليم"
-                  value={priceRouteFilter}
-                  onChange={(event) => setPriceRouteFilter(event.target.value)}
-                >
-                  <option value="all">كل قطاعات التسليم</option>
-                  {priceRoutes.map((route) => (
-                    <option key={route} value={route}>
-                      {route}
-                    </option>
-                  ))}
-                </Select>
-                <Select
-                  aria-label="تصفية حسب الخدمة"
-                  value={priceServiceFilter}
-                  onChange={(event) =>
-                    setPriceServiceFilter(event.target.value)
-                  }
-                >
-                  <option value="all">كل الخدمات</option>
-                  {priceServices.map((service) => (
-                    <option key={service} value={service}>
-                      {service}
-                    </option>
-                  ))}
-                </Select>
-                <Select
-                  aria-label="تصفية حسب حجم الطرد"
-                  value={priceSizeFilter}
-                  onChange={(event) => setPriceSizeFilter(event.target.value)}
-                >
-                  <option value="all">كل أحجام الطرود</option>
-                  {priceSizes.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </Select>
+              <div className="grid items-end gap-2 border-t border-line px-3 py-3 sm:grid-cols-3">
+                <Field label="توصيل الشحنة إلى العميل (إلى)" className="[&>label]:justify-center">
+                  <Select
+                    aria-label="تصفية حسب وجهة التسليم إلى العميل"
+                    value={priceRouteFilter}
+                    onChange={(event) => setPriceRouteFilter(event.target.value)}
+                  >
+                    <option value="all">إلى: كل مناطق التسليم</option>
+                    {priceRoutes.map((route) => (
+                      <option key={route} value={route}>
+                        إلى: {route}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="نوع خدمة الشحن" className="[&>label]:justify-center">
+                  <Select
+                    aria-label="تصفية حسب خدمة الشحن"
+                    value={priceServiceFilter}
+                    onChange={(event) =>
+                      setPriceServiceFilter(event.target.value)
+                    }
+                  >
+                    <option value="all">كل الخدمات</option>
+                    {priceServices.map((service) => (
+                      <option key={service} value={service}>
+                        {service}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="حجم الطرد" className="[&>label]:justify-center">
+                  <Select
+                    aria-label="تصفية حسب حجم الطرد"
+                    value={priceSizeFilter}
+                    onChange={(event) => setPriceSizeFilter(event.target.value)}
+                  >
+                    <option value="all">كل أحجام الطرود</option>
+                    {priceSizes.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
               </div>
 
               {advancedPriceFiltersOpen ? (
