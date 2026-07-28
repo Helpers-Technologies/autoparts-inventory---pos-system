@@ -25,9 +25,15 @@ export function formatDateTime(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return `${formatDate(iso)} ${String(d.getHours()).padStart(2, "0")}:${String(
-    d.getMinutes()
-  ).padStart(2, "0")}`;
+  const period = d.getHours() >= 12 ? "م" : "ص";
+  const hours = d.getHours() % 12 || 12;
+  const dateTime = `${formatDate(iso)}\u00A0${String(hours).padStart(
+    2,
+    "0",
+  )}:${String(d.getMinutes()).padStart(2, "0")}\u00A0${period}`;
+  // Keep Arabic AM/PM next to the time inside RTL interfaces instead of
+  // letting the bidi algorithm move it across the numeric date.
+  return `\u2066${dateTime}\u2069`;
 }
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {

@@ -4831,8 +4831,8 @@ app.whenReady().then(() => {
   const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const cspDirectives = isDev
-      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://app.bosta.co;"
-      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://app.bosta.co; object-src 'none'; base-uri 'self'; form-action 'self';";
+      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://app.bosta.co https://tracking.bosta.co;"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://app.bosta.co https://tracking.bosta.co; object-src 'none'; base-uri 'self'; form-action 'self';";
     callback({
       responseHeaders: {
         ...details.responseHeaders,

@@ -516,6 +516,8 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
   const submitOrderToBosta: ShippingContextValue["submitOrderToBosta"] =
     useCallback(
       async (orderId) => {
+        if (!bostaConfig.enabled)
+          return { ok: false, error: "integration_disabled" };
         const api = window.desktopAPI?.integrations?.bosta;
         if (!api) return { ok: false, error: "desktop_required" };
         if (!apiInternetAvailable())
@@ -608,6 +610,8 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
   const refreshBostaTracking: ShippingContextValue["refreshBostaTracking"] =
     useCallback(
       async (orderId) => {
+        if (!bostaConfig.enabled)
+          return { ok: false, error: "integration_disabled" };
         const api = window.desktopAPI?.integrations?.bosta;
         if (!api) return { ok: false, error: "desktop_required" };
         if (!apiInternetAvailable())
@@ -675,7 +679,7 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
         );
         return { ok: true };
       },
-      [],
+      [bostaConfig.enabled],
     );
 
   useEffect(() => {
@@ -835,6 +839,8 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
 
   const getBostaCities: ShippingContextValue["getBostaCities"] =
     useCallback(async () => {
+      if (!bostaConfig.enabled)
+        return { ok: false, error: "integration_disabled" };
       if (!apiInternetAvailable())
         return { ok: false, error: "internet_required" };
       const result = await window.desktopAPI?.integrations?.bosta.getCities();
@@ -864,10 +870,12 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
         ];
       });
       return { ok: true, cities };
-    }, []);
+    }, [bostaConfig.enabled]);
 
   const getBostaDistricts: ShippingContextValue["getBostaDistricts"] =
     useCallback(async (cityId) => {
+      if (!bostaConfig.enabled)
+        return { ok: false, error: "integration_disabled" };
       if (!apiInternetAvailable())
         return { ok: false, error: "internet_required" };
       const result =
@@ -905,10 +913,12 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
         ];
       });
       return { ok: true, districts };
-    }, []);
+    }, [bostaConfig.enabled]);
 
   const estimateBostaPrice: ShippingContextValue["estimateBostaPrice"] =
     useCallback(async (input) => {
+      if (!bostaConfig.enabled)
+        return { ok: false, error: "integration_disabled" };
       if (!apiInternetAvailable())
         return { ok: false, error: "internet_required" };
       const result =
@@ -926,10 +936,12 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
       return Number.isFinite(fee)
         ? { ok: true, fee, currency }
         : { ok: false, error: "price_unavailable" };
-    }, []);
+    }, [bostaConfig.enabled]);
 
   const getBostaPricingPlan: ShippingContextValue["getBostaPricingPlan"] =
     useCallback(async (input) => {
+      if (!bostaConfig.enabled)
+        return { ok: false, error: "integration_disabled" };
       if (!apiInternetAvailable())
         return { ok: false, error: "internet_required" };
       try {
@@ -948,7 +960,7 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
             : "bosta_request_failed",
         };
       }
-    }, []);
+    }, [bostaConfig.enabled]);
 
   const value = useMemo<ShippingContextValue>(
     () => ({

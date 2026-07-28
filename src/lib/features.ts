@@ -105,7 +105,7 @@ export const FEATURES: FeatureDef[] = [
   { key: "posMultiHold", label: "تعليق فواتير متعددة في نقطة البيع", description: "تعليق أكثر من فاتورة واحدة في نفس الوقت داخل نقطة البيع (النسخة المجانية تدعم فاتورة معلّقة واحدة فقط)", defaultEnabled: false },
   { key: "employeePayroll", label: "إدارة الموظفين والمرتبات", description: "إدارة الموظفين والسائقين بدون حساب نظام، المرتبات والمستحقات والبونص والخصومات والصرف التلقائي", defaultEnabled: false },
   { key: "shippingManagement", label: "إدارة التوصيل والشحن", description: "أوامر التوصيل بسائق الفرع وشركات الشحن، قوائم الأسعار والعناوين والتحصيل والتقارير وكشف حساب السائق", defaultEnabled: false },
-  { key: "bostaIntegration", label: "الربط المباشر مع بوسطة", description: "إنشاء الشحنات وجلب الأسعار والتتبع داخل النظام وتحديث الحالات تلقائيًا عبر واجهة بوسطة وWebhook", defaultEnabled: false },
+  { key: "bostaIntegration", label: "الربط المباشر مع بوسطه", description: "إنشاء الشحنات وجلب الأسعار والتتبع داخل النظام وتحديث الحالات تلقائيًا عبر واجهة بوسطه وWebhook", defaultEnabled: false },
 ];
 
 export const FEATURE_MAP: Record<FeatureKey, FeatureDef> = FEATURES.reduce(

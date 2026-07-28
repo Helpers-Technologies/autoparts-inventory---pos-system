@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   BarChart3,
@@ -96,9 +96,12 @@ function orderTrackingUrl(order: DeliveryOrder): string | undefined {
 
 export function ShippingManagementPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const shipping = useShipping();
   const { isEnabled } = useFeatures();
   const bostaIntegrationEnabled = isEnabled("bostaIntegration");
+  const bostaOperational =
+    bostaIntegrationEnabled && shipping.bostaConfig.enabled;
   const { settings } = useSettings();
   const toast = useToast();
   const [tab, setTab] = useState<Tab>("orders");
@@ -121,12 +124,25 @@ export function ShippingManagementPage() {
   const selectedOrder = selectedOrderId
     ? shipping.orders.find((order) => order.id === selectedOrderId)
     : undefined;
+
+  useEffect(() => {
+    const incomingOrderId = (
+      location.state as { openDeliveryOrderId?: string } | null
+    )?.openDeliveryOrderId;
+    if (
+      !incomingOrderId ||
+      !shipping.orders.some((order) => order.id === incomingOrderId)
+    )
+      return;
+    setTab("orders");
+    setSelectedOrderId(incomingOrderId);
+  }, [location.state, shipping.orders]);
   const availableProviders = useMemo(
     () =>
       shipping.providers.filter(
-        (provider) => provider.kind !== "bosta" || bostaIntegrationEnabled,
+        (provider) => provider.kind !== "bosta" || bostaOperational,
       ),
-    [bostaIntegrationEnabled, shipping.providers],
+    [bostaOperational, shipping.providers],
   );
 
   const filteredOrders = useMemo(() => {
@@ -199,7 +215,7 @@ export function ShippingManagementPage() {
         return;
       }
       toast.success(
-        "تم إنشاء شحنة بوسطة",
+        "تم إنشاء شحنة بوسطه",
         "سيظهر رقم التتبع فور رجوعه من الشركة",
       );
     } catch {
@@ -455,7 +471,7 @@ export function ShippingManagementPage() {
           orders={filteredOrders}
           busyOrderId={busyOrderId}
           bostaEnabled={
-            bostaIntegrationEnabled && shipping.bostaConfig.enabled && shipping.bostaConfig.configured
+            bostaOperational && shipping.bostaConfig.configured
           }
           onSubmitBosta={submitBosta}
           onRefresh={refreshTracking}
@@ -469,8 +485,10 @@ export function ShippingManagementPage() {
         <PricingPanel
           providers={availableProviders}
           rates={shipping.rates}
-          bostaConfigured={shipping.bostaConfig.configured}
-          bostaIntegrationEnabled={bostaIntegrationEnabled}
+          bostaConfigured={
+            bostaOperational && shipping.bostaConfig.configured
+          }
+          bostaIntegrationEnabled={bostaOperational}
           getBostaPricingPlan={shipping.getBostaPricingPlan}
           onToggle={(id, active) => shipping.updateProvider(id, { active })}
           onDeleteRate={shipping.deleteRate}
@@ -599,7 +617,7 @@ function BostaSendErrorDialog({
     <Dialog
       open={Boolean(error)}
       onClose={onClose}
-      title={bundleRequired ? "لا توجد باقة شحن نشطة" : "تعذر إرسال الشحنة إلى بوسطة"}
+      title={bundleRequired ? "لا توجد باقة شحن نشطة" : "تعذر إرسال الشحنة إلى بوسطه"}
       subtitle="لم يتم إنشاء الشحنة ولم يتغير الأوردر داخل النظام"
       width="sm"
       footer={
@@ -617,7 +635,7 @@ function BostaSendErrorDialog({
                 )
               }
             >
-              فتح باقات بوسطة <ExternalLink className="h-4 w-4" />
+              فتح باقات بوسطه <ExternalLink className="h-4 w-4" />
             </Button>
           ) : null}
         </>
@@ -642,15 +660,15 @@ function BostaSendErrorDialog({
             <ol className="space-y-2 text-xs leading-5 text-ink-muted">
               <li className="flex gap-2">
                 <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white">1</span>
-                افتح حسابك في بوسطة وفعّل أو اشترِ باقة شحن.
+                افتح حسابك في بوسطه وفعّل أو اشترِ باقة شحن.
               </li>
               <li className="flex gap-2">
                 <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white">2</span>
-                إذا كانت لديك باقة بالفعل، تواصل مع دعم بوسطة لتفعيل إنشاء الطلبات عبر الربط الإلكتروني.
+                إذا كانت لديك باقة بالفعل، تواصل مع دعم بوسطه لتفعيل إنشاء الطلبات عبر الربط الإلكتروني.
               </li>
               <li className="flex gap-2">
                 <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white">3</span>
-                بعد التفعيل ارجع واضغط «إرسال إلى بوسطة» مرة أخرى.
+                بعد التفعيل ارجع واضغط «إرسال إلى بوسطه» مرة أخرى.
               </li>
             </ol>
           </div>
@@ -850,7 +868,7 @@ function OrdersTable({
                               }
                               onClick={() => onSubmitBosta(order)}
                             >
-                              <Truck className="h-3.5 w-3.5" /> إرسال إلى بوسطة
+                              <Truck className="h-3.5 w-3.5" /> إرسال إلى بوسطه
                             </Button>
                           )
                         ) : null}
@@ -963,7 +981,7 @@ function OrderDetails({
               </div>
               <div className="shrink-0 text-left text-[11px] text-ink-faint">
                 {formatDateTime(event.occurredAt)}
-                <div>{event.source === "bosta" ? "بوسطة" : event.source === "user" ? "المستخدم" : "النظام"}</div>
+                <div>{event.source === "bosta" ? "بوسطه" : event.source === "user" ? "المستخدم" : "النظام"}</div>
               </div>
             </div>
           )) : (
@@ -1155,7 +1173,7 @@ function PricingPanel({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-ink">
-                  {provider.kind === "bosta" ? "بوسطة" : provider.name}
+                  {provider.kind === "bosta" ? "بوسطه" : provider.name}
                 </div>
                 <div className="text-xs text-ink-faint">
                   {provider.kind === "bosta"
@@ -1178,7 +1196,7 @@ function PricingPanel({
       <div className="space-y-4">
         {bostaIntegrationEnabled ? <Card>
           <CardHeader
-            title="أسعار بوسطة المباشرة"
+            title="أسعار بوسطه المباشرة"
             subtitle="تُسحب من خطة الأسعار الرسمية عبر الربط الإلكتروني ولا تحتاج إلى إدخال يدوي"
             actions={
               <Button
@@ -1206,7 +1224,7 @@ function PricingPanel({
                     ) : null}
                   </div>
                   <div className="mt-0.5 text-[11px] text-ink-faint">
-                    «من الفرع» هي نقطة استلام بوسطة للشحنة، و«إلى العميل» هي وجهة توصيلها.
+                    «من الفرع» هي نقطة استلام بوسطه للشحنة، و«إلى العميل» هي وجهة توصيلها.
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1252,7 +1270,7 @@ function PricingPanel({
                 </Field>
                 <Field
                   label="استلام الشحنة من فرعك (من)"
-                  hint="القطاع الذي يقع فيه فرعك وتستلم منه بوسطة الشحنة"
+                  hint="القطاع الذي يقع فيه فرعك وتستلم منه بوسطه الشحنة"
                 >
                   <Select
                     value={pickupSectorId}
@@ -1380,7 +1398,7 @@ function PricingPanel({
 
             {!bostaConfigured ? (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-600">
-                اربط حساب بوسطة من مركز الربط والتكاملات أولًا لجلب أسعار حسابك.
+                اربط حساب بوسطه من مركز الربط والتكاملات أولًا لجلب أسعار حسابك.
               </div>
             ) : pricingError ? (
               <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-600">
@@ -1388,7 +1406,7 @@ function PricingPanel({
               </div>
             ) : pricingLoading && apiPrices.length === 0 ? (
               <div className="py-8 text-center text-sm text-ink-muted">
-                جارٍ جلب أسعار بوسطة…
+                جارٍ جلب أسعار بوسطه…
               </div>
             ) : apiPrices.length > 0 ? (
               <div className="space-y-3">
@@ -1438,7 +1456,7 @@ function PricingPanel({
               </div>
             ) : pricingData ? (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-600">
-                استجابت بوسطة، لكن خطة الأسعار لا تحتوي أسعارًا قابلة للعرض لهذه الباقة والمنطقة.
+                استجابت بوسطه، لكن خطة الأسعار لا تحتوي أسعارًا قابلة للعرض لهذه الباقة والمنطقة.
               </div>
             ) : null}
           </CardBody>
@@ -1454,7 +1472,7 @@ function PricingPanel({
             <EmptyState
               icon={<MapPin className="h-6 w-6" />}
               title="لا توجد أسعار يدوية"
-              description="أسعار بوسطة تُجلب أعلاه تلقائيًا. أضف هنا استثناءً فقط عند الحاجة."
+              description="أسعار بوسطه تُجلب أعلاه تلقائيًا. أضف هنا استثناءً فقط عند الحاجة."
             />
           ) : (
             <div className="overflow-auto">
