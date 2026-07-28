@@ -88,6 +88,21 @@ const REGIONAL_MODELS = {
   Wuling: ["Hongguang", "Hongguang Mini EV", "Zhiguang"],
 };
 
+// This catalog is scoped to passenger cars only. car-logos-dataset also
+// includes trucks, buses, and other heavy/commercial marques (and one
+// motorcycle brand) that vPIC returns under the same "make" concept — strip
+// them here so every resync stays in scope instead of re-adding them.
+const NON_PASSENGER_MAKE_SLUGS = new Set([
+  // Buses
+  "golden-dragon", "king-long", "higer", "yutong", "zhongtong", "setra", "ic-bus", "irizar",
+  // Heavy trucks
+  "sinotruk", "shacman", "hongyan", "faw-jiefang", "man", "international", "ih", "navistar",
+  "kenworth", "mack", "freightliner", "peterbilt", "paccar", "western-star", "hino", "ud",
+  "pegaso", "scania", "bharatbenz", "eicher", "kamaz", "daf", "maz", "sisu", "erf", "foden",
+  // Motorcycles
+  "ktm",
+]);
+
 const args = new Set(process.argv.slice(2));
 const skipModels = args.has("--skip-models");
 const skipLogos = args.has("--skip-logos");
@@ -237,7 +252,9 @@ async function main() {
     fetchJson(LOGO_DATA_URL),
     fetchJson(LOCAL_LOGO_DATA_URL),
   ]);
-  const makesMetadata = buildMakeMetadata(mainLogoData, localLogoData);
+  const makesMetadata = buildMakeMetadata(mainLogoData, localLogoData).filter(
+    (make) => !NON_PASSENGER_MAKE_SLUGS.has(make.slug),
+  );
 
   if (!skipLogos) await downloadLogos(makesMetadata);
 

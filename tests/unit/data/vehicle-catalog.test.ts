@@ -11,7 +11,7 @@ import type { VehicleCatalogPreferences, VehicleMake } from "../../../src/types"
 
 describe("generated vehicle catalog", () => {
   it("ships the complete make/logo catalog", () => {
-    expect(catalog.makes).toHaveLength(387);
+    expect(catalog.makes).toHaveLength(352);
     expect(new Set(catalog.makes.map((make) => make.id)).size).toBe(catalog.makes.length);
     expect(new Set(catalog.makes.map((make) => make.slug)).size).toBe(catalog.makes.length);
   });
@@ -25,7 +25,7 @@ describe("generated vehicle catalog", () => {
 
   it("contains only models that point to a known make", () => {
     const makeIds = new Set(catalog.makes.map((make) => make.id));
-    expect(catalog.models.length).toBeGreaterThan(3_700);
+    expect(catalog.models.length).toBeGreaterThan(2_900);
     expect(catalog.models.every((model) => makeIds.has(model.makeId))).toBe(true);
     expect(new Set(catalog.models.map((model) => model.id)).size).toBe(catalog.models.length);
   });
@@ -43,7 +43,7 @@ describe("generated vehicle catalog", () => {
 
   it("classifies practically the complete make catalog by market country", () => {
     const classified = catalog.makes.filter((make) => inferVehicleCountryCode(make));
-    expect(classified.length).toBeGreaterThanOrEqual(386);
+    expect(classified.length).toBeGreaterThanOrEqual(351);
   });
 
   it("classifies the main Egyptian spare-parts markets correctly", () => {
