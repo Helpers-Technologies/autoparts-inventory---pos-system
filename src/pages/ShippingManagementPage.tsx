@@ -57,6 +57,21 @@ import { useFeatures } from "../lib/useFeatures";
 
 type Tab = "orders" | "pricing" | "reports";
 
+const PACKAGE_TYPE_LABELS: Record<
+  NonNullable<DeliveryOrder["packageType"]>,
+  string
+> = {
+  SMALL: "صغير",
+  MEDIUM: "متوسط",
+  LARGE: "كبير",
+  "Light Bulky": "ضخم خفيف",
+  "Heavy Bulky": "ضخم ثقيل",
+};
+
+function packageTypeLabel(value: DeliveryOrder["packageType"]): string {
+  return value ? PACKAGE_TYPE_LABELS[value] ?? value : "غير محدد";
+}
+
 const STATUS_TONE: Record<
   DeliveryOrderStatus,
   "slate" | "blue" | "green" | "amber" | "red"
@@ -86,10 +101,12 @@ const OPERATIONAL_STATUSES: DeliveryOrderStatus[] = [
   "cancelled",
 ];
 
+function isBostaOrder(order: DeliveryOrder): boolean {
+  return order.providerId === BOSTA_PROVIDER_ID || order.providerName === "Bosta";
+}
+
 function orderTrackingUrl(order: DeliveryOrder): string | undefined {
-  const isBosta =
-    order.providerId === BOSTA_PROVIDER_ID || order.providerName === "Bosta";
-  return isBosta && order.trackingNumber
+  return isBostaOrder(order) && order.trackingNumber
     ? bostaPublicTrackingUrl(order.trackingNumber)
     : order.trackingUrl;
 }
@@ -762,16 +779,16 @@ function OrdersTable({
                       </div>
                     </td>
                     <td className="p-3">
-                      <Badge
-                        tone={
-                          order.method === "branch_driver" ? "blue" : "slate"
+                      {order.method === "branch_driver" ? (
+                        <Badge tone="blue">سائق الفرع</Badge>
+                      ) : null}
+                      <div
+                        className={
+                          order.method === "branch_driver"
+                            ? "mt-2 font-semibold text-ink"
+                            : "font-semibold text-ink"
                         }
                       >
-                        {order.method === "branch_driver"
-                          ? "سائق الفرع"
-                          : "شركة شحن"}
-                      </Badge>
-                      <div className="mt-2 font-semibold text-ink">
                         {order.driverName || order.providerName || "غير محدد"}
                       </div>
                     </td>
@@ -789,22 +806,28 @@ function OrdersTable({
                       ) : null}
                     </td>
                     <td className="p-3">
-                      <Select
-                        value={order.status}
-                        onChange={(event) =>
-                          onStatus(
-                            order.id,
-                            event.target.value as DeliveryOrderStatus,
-                          )
-                        }
-                        className="min-w-[150px]"
-                      >
-                        {OPERATIONAL_STATUSES.map((item) => (
-                          <option key={item} value={item}>
-                            {DELIVERY_STATUS_LABELS[item]}
-                          </option>
-                        ))}
-                      </Select>
+                      {isBostaOrder(order) && order.trackingNumber ? (
+                        <div className="text-xs text-ink-faint">
+                          الحالة تُحدَّث تلقائيًا من بوسطه
+                        </div>
+                      ) : (
+                        <Select
+                          value={order.status}
+                          onChange={(event) =>
+                            onStatus(
+                              order.id,
+                              event.target.value as DeliveryOrderStatus,
+                            )
+                          }
+                          className="min-w-[150px]"
+                        >
+                          {OPERATIONAL_STATUSES.map((item) => (
+                            <option key={item} value={item}>
+                              {DELIVERY_STATUS_LABELS[item]}
+                            </option>
+                          ))}
+                        </Select>
+                      )}
                       <Badge className="mt-2" tone={STATUS_TONE[order.status]}>
                         {DELIVERY_STATUS_LABELS[order.status]}
                       </Badge>
@@ -846,8 +869,7 @@ function OrdersTable({
                         >
                           <Eye className="h-3.5 w-3.5" /> عرض التفاصيل
                         </Button>
-                        {order.providerId === BOSTA_PROVIDER_ID ||
-                        order.providerName === "Bosta" ? (
+                        {isBostaOrder(order) ? (
                           order.trackingNumber ? (
                             <Button
                               size="sm"
@@ -938,7 +960,10 @@ function OrderDetails({
             {order.method === "branch_driver" ? "سائق الفرع" : "شركة شحن"} — {order.driverName || order.providerName || "غير محدد"}
           </div>
           <div className="mt-1 text-xs text-ink-muted">
-            رقم التتبع: <span className="font-mono text-ink">{order.trackingNumber || "لم يصدر بعد"}</span>
+            رقم التتبع:{" "}
+            <span className={order.trackingNumber ? "font-mono text-ink" : "text-ink"}>
+              {order.trackingNumber || "لم يصدر بعد"}
+            </span>
           </div>
           {orderTrackingUrl(order) ? (
             <a href={orderTrackingUrl(order)} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600">
@@ -956,7 +981,7 @@ function OrderDetails({
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <DetailValue label="حجم الطرد" value={order.packageType || "غير محدد"} />
+        <DetailValue label="حجم الطرد" value={packageTypeLabel(order.packageType)} />
         <DetailValue label="عدد القطع" value={String(order.itemsCount ?? "—")} />
         <DetailValue label="فتح الطرد" value={order.allowOpenPackage ? "مسموح" : "غير مسموح"} />
         <DetailValue label="الفرع" value={order.branchName || "الفرع الرئيسي"} />
