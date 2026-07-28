@@ -935,7 +935,7 @@ export function SettingsPage() {
         <Card className="relative lg:col-span-2">
           <CardHeader
             title="بيانات الاشتراك والضمان"
-            subtitle="حالة الترخيص والدعم الفني للنسخة الحالية"
+            subtitle="حالة الترخيص والضمان والتحديثات للنسخة الحالية"
             actions={(
               <Button size="sm" onClick={() => setLicenseDialogOpen(true)}>
                 <KeyRound className="h-3.5 w-3.5" />
@@ -979,7 +979,7 @@ export function SettingsPage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-sm font-bold text-indigo-700 dark:text-indigo-300">
                   <Clock className="h-4 w-4" />
-                  <span>حالة الضمان والصيانة</span>
+                  <span>حالة الضمان والتحديثات</span>
                 </div>
                 <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${form.warrantyType === "none"
                   ? "text-ink-faint bg-surface-muted border-line-soft"
@@ -990,11 +990,11 @@ export function SettingsPage() {
               </div>
 
               <div className={cn("grid grid-cols-2 gap-2", form.warrantyType === "limited" ? "2xl:grid-cols-4" : "sm:grid-cols-3")}>
-                <LicenseCell label="مدة الضمان" value={form.warrantyType === "none" ? "بدون ضمان" : `${form.warrantyMonths} شهر (صيانة برمجية)`} />
+                <LicenseCell label="مدة الضمان" value={form.warrantyType === "none" ? "بدون ضمان" : `${form.warrantyMonths} شهر فقط`} />
                 {form.warrantyType === "limited" && (
                   <LicenseCell label="تاريخ البدء" value={form.warrantyStartDate ? new Date(form.warrantyStartDate).toLocaleDateString("ar-EG") : "غير محدد"} />
                 )}
-                <LicenseCell label="نوع الدعم" value={form.warrantyType === "none" ? "—" : "صيانة برمجية"} />
+                <LicenseCell label="نوع الدعم" value={form.warrantyType === "none" ? "—" : "ضمان وتحديثات"} />
                 <LicenseCell label="الأيام المتبقية">
                   <span className={`inline-flex items-center gap-1.5 text-sm font-mono font-bold px-2 py-0.5 rounded border ${form.warrantyType === "limited" && form.warrantyStartDate
                     ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20"
