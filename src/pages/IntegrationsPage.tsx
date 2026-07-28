@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import {
   Bot,
+  ChevronDown,
   ExternalLink,
   KeyRound,
   Link2,
   MessageCircle,
   PackageCheck,
   RefreshCw,
+  Settings2,
 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -239,6 +241,8 @@ export function IntegrationsPage() {
   const [testing, setTesting] = useState(false);
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [trackingOpen, setTrackingOpen] = useState(false);
+  const [bostaExpanded, setBostaExpanded] = useState(false);
+  const [webhookExpanded, setWebhookExpanded] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState("");
@@ -452,37 +456,72 @@ export function IntegrationsPage() {
         description="إدارة الربط الآمن مع شركات الشحن وقنوات التواصل وأدوات الذكاء الاصطناعي من مكان واحد."
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.7fr)] gap-4">
+      <div className="space-y-4">
         <Card>
           <CardHeader
-            title={
-              <span className="flex items-center gap-2">
-                <img
-                  src={bostaLogo}
-                  alt="بوسطة"
-                  className="h-7 w-auto object-contain"
-                />
-                Bosta للشحن
-              </span>
-            }
-            subtitle="إنشاء الشحنات من فواتير المبيعات ومزامنة رقم التتبع والحالة"
-            actions={
-              <Badge
-                tone={
-                  bostaConfig.enabled && bostaConfig.configured
-                    ? "green"
-                    : "slate"
-                }
-              >
-                {bostaConfig.enabled && bostaConfig.configured
-                  ? "متصل ومفعّل"
-                  : bostaConfig.configured
-                    ? "مُعدّ وغير مفعّل"
-                    : "غير مربوط"}
-              </Badge>
-            }
+            title="شركات الشحن"
+            subtitle="أضف شركات الشحن وأدر إعداد كل شركة من مكان مستقل ومنظم"
           />
-          <CardBody className="space-y-5">
+          <CardBody>
+            <div className={`rounded-2xl border transition-colors ${bostaExpanded ? "border-brand-500/40 bg-brand-500/5" : "border-line bg-surface-muted/20"}`}>
+              <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
+                <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <div className="grid h-14 w-24 shrink-0 place-items-center rounded-xl border border-line bg-white px-3 dark:bg-slate-950">
+                    <img src={bostaLogo} alt="بوسطة" className="max-h-9 w-full object-contain" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-bold text-ink">بوسطة للشحن</h3>
+                      <Badge tone={bostaConfig.enabled && bostaConfig.configured ? "green" : "slate"}>
+                        {bostaConfig.enabled && bostaConfig.configured
+                          ? "متصل ومفعّل"
+                          : bostaConfig.configured
+                            ? "مُعدّ وغير مفعّل"
+                            : "غير مربوط"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      إنشاء الشحنات والأسعار والتتبع وتحديث الحالات تلقائيًا
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-ink-faint">
+                      <span className="rounded-full bg-surface px-2 py-1">أوامر الشحن</span>
+                      <span className="rounded-full bg-surface px-2 py-1">الأسعار المباشرة</span>
+                      <span className="rounded-full bg-surface px-2 py-1">التتبع والتحديث اللحظي</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setTrackingError("");
+                      setTrackingResult(null);
+                      setTrackingOpen(true);
+                    }}
+                  >
+                    <PackageCheck className="h-4 w-4" /> تتبع شحنة
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={bostaExpanded ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setBostaExpanded((current) => !current)}
+                    aria-expanded={bostaExpanded}
+                  >
+                    <Settings2 className="h-4 w-4" />
+                    {bostaExpanded ? "إغلاق الإعداد" : "إدارة الربط"}
+                    <ChevronDown className={`h-4 w-4 transition-transform ${bostaExpanded ? "rotate-180" : ""}`} />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardBody>
+
+          {bostaExpanded ? (
+            <div className="border-t border-line bg-surface-muted/10">
+              <CardBody className="space-y-5 py-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field
                 label={
@@ -657,13 +696,24 @@ export function IntegrationsPage() {
                         سطح المكتب لا يستقبل طلبات الإنترنت مباشرة.
                       </p>
                     </div>
-                    <Badge
-                      tone={bostaConfig.webhookRelayReady ? "green" : "slate"}
-                    >
-                      {bostaConfig.webhookRelayReady ? "جاهز" : "غير مربوط"}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={bostaConfig.webhookRelayReady ? "green" : "slate"}>
+                        {bostaConfig.webhookRelayReady ? "جاهز" : "غير مربوط"}
+                      </Badge>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setWebhookExpanded((current) => !current)}
+                        aria-expanded={webhookExpanded}
+                      >
+                        {webhookExpanded ? "إخفاء الإعدادات" : "إعداد Webhook"}
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${webhookExpanded ? "rotate-180" : ""}`} />
+                      </Button>
+                    </div>
                   </div>
                 </div>
+                {webhookExpanded ? <>
                 <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-500/25 bg-brand-500/5 p-3">
                   <div>
                     <div className="text-sm font-semibold text-ink">
@@ -804,6 +854,7 @@ export function IntegrationsPage() {
                     </Button>
                   </div>
                 </Field>
+                </> : null}
               </div>
             </div>
 
@@ -818,18 +869,6 @@ export function IntegrationsPage() {
                     <ExternalLink className="w-4 h-4" /> وثائق Bosta
                   </Button>
                 </a>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setTrackingError("");
-                    setTrackingResult(null);
-                    setTrackingOpen(true);
-                  }}
-                >
-                  <PackageCheck className="w-4 h-4" /> تتبع شحنة
-                </Button>
               </div>
               <div className="flex gap-2">
                 <Button
@@ -847,49 +886,40 @@ export function IntegrationsPage() {
                 </Button>
               </div>
             </div>
-          </CardBody>
+              </CardBody>
+            </div>
+          ) : null}
         </Card>
 
-        <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-3">
           <Card>
-            <CardHeader
-              title="تكاملات قادمة"
-              subtitle="نفس المركز جاهز لإضافة قنوات جديدة دون تغيير بيانات المبيعات"
-            />
-            <CardBody className="space-y-3">
+            <CardHeader title="قنوات التواصل" subtitle="إشعارات ومتابعة العملاء" />
+            <CardBody>
               <FutureIntegration
                 icon={<MessageCircle className="h-5 w-5" />}
                 title="WhatsApp Business API"
                 description="إشعارات الفاتورة والشحن وحالة الطلب"
               />
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader title="الذكاء الاصطناعي" subtitle="مساعدات وتحليلات ذكية" />
+            <CardBody>
               <FutureIntegration
                 icon={<Bot className="h-5 w-5" />}
                 title="أدوات الذكاء الاصطناعي"
                 description="Grok ومساعدات تحليل المخزون والمبيعات"
               />
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader title="متاجر ومنصات البيع" subtitle="طلبات ومزامنة المخزون" />
+            <CardBody>
               <FutureIntegration
                 icon={<Link2 className="h-5 w-5" />}
                 title="متاجر ومنصات البيع"
                 description="استقبال الطلبات وتحديث المخزون تلقائيًا"
               />
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader title="قبل التشغيل" />
-            <CardBody className="space-y-2 text-xs leading-6 text-ink-muted">
-              <p>1. أنشئ مفتاح Read/Write من API Integration في لوحة Bosta.</p>
-              <p>
-                2. احفظ المفتاح واختبر الاتصال؛ سيجلب النظام فروع الاستلام من
-                حسابك بدل إدخال أي كود يدويًا.
-              </p>
-              <p>
-                3. أضف قائمة أسعار حسابك من صفحة التوصيل والشحن؛ السعر التعاقدي
-                يختلف حسب الحساب والمنطقة.
-              </p>
-              <p>
-                4. اربط عناوين العملاء بالمدينة والمنطقة الصحيحة قبل إرسال أول
-                شحنة.
-              </p>
             </CardBody>
           </Card>
         </div>
