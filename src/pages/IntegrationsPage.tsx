@@ -826,8 +826,8 @@ export function IntegrationsPage() {
                 <Field
                   label={
                     bostaConfig.webhookHeaderConfigured
-                      ? "استبدال مفتاح توثيق بوسطة — Bosta Webhook Secret (bosta_webhook_secret)"
-                      : "مفتاح توثيق بوسطة — Bosta Webhook Secret (bosta_webhook_secret)"
+                      ? "استبدال مفتاح توثيق بوسطة — Bosta Webhook Secret"
+                      : "مفتاح توثيق بوسطة — Bosta Webhook Secret"
                   }
                   hint={
                     bostaConfig.webhookHeaderConfigured
