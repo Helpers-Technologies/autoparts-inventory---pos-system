@@ -186,7 +186,7 @@ export function snapshotCustomerAddress(
   };
 }
 
-const BOSTA_STATUS: Record<number, { status: DeliveryOrderStatus; label: string }> = {
+export const BOSTA_STATUS: Record<number, { status: DeliveryOrderStatus; label: string }> = {
   10: { status: "pickup_requested", label: "تم طلب الاستلام" },
   20: { status: "assigned", label: "تم تعيين مندوب" },
   21: { status: "picked_up", label: "تم استلام الشحنة من الفرع" },

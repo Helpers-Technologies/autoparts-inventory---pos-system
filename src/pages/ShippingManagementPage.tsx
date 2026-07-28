@@ -30,6 +30,7 @@ import { useShipping, BOSTA_PROVIDER_ID } from "../store/ShippingContext";
 import { useSettings } from "../store/SettingsContext";
 import { useToast } from "../components/ui/Toast";
 import {
+  BOSTA_STATUS,
   bostaPublicTrackingUrl,
   DELIVERY_STATUS_LABELS,
   translateBostaError,
@@ -103,6 +104,20 @@ const OPERATIONAL_STATUSES: DeliveryOrderStatus[] = [
 
 function isBostaOrder(order: DeliveryOrder): boolean {
   return order.providerId === BOSTA_PROVIDER_ID || order.providerName === "Bosta";
+}
+
+/** For a Bosta order, explains why the live status can't be shown as a
+ * simple badge yet — or returns null once we have a real, trustworthy
+ * status from Bosta. Never lets the caller fall back to editing it
+ * manually: Bosta orders don't get a status dropdown at all. */
+function bostaStatusNote(order: DeliveryOrder): string | null {
+  if (!isBostaOrder(order)) return null;
+  if (!order.trackingNumber) return "لسه لم يتم إرسال الشحنة إلى بوسطه";
+  if (order.externalStateCode === undefined) return "لسه مفيش تحديث حالة وارد من بوسطه";
+  if (!(order.externalStateCode in BOSTA_STATUS)) {
+    return `حالة غير معروفة من بوسطه (كود ${order.externalStateCode}) — راجع الدعم لو استمرت`;
+  }
+  return null;
 }
 
 function orderTrackingUrl(order: DeliveryOrder): string | undefined {
@@ -806,9 +821,9 @@ function OrdersTable({
                       ) : null}
                     </td>
                     <td className="p-3">
-                      {isBostaOrder(order) && order.trackingNumber ? (
+                      {isBostaOrder(order) ? (
                         <div className="text-xs text-ink-faint">
-                          الحالة تُحدَّث تلقائيًا من بوسطه
+                          {bostaStatusNote(order) ?? "الحالة تُحدَّث تلقائيًا من بوسطه"}
                         </div>
                       ) : (
                         <Select
@@ -828,9 +843,18 @@ function OrdersTable({
                           ))}
                         </Select>
                       )}
-                      <Badge className="mt-2" tone={STATUS_TONE[order.status]}>
-                        {DELIVERY_STATUS_LABELS[order.status]}
-                      </Badge>
+                      {isBostaOrder(order) &&
+                      order.trackingNumber &&
+                      order.externalStateCode !== undefined &&
+                      !(order.externalStateCode in BOSTA_STATUS) ? (
+                        <Badge className="mt-2" tone="slate">
+                          حالة غير معروفة
+                        </Badge>
+                      ) : (
+                        <Badge className="mt-2" tone={STATUS_TONE[order.status]}>
+                          {DELIVERY_STATUS_LABELS[order.status]}
+                        </Badge>
+                      )}
                       {order.exceptionReason ? (
                         <div className="mt-2 max-w-[220px] text-xs text-red-600">
                           {order.exceptionReason}
