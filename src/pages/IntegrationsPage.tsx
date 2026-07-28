@@ -306,6 +306,52 @@ export function IntegrationsPage() {
     }
   }
 
+  async function generateAndSaveWebhookKeys() {
+    if (saving) return;
+    const generatedHeaderValue = secureRelayToken();
+    const generatedPollToken = secureRelayToken();
+    setWebhookHeaderName("X-Autoparts-Webhook-Key");
+    setWebhookHeaderValue(generatedHeaderValue);
+    setWebhookPollToken(generatedPollToken);
+    setSaving(true);
+    try {
+      const result = await withTimeout(
+        saveBostaConfig({
+          apiKey: apiKey.trim() || undefined,
+          enabled,
+          autoTrackingEnabled,
+          autoTrackingIntervalMinutes,
+          businessLocationId: businessLocationId.trim() || undefined,
+          webhookUrl: webhookUrl.trim() || undefined,
+          webhookHeaderName: "X-Autoparts-Webhook-Key",
+          webhookHeaderValue: generatedHeaderValue,
+          webhookPollToken: generatedPollToken,
+          defaultPackageType,
+          allowOpenPackage,
+        }),
+        15_000,
+      );
+      if (!result.ok) {
+        toast.error(
+          "تعذر حفظ مفاتيح خدمة الاستقبال",
+          integrationError(result.error),
+        );
+        return;
+      }
+      toast.success(
+        "تم توليد المفاتيح وحفظها",
+        "انسخ القيم الظاهرة إلى ملف config.php ثم اضغط اختبار Webhook.",
+      );
+    } catch (error) {
+      toast.error(
+        "تعذر حفظ مفاتيح خدمة الاستقبال",
+        integrationError(error instanceof Error ? error.message : undefined),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function test() {
     setTesting(true);
     try {
@@ -363,6 +409,7 @@ export function IntegrationsPage() {
   }
 
   async function testWebhookRelay() {
+    if (testingWebhook) return;
     const api = window.desktopAPI?.integrations?.bosta;
     if (!api?.testWebhook) {
       toast.error(
@@ -727,13 +774,11 @@ export function IntegrationsPage() {
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => {
-                      setWebhookHeaderName("X-Autoparts-Webhook-Key");
-                      setWebhookHeaderValue(secureRelayToken());
-                      setWebhookPollToken(secureRelayToken());
-                    }}
+                    disabled={saving}
+                    onClick={() => void generateAndSaveWebhookKeys()}
                   >
-                    <KeyRound className="h-4 w-4" /> توليد مفاتيح آمنة
+                    <KeyRound className="h-4 w-4" />
+                    {saving ? "جاري الحفظ..." : "توليد وحفظ مفاتيح آمنة"}
                   </Button>
                   <Button
                     type="button"
