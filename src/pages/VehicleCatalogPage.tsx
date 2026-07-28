@@ -15,6 +15,7 @@ import { VEHICLE_COUNTRIES, vehicleCountryLabel } from "../data/vehicleCountries
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { useCatalog } from "../store/CatalogContext";
 import type { VehicleMake, VehicleModel, VehicleGeneration, VehicleEngine } from "../types";
+import { getMakeSearchText, isFuzzyMatch } from "../lib/fuzzySearch";
 
 function readImageAsResizedDataUrl(file: File, maxSize = 200): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -89,7 +90,6 @@ export function VehicleCatalogPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const [countryFilter, setCountryFilter] = useState("");
   const [modelQuery, setModelQuery] = useState("");
   const [selectedMakeId, setSelectedMakeId] = useState("");
   const [selectedModelId, setSelectedModelId] = useState("");
@@ -152,15 +152,11 @@ export function VehicleCatalogPage() {
   });
 
   const makes = useMemo(() => {
-    const needle = query.trim().toLowerCase();
     return catalog.specializedVehicleMakes
       .filter((make) => make.active)
-      .filter((make) => (countryFilter ? make.countryCode === countryFilter : true))
-      .filter((make) =>
-        needle ? `${make.name} ${make.nameAr ?? ""} ${vehicleCountryLabel(make.countryCode)}`.toLowerCase().includes(needle) : true,
-      )
+      .filter((make) => isFuzzyMatch(query, [getMakeSearchText(make)]))
       .sort((a, b) => (a.priority ?? 9999) - (b.priority ?? 9999) || a.name.localeCompare(b.name));
-  }, [catalog.specializedVehicleMakes, countryFilter, query]);
+  }, [catalog.specializedVehicleMakes, query]);
 
   const specializedMakeIds = useMemo(
     () => new Set(catalog.specializedVehicleMakes.map((make) => make.id)),
@@ -170,22 +166,12 @@ export function VehicleCatalogPage() {
     () => new Set(catalog.vehicleModels.filter((model) => specializedMakeIds.has(model.makeId)).map((model) => model.id)),
     [catalog.vehicleModels, specializedMakeIds],
   );
-  const availableCountries = useMemo(
-    () => VEHICLE_COUNTRIES.filter((country) =>
-      catalog.specializedVehicleMakes.some((make) => make.active && make.countryCode === country.code),
-    ),
-    [catalog.specializedVehicleMakes],
-  );
-
   useEffect(() => {
-    if (countryFilter && !availableCountries.some((country) => country.code === countryFilter)) {
-      setCountryFilter("");
-    }
     if (selectedMakeId && !specializedMakeIds.has(selectedMakeId)) {
       setSelectedMakeId("");
       setSelectedModelId("");
     }
-  }, [availableCountries, countryFilter, selectedMakeId, specializedMakeIds]);
+  }, [selectedMakeId, specializedMakeIds]);
 
   const selectedMake = catalog.vehicleMakes.find((make) => make.id === selectedMakeId);
   const makeModels = useMemo(() => {
@@ -490,20 +476,15 @@ export function VehicleCatalogPage() {
           <CardHeader title="الماركات" subtitle="اختر الماركة لعرض الموديلات" />
           <CardBody className="space-y-3">
             <div className="relative">
-              <Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-faint" />
-              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم العربي أو الإنجليزي..." className="pe-9" />
+              <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="ابحث عن ماركة بالعربي أو الإنجليزي..."
+                className="ps-9"
+                aria-label="البحث في ماركات تخصص المحل"
+              />
             </div>
-            <SearchableSelect
-              value={countryFilter}
-              onChange={setCountryFilter}
-              options={availableCountries.map((country) => ({
-                value: country.code,
-                label: `${country.flag} ${country.nameAr}`,
-                searchText: `${country.nameAr} ${country.nameEn} ${country.code}`,
-              }))}
-              placeholder="كل دول تخصص المحل"
-              searchPlaceholder="ابحث عن دولة..."
-            />
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3 gap-2 max-h-[610px] overflow-y-auto pe-1">
               {makes.map((make) => (
                 <div
@@ -712,7 +693,9 @@ export function VehicleCatalogPage() {
                                               name: engine.name,
                                               code: engine.code || "",
                                               capacityCc: engine.capacityCc ? String(engine.capacityCc) : "",
-                                              fuelType: (engine.fuelType as any) || "petrol",
+                                              fuelType: engine.fuelType && engine.fuelType in FUEL_LABELS
+                                                ? engine.fuelType as keyof typeof FUEL_LABELS
+                                                : "petrol",
                                               powerHp: engine.powerHp ? String(engine.powerHp) : "",
                                             });
                                             setEngineGenerationId(generation.id);

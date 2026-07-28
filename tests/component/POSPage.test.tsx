@@ -33,12 +33,16 @@ const mockUseReporting = vi.fn();
 const mockUseAutoPartsPro = vi.fn();
 const mockUseVehicleCatalog = vi.fn();
 const mockUseFeatures = vi.fn();
+const mockUseSettings = vi.fn();
+const mockUseShipping = vi.fn();
 
 vi.mock("../../src/store/AuthContext", () => ({ useAuth: () => mockUseAuth() }));
 vi.mock("../../src/store/CatalogContext", () => ({ useCatalog: () => mockUseCatalog() }));
 vi.mock("../../src/store/InvoicingContext", () => ({ useInvoicing: () => mockUseInvoicing() }));
 vi.mock("../../src/store/ShiftsContext", () => ({ useShifts: () => mockUseShifts() }));
 vi.mock("../../src/store/ReportingContext", () => ({ useReporting: () => mockUseReporting() }));
+vi.mock("../../src/store/SettingsContext", () => ({ useSettings: () => mockUseSettings() }));
+vi.mock("../../src/store/ShippingContext", () => ({ useShipping: () => mockUseShipping() }));
 vi.mock("../../src/store/VehicleCatalogContext", () => ({ useVehicleCatalog: () => mockUseVehicleCatalog() }));
 vi.mock("../../src/lib/useFeatures", () => ({ useFeatures: () => mockUseFeatures() }));
 
@@ -100,7 +104,7 @@ const OPEN_SHIFT: CashierShift = {
 
 function setupMocks(currentUser: AppUser, branches: Branch[]) {
   mockUseAuth.mockReturnValue({ currentUser });
-  mockUseCatalog.mockReturnValue({ products: [], customers: [] });
+  mockUseCatalog.mockReturnValue({ products: [], customers: [], drivers: [], updateCustomer: vi.fn() });
   mockUseInvoicing.mockReturnValue({
     salesInvoices: [],
     addSalesInvoice: vi.fn(),
@@ -115,6 +119,16 @@ function setupMocks(currentUser: AppUser, branches: Branch[]) {
     getShiftSummary: vi.fn(),
   });
   mockUseReporting.mockReturnValue({ customerBalance: () => 0 });
+  mockUseSettings.mockReturnValue({ settings: { currency: "ج.م", invoiceFooter: "" } });
+  mockUseShipping.mockReturnValue({
+    providers: [],
+    bostaConfig: { enabled: false, configured: false, defaultPackageType: "SMALL", allowOpenPackage: false },
+    rateForAddress: vi.fn(),
+    createDeliveryOrder: vi.fn(),
+    getBostaCities: vi.fn(),
+    getBostaDistricts: vi.fn(),
+    estimateBostaPrice: vi.fn(),
+  });
   mockUseAutoPartsPro.mockReturnValue({
     branches,
     branchQuantity: () => 0,

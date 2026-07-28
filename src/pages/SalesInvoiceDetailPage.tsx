@@ -81,7 +81,7 @@ export function SalesInvoiceDetailPage() {
   const canCreateReturn = canAddReturn && returnsEnabled && !inv.cancelled && totalReturns < inv.total;
   const priceTypeLabel = salesInvoicePriceTypeLabel(inv);
   const paymentDisplay = salesPaymentDisplay(inv);
-  const grossBeforeDiscount = inv.discount && inv.discount > 0 ? inv.total + inv.discount : inv.total;
+  const grossBeforeDiscount = inv.total - (inv.shippingFee ?? 0) + (inv.discount ?? 0);
   const dueDatePassed = (() => {
     if (!inv.paymentDueDate || inv.remaining <= 0) return false;
     const today = new Date();
@@ -185,9 +185,8 @@ export function SalesInvoiceDetailPage() {
             {(inv.discount ?? 0) > 0 && (
               <AmountRow label="خصم" value={`- ${formatCurrency(inv.discount!, settings.currency)}`} valueClass="text-emerald-700 dark:text-emerald-400" />
             )}
-            {(inv.discount ?? 0) > 0 && (
-              <AmountRow label="مستحق (بعد الخصم)" value={formatCurrency(inv.total, settings.currency)} bold />
-            )}
+            {(inv.shippingFee ?? 0) > 0 && <AmountRow label="رسوم التوصيل" value={`+ ${formatCurrency(inv.shippingFee!, settings.currency)}`} valueClass="text-brand-600" />}
+            {((inv.discount ?? 0) > 0 || (inv.shippingFee ?? 0) > 0) && <AmountRow label="إجمالي الفاتورة" value={formatCurrency(inv.total, settings.currency)} bold />}
             {creditReturnTotal > 0 && (
               <AmountRow label="خصم مرتجع (معفو من الرصيد)" value={`- ${formatCurrency(creditReturnTotal, settings.currency)}`} valueClass="text-rose-600 dark:text-rose-400" />
             )}
@@ -267,6 +266,8 @@ export function SalesInvoiceDetailPage() {
           <Info label="العميل">{inv.customerName}</Info>
           <Info label="هاتف العميل">{customer?.phone ?? "—"}</Info>
           <Info label="السائق">{inv.driverName ?? "—"}</Info>
+          <Info label="طريقة الاستلام">{inv.deliveryMethod === "branch_driver" ? "توصيل بسائق الفرع" : inv.deliveryMethod === "shipping_company" ? `شركة شحن${inv.shippingProviderName ? ` — ${inv.shippingProviderName}` : ""}` : "استلام من الفرع"}</Info>
+          {inv.deliveryAddress ? <Info label="عنوان التوصيل" className="col-span-2"><span>{inv.deliveryAddress.governorate}، {inv.deliveryAddress.city}{inv.deliveryAddress.district ? `، ${inv.deliveryAddress.district}` : ""} — {inv.deliveryAddress.addressLine}</span></Info> : null}
           <Info label="سيارة العميل">{inv.vehicleLabel ?? "غير مرتبطة"}</Info>
           <Info label="الفرع">{inv.branchName ?? "الفرع الرئيسي"}</Info>
           <Info label="شريحة التسعير">{inv.priceTierName ?? "السعر الافتراضي"}</Info>
@@ -618,7 +619,6 @@ export function SalesInvoiceDetailPage() {
               remaining={inv.remaining}
               notes={inv.notes}
               paymentLabel={paymentDisplay}
-              priceTypeLabel={priceTypeLabel}
               returns={linkedReturns.length > 0 ? linkedReturns : undefined}
               paymentDueDate={inv.paymentDueDate}
               customerBalance={totalCustomerBalance}
@@ -627,7 +627,11 @@ export function SalesInvoiceDetailPage() {
               overpayment={inv.overpayment}
               vehicleLabel={inv.vehicleLabel}
               branchName={inv.branchName}
-              priceTierName={inv.priceTierName}
+              deliveryMethod={inv.deliveryMethod}
+              deliveryAddress={inv.deliveryAddress}
+              shippingProviderName={inv.shippingProviderName}
+              shippingFee={inv.shippingFee}
+              collectOnDelivery={inv.collectOnDelivery}
             />
           </div>
         </div>,
@@ -642,7 +646,10 @@ function salesPaymentDisplay(invoice: {
   paymentMethod?: string;
   paymentMethodLabel?: string;
   amountReceived: number;
+  collectOnDelivery?: boolean;
 }) {
+  if (invoice.collectOnDelivery) return "دفع عند الاستلام";
+
   const methodLabel =
     invoice.paymentMethod === "other" && invoice.paymentMethodLabel
       ? invoice.paymentMethodLabel

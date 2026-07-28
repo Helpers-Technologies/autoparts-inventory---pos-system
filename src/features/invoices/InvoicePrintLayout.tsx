@@ -1,9 +1,8 @@
 import { useEffect } from "react";
 import { useSettings } from "../../store/SettingsContext";
 import { formatCurrency, formatDate, resolvePaymentLabel } from "../../lib/format";
-import type { InvoiceLine, PaymentLogEntry, ReturnLine, SalesPriceType } from "../../types";
+import type { CustomerAddressSnapshot, DeliveryMethod, InvoiceLine, PaymentLogEntry, ReturnLine } from "../../types";
 import { useFeatures } from "../../lib/useFeatures";
-import { resolveSalesLinePriceType, salesPriceTypeLabel } from "../../lib/salesPrice";
 
 interface Props {
   kind: "sales" | "purchase";
@@ -19,7 +18,6 @@ interface Props {
   remaining: number;
   notes?: string;
   paymentLabel?: string;
-  priceTypeLabel?: string;
   // Accepts both SalesReturn and PurchaseReturn (purchase returns have no refundCash).
   returns?: Array<{ lines: ReturnLine[]; total: number; refundCash?: boolean }>;
   paymentDueDate?: string;
@@ -29,13 +27,18 @@ interface Props {
   overpayment?: number;
   vehicleLabel?: string;
   branchName?: string;
-  priceTierName?: string;
+  deliveryMethod?: DeliveryMethod;
+  deliveryAddress?: CustomerAddressSnapshot;
+  shippingProviderName?: string;
+  shippingFee?: number;
+  collectOnDelivery?: boolean;
 }
 
 export function InvoicePrintLayout(props: Props) {
   const { settings } = useSettings();
   const { isEnabled } = useFeatures();
   const expiryTrackingEnabled = isEnabled("expiryTracking");
+  const creditSalesEnabled = isEnabled("creditSales");
 
   useEffect(() => {
     const prev = document.title;
@@ -43,14 +46,25 @@ export function InvoicePrintLayout(props: Props) {
     return () => { document.title = prev; };
   }, [props.invoiceNumber, props.kind]);
 
-  const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const isSales = props.kind === "sales";
+  const isCollectOnDelivery = isSales && Boolean(props.collectOnDelivery);
   const returnsTotal = (props.returns ?? []).reduce((a, r) => a + r.total, 0);
   const paymentLog = props.paymentLog ?? [];
   const overpayment = isSales ? props.overpayment ?? 0 : 0;
   const totalCollected = props.amountPaid + overpayment;
-  const fallbackPriceType: SalesPriceType = props.priceTypeLabel === "تجزئة" ? "retail" : "wholesale";
-  const showLinePriceType = isSales && multiSalePricesEnabled && props.lines.some((line) => line.priceType || line.isRetailUnit);
+  const amountDueOnDelivery = Math.max(0, props.total - returnsTotal);
+  const primaryMeta = [
+    { label: props.partyLabel, value: props.partyName, accent: true },
+    {
+      label: isCollectOnDelivery ? "حالة التحصيل" : "طريقة الدفع",
+      value: isCollectOnDelivery ? "دفع عند الاستلام — غير محصّل" : props.paymentLabel ?? "—",
+      warning: isCollectOnDelivery,
+    },
+    ...(props.paymentDueDate
+      ? [{ label: "تاريخ الاستحقاق", value: formatDate(props.paymentDueDate) }]
+      : []),
+    ...(props.driverName ? [{ label: "السائق", value: props.driverName }] : []),
+  ];
 
   return (
     <div className="min-h-screen bg-canvas py-8 px-4 print:p-0 print:bg-surface" dir="rtl">
@@ -135,29 +149,39 @@ export function InvoicePrintLayout(props: Props) {
             </div>
           </div>
 
-          {/* ── INFO ROW ── */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: `1.2fr .85fr ${multiSalePricesEnabled ? ".85fr " : ""}${props.paymentDueDate ? ".9fr " : ""}.9fr`,
-            gap: 6,
-            marginBottom: 9
-          }}>
-            <InfoBox label={props.partyLabel} value={props.partyName} accent />
-            <InfoBox label="طريقة الدفع" value={props.paymentLabel ?? "—"} />
-            {multiSalePricesEnabled && (
-              <InfoBox label="نوع السعر" value={props.priceTypeLabel ?? "—"} />
-            )}
-            {props.paymentDueDate ? (
-              <InfoBox label="تاريخ الاستحقاق" value={formatDate(props.paymentDueDate)} />
+          {/* ── DOCUMENT DETAILS ── */}
+          <div style={{ border: "1px solid #dbe4ee", borderRadius: 7, overflow: "hidden", marginBottom: 9 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${primaryMeta.length}, minmax(0, 1fr))`, background: "#ffffff" }}>
+              {primaryMeta.map((item, index) => (
+                <MetaItem
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                  accent={item.accent}
+                  warning={item.warning}
+                  divided={index < primaryMeta.length - 1}
+                />
+              ))}
+            </div>
+            {isSales && (props.vehicleLabel || props.branchName) ? (
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "5px 28px", padding: "6px 10px", background: "#f8fafc", borderTop: "1px solid #e2e8f0" }}>
+                {props.vehicleLabel ? <InlineMeta label="سيارة العميل" value={props.vehicleLabel} /> : null}
+                {props.branchName ? <InlineMeta label="الفرع" value={props.branchName} /> : null}
+              </div>
             ) : null}
-            <InfoBox label="السائق" value={props.driverName ?? "—"} />
           </div>
 
-          {isSales && (props.vehicleLabel || props.branchName || props.priceTierName) ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 6, marginBottom: 9 }}>
-              <InfoBox label="سيارة العميل" value={props.vehicleLabel ?? "غير مرتبطة"} accent />
-              <InfoBox label="الفرع" value={props.branchName ?? "الفرع الرئيسي"} />
-              <InfoBox label="شريحة التسعير" value={props.priceTierName ?? "السعر الافتراضي"} />
+          {isSales && props.deliveryMethod && props.deliveryMethod !== "pickup" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(145px, .85fr) minmax(0, 2fr)", gap: 12, alignItems: "center", padding: "7px 10px", marginBottom: 9, borderTop: "1px solid #bfdbfe", borderBottom: "1px solid #bfdbfe", background: "#f8fbff" }}>
+              <InlineMeta
+                label="طريقة التوصيل"
+                value={props.deliveryMethod === "branch_driver" ? `سائق الفرع${props.driverName ? ` — ${props.driverName}` : ""}` : `شركة شحن${props.shippingProviderName ? ` — ${props.shippingProviderName}` : ""}`}
+                accent
+              />
+              <InlineMeta
+                label="عنوان التوصيل"
+                value={props.deliveryAddress ? `${props.deliveryAddress.governorate}، ${props.deliveryAddress.city}${props.deliveryAddress.district ? `، ${props.deliveryAddress.district}` : ""} — ${props.deliveryAddress.addressLine}` : "—"}
+              />
             </div>
           ) : null}
 
@@ -168,7 +192,6 @@ export function InvoicePrintLayout(props: Props) {
                 <tr>
                   <Th center style={{ width: 28 }}>#</Th>
                   <Th>الصنف</Th>
-                  {showLinePriceType && <Th center style={{ width: 58 }}>نوع السعر</Th>}
                   <Th center style={{ width: 52 }}>الوحدة</Th>
                   <Th center style={{ width: 52 }}>الكمية</Th>
                   <Th center style={{ width: 108 }}>السعر</Th>
@@ -192,11 +215,6 @@ export function InvoicePrintLayout(props: Props) {
                         </span>
                       )}
                     </Td>
-                    {showLinePriceType && (
-                      <Td center muted>
-                        {salesPriceTypeLabel(resolveSalesLinePriceType(l, fallbackPriceType))}
-                      </Td>
-                    )}
                     <Td center muted>{l.unit}</Td>
                     <Td center bold>{l.quantity}</Td>
                     <Td center mono>{formatCurrency(l.price, settings.currency)}</Td>
@@ -250,12 +268,17 @@ export function InvoicePrintLayout(props: Props) {
             <div style={{ width: 420, border: "1px solid #cbd5e1", borderRadius: 8, overflow: "hidden" }}>
               {props.discount ? (
                 <>
-                  <TotalRow label="إجمالي البنود" value={formatCurrency(props.total + props.discount, settings.currency)} />
+                  <TotalRow label="إجمالي البنود" value={formatCurrency(props.total - (props.shippingFee ?? 0) + props.discount, settings.currency)} />
                   <TotalRow label="خصم" value={`- ${formatCurrency(props.discount, settings.currency)}`} discount />
-                  <TotalRow label="مستحق (بعد الخصم)" value={formatCurrency(props.total, settings.currency)} bold />
+                  {props.shippingFee ? <TotalRow label="رسوم التوصيل" value={`+ ${formatCurrency(props.shippingFee, settings.currency)}`} /> : null}
+                  <TotalRow label="إجمالي الفاتورة" value={formatCurrency(props.total, settings.currency)} bold />
                 </>
               ) : (
-                <TotalRow label="إجمالي البنود" value={formatCurrency(props.total, settings.currency)} bold />
+                <>
+                  <TotalRow label="إجمالي البنود" value={formatCurrency(props.total - (props.shippingFee ?? 0), settings.currency)} />
+                  {props.shippingFee ? <TotalRow label="رسوم التوصيل" value={`+ ${formatCurrency(props.shippingFee, settings.currency)}`} /> : null}
+                  <TotalRow label="إجمالي الفاتورة" value={formatCurrency(props.total, settings.currency)} bold />
+                </>
               )}
               {returnsTotal > 0 && (
                 <>
@@ -271,7 +294,14 @@ export function InvoicePrintLayout(props: Props) {
                   />
                 </>
               )}
-              {paymentLog.length > 0
+              {isCollectOnDelivery ? (
+                <TotalRow
+                  label="حالة الدفع"
+                  value="دفع عند الاستلام — لم يُحصّل بعد"
+                  pending
+                  bold
+                />
+              ) : paymentLog.length > 0
                 ? paymentLog.map((entry, i) => (
                     <TotalRow
                       key={entry.id}
@@ -288,14 +318,14 @@ export function InvoicePrintLayout(props: Props) {
                   />
                 )
               }
-              {overpayment > 0 && (
+              {!isCollectOnDelivery && overpayment > 0 && (
                 <TotalRow
                   label="رصيد للعميل من هذه الفاتورة"
                   value={`له ${formatCurrency(overpayment, settings.currency)}`}
                   credit
                 />
               )}
-              {(paymentLog.length > 0 || overpayment > 0) && (
+              {!isCollectOnDelivery && (paymentLog.length > 0 || overpayment > 0) && (
                 <TotalRow
                   label={isSales ? "إجمالي المسدّد" : "إجمالي ما تم سداده"}
                   value={formatCurrency(totalCollected, settings.currency)}
@@ -303,7 +333,7 @@ export function InvoicePrintLayout(props: Props) {
                   bold
                 />
               )}
-              {isSales && props.customerName && props.customerBalance !== undefined && (
+              {isSales && creditSalesEnabled && !isCollectOnDelivery && props.customerName && props.customerBalance !== undefined && (
                 <TotalRow
                   label={
                     props.customerBalance < 0
@@ -324,8 +354,8 @@ export function InvoicePrintLayout(props: Props) {
                 />
               )}
               <TotalRow
-                label={isSales ? "المتبقي على العميل" : "المتبقي للمورد"}
-                value={formatCurrency(props.remaining, settings.currency)}
+                label={isCollectOnDelivery ? "المطلوب تحصيله عند التسليم" : isSales ? "المتبقي على العميل" : "المتبقي للمورد"}
+                value={formatCurrency(isCollectOnDelivery ? amountDueOnDelivery : props.remaining, settings.currency)}
                 highlight
               />
             </div>
@@ -361,19 +391,25 @@ export function InvoicePrintLayout(props: Props) {
 
 /* ── Small helper components ── */
 
-function InfoBox({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
+function MetaItem({ label, value, accent, warning, divided }: { label: string; value: string; accent?: boolean; warning?: boolean; divided?: boolean }) {
   return (
     <div style={{
-      border: `1px solid ${accent ? "#bfdbfe" : "#e2e8f0"}`,
-      borderRadius: 6,
-      padding: "5px 8px",
-      background: accent ? "#eff6ff" : "#f8fafc",
-      borderRight: accent ? "2px solid #2563eb" : undefined,
-      minHeight: 44,
+      padding: "7px 10px",
+      borderLeft: divided ? "1px solid #e2e8f0" : undefined,
+      boxShadow: accent ? "inset -3px 0 0 #2563eb" : undefined,
+      minHeight: 45,
     }}>
-      <div style={{ fontSize: 8.5, color: "#94a3b8", marginBottom: 1, textTransform: "uppercase", letterSpacing: 0.2 }}>{label}</div>
-      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#0f172a", lineHeight: 1.2 }}>{value}</div>
-      {sub && <div style={{ fontSize: 8.5, color: "#64748b", marginTop: 1 }}>{sub}</div>}
+      <div style={{ fontSize: 8.5, color: "#94a3b8", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 11.5, fontWeight: 750, color: warning ? "#b45309" : "#0f172a", lineHeight: 1.25 }}>{value}</div>
+    </div>
+  );
+}
+
+function InlineMeta({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div style={{ minWidth: 0, fontSize: 10.5, lineHeight: 1.45, color: "#334155" }}>
+      <span style={{ color: "#94a3b8", marginLeft: 5 }}>{label}:</span>
+      <span style={{ fontWeight: 700, color: accent ? "#1d4ed8" : "#0f172a" }}>{value}</span>
     </div>
   );
 }
@@ -426,6 +462,7 @@ function TotalRow({
   deduction,
   paid,
   credit,
+  pending,
   bold,
 }: {
   label: string;
@@ -435,10 +472,13 @@ function TotalRow({
   deduction?: boolean;
   paid?: boolean;
   credit?: boolean;
+  pending?: boolean;
   bold?: boolean;
 }) {
   const bgColor = highlight
     ? "#1e3a5f"
+    : pending
+    ? "#fffbeb"
     : credit
     ? "#eff6ff"
     : paid
@@ -451,6 +491,8 @@ function TotalRow({
 
   const textColor = highlight
     ? "white"
+    : pending
+    ? "#92400e"
     : credit
     ? "#1d4ed8"
     : paid

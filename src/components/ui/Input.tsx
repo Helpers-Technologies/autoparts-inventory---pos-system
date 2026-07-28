@@ -1,6 +1,6 @@
-import { useToast } from './Toast';
-import { Info } from 'lucide-react';
-﻿import {
+import { useToast } from "./Toast";
+import { Info } from "lucide-react";
+import {
   forwardRef,
   useRef,
   useState,
@@ -122,12 +122,7 @@ export const Select = forwardRef<
 Select.displayName = "Select";
 
 export function HintIcon({ hint, label }: { hint: string; label?: React.ReactNode }) {
-  let toast: any = null;
-  try {
-    toast = useToast();
-  } catch (e) {
-    // Safe fallback if used outside of ToastProvider
-  }
+  const toast = useToast();
 
   const hintBtnRef = useRef<HTMLButtonElement>(null);
   const [hoverPos, setHoverPos] = useState<{ top: number; left: number } | null>(null);
@@ -135,11 +130,7 @@ export function HintIcon({ hint, label }: { hint: string; label?: React.ReactNod
   const handleIconClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (toast) {
-      toast.info(typeof label === "string" ? label : "معلومات", hint);
-    } else {
-      alert(hint);
-    }
+    toast.info(typeof label === "string" ? label : "معلومات", hint);
   };
 
   const showHoverHint = () => {

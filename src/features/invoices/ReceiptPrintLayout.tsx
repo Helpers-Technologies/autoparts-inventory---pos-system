@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSettings } from "../../store/SettingsContext";
 import { formatCurrency, formatDate } from "../../lib/format";
-import type { InvoiceLine } from "../../types";
+import type { CustomerAddressSnapshot, DeliveryMethod, InvoiceLine } from "../../types";
 
 interface Props {
   invoiceNumber: string;
@@ -15,14 +15,17 @@ interface Props {
   remaining: number;
   notes?: string;
   paymentLabel?: string;
-  priceTypeLabel?: string;
   customerBalance?: number;
   customerName?: string;
   overpayment?: number;
   cashierName?: string;
   vehicleLabel?: string;
   branchName?: string;
-  priceTierName?: string;
+  collectOnDelivery?: boolean;
+  deliveryMethod?: DeliveryMethod;
+  deliveryAddress?: CustomerAddressSnapshot;
+  shippingProviderName?: string;
+  shippingFee?: number;
 }
 
 export function ReceiptPrintLayout(props: Props) {
@@ -38,6 +41,7 @@ export function ReceiptPrintLayout(props: Props) {
 
   const overpayment = props.overpayment ?? 0;
   const totalCollected = props.amountPaid + overpayment;
+  const isCollectOnDelivery = props.collectOnDelivery === true;
 
   return (
     <div className="bg-white text-black p-4 max-w-[80mm] mx-auto text-xs" dir="rtl">
@@ -111,18 +115,20 @@ export function ReceiptPrintLayout(props: Props) {
               <span>{props.branchName}</span>
             </div>
           )}
-          {props.priceTierName && (
-            <div className="flex justify-between">
-              <span>شريحة السعر:</span>
-              <span>{props.priceTierName}</span>
-            </div>
-          )}
-          {props.paymentLabel && (
+          {(isCollectOnDelivery || props.paymentLabel) && (
             <div className="flex justify-between">
               <span>طريقة الدفع:</span>
-              <span>{props.paymentLabel}</span>
+              <span className={isCollectOnDelivery ? "font-bold" : undefined}>
+                {isCollectOnDelivery ? "دفع عند الاستلام" : props.paymentLabel}
+              </span>
             </div>
           )}
+          {props.deliveryMethod && props.deliveryMethod !== "pickup" ? (
+            <>
+              <div className="flex justify-between gap-2"><span>التوصيل:</span><span>{props.deliveryMethod === "branch_driver" ? `سائق الفرع${props.driverName ? ` — ${props.driverName}` : ""}` : props.shippingProviderName || "شركة شحن"}</span></div>
+              {props.deliveryAddress ? <div className="flex justify-between gap-2"><span>العنوان:</span><span className="text-left">{props.deliveryAddress.governorate}، {props.deliveryAddress.city} — {props.deliveryAddress.addressLine}</span></div> : null}
+            </>
+          ) : null}
         </div>
 
         {/* Lines */}
@@ -149,7 +155,7 @@ export function ReceiptPrintLayout(props: Props) {
         <div className="space-y-1 text-[10px] border-b pb-2 mb-3">
           <div className="flex justify-between">
             <span>إجمالي البنود:</span>
-            <span>{formatCurrency(props.total + (props.discount || 0))}</span>
+            <span>{formatCurrency(props.total - (props.shippingFee ?? 0) + (props.discount || 0))}</span>
           </div>
           {props.discount ? (
             <div className="flex justify-between text-red-600">
@@ -157,26 +163,42 @@ export function ReceiptPrintLayout(props: Props) {
               <span>-{formatCurrency(props.discount)}</span>
             </div>
           ) : null}
+          {props.shippingFee ? <div className="flex justify-between text-blue-700"><span>رسوم التوصيل:</span><span>+{formatCurrency(props.shippingFee)}</span></div> : null}
           <div className="flex justify-between font-bold text-[11px] pt-1 border-t border-dashed">
             <span>الصافي المطلوب:</span>
             <span>{formatCurrency(props.total)}</span>
           </div>
-          <div className="flex justify-between text-emerald-700 font-semibold">
-            <span>المدفوع:</span>
-            <span>{formatCurrency(totalCollected)}</span>
-          </div>
-          {props.remaining > 0 ? (
-            <div className="flex justify-between text-red-600">
-              <span>المتبقي (آجل):</span>
-              <span>{formatCurrency(props.remaining)}</span>
-            </div>
-          ) : null}
-          {overpayment > 0 ? (
-            <div className="flex justify-between text-blue-600">
-              <span>الرصيد الزائد:</span>
-              <span>{formatCurrency(overpayment)}</span>
-            </div>
-          ) : null}
+          {isCollectOnDelivery ? (
+            <>
+              <div className="flex justify-between font-bold text-[11px] text-amber-700 pt-1 border-t border-dashed">
+                <span>حالة التحصيل:</span>
+                <span>غير محصّل — دفع عند الاستلام</span>
+              </div>
+              <div className="flex justify-between font-bold text-[11px]">
+                <span>المطلوب عند التسليم:</span>
+                <span>{formatCurrency(props.total)}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex justify-between text-emerald-700 font-semibold">
+                <span>المدفوع:</span>
+                <span>{formatCurrency(totalCollected)}</span>
+              </div>
+              {props.remaining > 0 ? (
+                <div className="flex justify-between text-red-600">
+                  <span>المتبقي (آجل):</span>
+                  <span>{formatCurrency(props.remaining)}</span>
+                </div>
+              ) : null}
+              {overpayment > 0 ? (
+                <div className="flex justify-between text-blue-600">
+                  <span>الرصيد الزائد:</span>
+                  <span>{formatCurrency(overpayment)}</span>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
 
         {/* Footer */}

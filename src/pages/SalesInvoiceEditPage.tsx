@@ -14,10 +14,18 @@ import { useSettings } from "../store/SettingsContext";
 import { useReporting } from "../store/ReportingContext";
 import { useToast } from "../components/ui/Toast";
 import { uid } from "../lib/utils";
-import type { InvoiceLine, Product, SalesPaymentType, SalesPriceType } from "../types";
+import type {
+  InvoiceLine,
+  Product,
+  SalesPaymentType,
+  SalesPriceType,
+} from "../types";
 import { formatCurrency } from "../lib/format";
 import { parseNumericInput } from "../lib/numberInput";
-import { aggregateSalesPriceType, resolveSalesLinePriceType } from "../lib/salesPrice";
+import {
+  aggregateSalesPriceType,
+  resolveSalesLinePriceType,
+} from "../lib/salesPrice";
 import { useFeatures } from "../lib/useFeatures";
 import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
 
@@ -35,7 +43,7 @@ const DEFAULT_PRICE_TYPE: SalesPriceType = "wholesale";
 function quantityAsBaseUnits(
   product: Product | undefined,
   quantity: number,
-  priceType: SalesPriceType
+  priceType: SalesPriceType,
 ) {
   if (!product?.piecesPerUnit) return quantity;
   return priceType === "retail" ? quantity : quantity * product.piecesPerUnit;
@@ -44,10 +52,12 @@ function quantityAsBaseUnits(
 function availableFromBaseUnits(
   product: Product,
   baseUnits: number,
-  priceType: SalesPriceType
+  priceType: SalesPriceType,
 ) {
   if (!product.piecesPerUnit) return baseUnits;
-  return priceType === "retail" ? baseUnits : Math.floor(baseUnits / product.piecesPerUnit);
+  return priceType === "retail"
+    ? baseUnits
+    : Math.floor(baseUnits / product.piecesPerUnit);
 }
 
 export function SalesInvoiceEditPage() {
@@ -71,8 +81,12 @@ export function SalesInvoiceEditPage() {
   const [invoiceNumber] = useState(inv?.invoiceNumber ?? "");
   const [date, setDate] = useState(inv?.date ?? "");
   const [driverId, setDriverId] = useState(inv?.driverId ?? "");
-  const [paymentType, setPaymentType] = useState<SalesPaymentType>(inv?.paymentType ?? "cash");
-  const [paymentDueDate, setPaymentDueDate] = useState(inv?.paymentDueDate ?? "");
+  const [paymentType, setPaymentType] = useState<SalesPaymentType>(
+    inv?.paymentType ?? "cash",
+  );
+  const [paymentDueDate, setPaymentDueDate] = useState(
+    inv?.paymentDueDate ?? "",
+  );
   // FIX-08: Remember original due date so switching cash→account restores it
   const savedDueDateRef = useRef(inv?.paymentDueDate ?? "");
   const [discount, setDiscount] = useState<number>(inv?.discount ?? 0);
@@ -87,9 +101,11 @@ export function SalesInvoiceEditPage() {
         productId: l.productId,
         quantity: l.quantity,
         price: l.price,
-        priceType: multiSalePricesEnabled ? resolveSalesLinePriceType(l, invoicePriceType) : invoicePriceType,
+        priceType: multiSalePricesEnabled
+          ? resolveSalesLinePriceType(l, invoicePriceType)
+          : invoicePriceType,
         expiryDate: l.expiryDate,
-      })) ?? []
+      })) ?? [],
   );
 
   useEffect(() => {
@@ -112,9 +128,22 @@ export function SalesInvoiceEditPage() {
   const initializedRef = useRef(false);
   const dirtyRef = useRef(false);
   useEffect(() => {
-    if (!initializedRef.current) { initializedRef.current = true; return; }
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      return;
+    }
     dirtyRef.current = true;
-  }, [date, invoiceNumber, driverId, paymentType, paymentDueDate, discount, notes, lines, globalPriceType]);
+  }, [
+    date,
+    invoiceNumber,
+    driverId,
+    paymentType,
+    paymentDueDate,
+    discount,
+    notes,
+    lines,
+    globalPriceType,
+  ]);
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (!dirtyRef.current) return;
@@ -128,32 +157,51 @@ export function SalesInvoiceEditPage() {
 
   const gross = useMemo(
     () => lines.reduce((a, l) => a + (l.quantity || 0) * (l.price || 0), 0),
-    [lines]
+    [lines],
   );
-  const invoiceNet = Math.max(0, gross - (discount || 0));
+  const shippingFee = inv?.shippingFee ?? 0;
+  const invoiceNet = Math.max(0, gross - (discount || 0) + shippingFee);
 
   const originalLinesById = useMemo(
     () => new Map(inv?.lines.map((line) => [line.id, line]) ?? []),
-    [inv]
+    [inv],
   );
   const originalBaseQtyByProduct = useMemo(() => {
     const m = new Map<string, number>();
     inv?.lines.forEach((l) => {
       const product = products.find((p) => p.id === l.productId);
       const stockPriceType = resolveSalesLinePriceType(l, invoicePriceType);
-      m.set(l.productId, (m.get(l.productId) ?? 0) + quantityAsBaseUnits(product, l.quantity, stockPriceType));
+      m.set(
+        l.productId,
+        (m.get(l.productId) ?? 0) +
+          quantityAsBaseUnits(product, l.quantity, stockPriceType),
+      );
     });
     return m;
   }, [inv, invoicePriceType, products]);
 
-  const effectiveStockPriceType = useCallback((line: LineDraft): SalesPriceType => {
-    return multiSalePricesEnabled
-      ? line.priceType ?? resolveSalesLinePriceType(originalLinesById.get(line.id) ?? line, invoicePriceType)
-      : globalPriceType;
-  }, [multiSalePricesEnabled, originalLinesById, invoicePriceType, globalPriceType]);
+  const effectiveStockPriceType = useCallback(
+    (line: LineDraft): SalesPriceType => {
+      return multiSalePricesEnabled
+        ? (line.priceType ??
+            resolveSalesLinePriceType(
+              originalLinesById.get(line.id) ?? line,
+              invoicePriceType,
+            ))
+        : globalPriceType;
+    },
+    [
+      multiSalePricesEnabled,
+      originalLinesById,
+      invoicePriceType,
+      globalPriceType,
+    ],
+  );
 
   function productPrice(product: Product, selectedPriceType: SalesPriceType) {
-    return selectedPriceType === "retail" ? product.retailPrice : product.wholesalePrice;
+    return selectedPriceType === "retail"
+      ? product.retailPrice
+      : product.wholesalePrice;
   }
 
   const stockWarnings = useMemo(() => {
@@ -163,16 +211,24 @@ export function SalesInvoiceEditPage() {
       const p = products.find((x) => x.id === l.productId);
       requestedBaseByProduct.set(
         l.productId,
-        (requestedBaseByProduct.get(l.productId) ?? 0) + quantityAsBaseUnits(p, l.quantity, effectiveStockPriceType(l))
+        (requestedBaseByProduct.get(l.productId) ?? 0) +
+          quantityAsBaseUnits(p, l.quantity, effectiveStockPriceType(l)),
       );
     });
-    const out: { productId: string; requested: number; available: number; name: string; unit: string }[] = [];
+    const out: {
+      productId: string;
+      requested: number;
+      available: number;
+      name: string;
+      unit: string;
+    }[] = [];
     requestedBaseByProduct.forEach((requestedBase, pid) => {
       const p = products.find((x) => x.id === pid);
       if (!p) return;
       const availableBase =
-        (p.piecesPerUnit ? p.quantity * p.piecesPerUnit + (p.looseQuantity ?? 0) : p.quantity) +
-        (originalBaseQtyByProduct.get(pid) ?? 0);
+        (p.piecesPerUnit
+          ? p.quantity * p.piecesPerUnit + (p.looseQuantity ?? 0)
+          : p.quantity) + (originalBaseQtyByProduct.get(pid) ?? 0);
       if (requestedBase > availableBase) {
         out.push({
           productId: pid,
@@ -187,7 +243,18 @@ export function SalesInvoiceEditPage() {
   }, [lines, products, originalBaseQtyByProduct, effectiveStockPriceType]);
 
   function addLine() {
-    setLines((l) => [...l, { id: uid("line"), productId: "", quantity: 1, price: 0, priceType: multiSalePricesEnabled ? DEFAULT_PRICE_TYPE : globalPriceType }]);
+    setLines((l) => [
+      ...l,
+      {
+        id: uid("line"),
+        productId: "",
+        quantity: 1,
+        price: 0,
+        priceType: multiSalePricesEnabled
+          ? DEFAULT_PRICE_TYPE
+          : globalPriceType,
+      },
+    ]);
   }
 
   function updateLine(lineId: string, patch: Partial<LineDraft>) {
@@ -195,13 +262,15 @@ export function SalesInvoiceEditPage() {
       arr.map((l) => {
         if (l.id !== lineId) return l;
         const next = { ...l, ...patch };
-        next.priceType = multiSalePricesEnabled ? (next.priceType ?? DEFAULT_PRICE_TYPE) : globalPriceType;
+        next.priceType = multiSalePricesEnabled
+          ? (next.priceType ?? DEFAULT_PRICE_TYPE)
+          : globalPriceType;
         if (patch.productId !== undefined || patch.priceType !== undefined) {
           const p = products.find((x) => x.id === next.productId);
           if (p) next.price = productPrice(p, next.priceType);
         }
         return next;
-      })
+      }),
     );
   }
 
@@ -217,13 +286,17 @@ export function SalesInvoiceEditPage() {
     }
     const invalidIdx = lines.findIndex((l) => !l.productId || l.quantity <= 0);
     if (invalidIdx >= 0) {
-      toast.error(`السطر ${invalidIdx + 1}: تأكد من اختيار المنتج وإدخال كمية صحيحة`);
+      toast.error(
+        `السطر ${invalidIdx + 1}: تأكد من اختيار المنتج وإدخال كمية صحيحة`,
+      );
       return;
     }
     if (stockWarnings.length > 0) {
       toast.error(
         "الكمية تتجاوز المخزون",
-        stockWarnings.map((w) => `${w.name}: متاح ${w.available} / مطلوب ${w.requested}`).join(" • ")
+        stockWarnings
+          .map((w) => `${w.name}: متاح ${w.available} / مطلوب ${w.requested}`)
+          .join(" • "),
       );
       return;
     }
@@ -235,7 +308,11 @@ export function SalesInvoiceEditPage() {
       toast.error("أدخل تاريخ الاستحقاق");
       return;
     }
-    if (paymentType === "account" && inv.paymentType !== "account" && !creditSalesEnabled) {
+    if (
+      paymentType === "account" &&
+      inv.paymentType !== "account" &&
+      !creditSalesEnabled
+    ) {
       toast.error("ميزة البيع الآجل غير مفعّلة في ترخيصك");
       return;
     }
@@ -265,7 +342,8 @@ export function SalesInvoiceEditPage() {
       };
     });
 
-    const effectiveDueDate = paymentType === "account" && paymentDueDate ? paymentDueDate : undefined;
+    const effectiveDueDate =
+      paymentType === "account" && paymentDueDate ? paymentDueDate : undefined;
     // الفصل الكامل: نمرّر إجمالي المدفوع الفعلي كما هو (المستلم + أي فائض سابق)،
     // فيعيد الـ store توزيعه على المتبقي/الفائض حسب الإجمالي الجديد دون أي حركة
     // خزنة (cashDelta = 0). أي فرق يدفعه العميل يُسجَّل عبر "تسجيل دفعة".
@@ -275,7 +353,9 @@ export function SalesInvoiceEditPage() {
       invoiceNumber,
       date,
       driverId: driverId || undefined,
-      driverName: driverId ? drivers.find((d) => d.id === driverId)?.name : undefined,
+      driverName: driverId
+        ? drivers.find((d) => d.id === driverId)?.name
+        : undefined,
       lines: invLines,
       total: invoiceNet,
       discount: discount > 0 ? discount : undefined,
@@ -297,7 +377,9 @@ export function SalesInvoiceEditPage() {
     return (
       <Card>
         <CardBody>
-          <div className="text-center py-8 text-ink-faint">الفاتورة غير موجودة</div>
+          <div className="text-center py-8 text-ink-faint">
+            الفاتورة غير موجودة
+          </div>
         </CardBody>
       </Card>
     );
@@ -309,8 +391,13 @@ export function SalesInvoiceEditPage() {
       <Card>
         <CardBody>
           <div className="text-center py-8 space-y-3">
-            <div className="text-rose-600 dark:text-rose-400 font-semibold">هذه الفاتورة ملغاة ولا يمكن تعديلها</div>
-            <Button variant="outline" onClick={() => navigate(`/sales/${inv.id}`)}>
+            <div className="text-rose-600 dark:text-rose-400 font-semibold">
+              هذه الفاتورة ملغاة ولا يمكن تعديلها
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/sales/${inv.id}`)}
+            >
               <ArrowRight className="w-4 h-4" /> العودة لتفاصيل الفاتورة
             </Button>
           </div>
@@ -326,7 +413,10 @@ export function SalesInvoiceEditPage() {
         description="تعديل بنود الفاتورة — المبلغ المدفوع يُحصَّل عبر «تسجيل دفعة» — العميل لا يمكن تغييره"
         actions={
           <>
-            <Button variant="outline" onClick={() => navigate(`/sales/${inv.id}`)}>
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/sales/${inv.id}`)}
+            >
               <ArrowRight className="w-4 h-4" /> إلغاء
             </Button>
             <Button onClick={submit}>
@@ -338,11 +428,14 @@ export function SalesInvoiceEditPage() {
 
       {stockWarnings.length > 0 && (
         <div className="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 rounded-lg p-3 text-sm">
-          <div className="font-semibold mb-1">⚠ تحذير: الكمية تتجاوز المخزون</div>
+          <div className="font-semibold mb-1">
+            ⚠ تحذير: الكمية تتجاوز المخزون
+          </div>
           <ul className="list-disc ps-5 space-y-0.5 text-xs">
             {stockWarnings.map((w) => (
               <li key={w.productId}>
-                {w.name}: المتاح {w.available} {w.unit} / المطلوب {w.requested} {w.unit}
+                {w.name}: المتاح {w.available} {w.unit} / المطلوب {w.requested}{" "}
+                {w.unit}
               </li>
             ))}
           </ul>
@@ -354,14 +447,18 @@ export function SalesInvoiceEditPage() {
         <CardBody>
           {/* Customer — read-only */}
           <div className="mb-4 bg-surface-muted border border-line rounded-lg px-4 py-3 text-sm text-ink-muted">
-            <span className="text-ink-faint text-xs block mb-0.5">العميل (غير قابل للتعديل)</span>
+            <span className="text-ink-faint text-xs block mb-0.5">
+              العميل (غير قابل للتعديل)
+            </span>
             <div className="flex items-center justify-between">
               <span className="font-semibold text-ink">{inv.customerName}</span>
               {(() => {
                 const bal = customerBalance(inv.customerId);
                 if (bal === 0) return null;
                 return (
-                  <span className={`text-xs font-semibold ${bal > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+                  <span
+                    className={`text-xs font-semibold ${bal > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-400"}`}
+                  >
                     {bal > 0
                       ? `مديون: ${formatCurrency(bal, settings.currency)}`
                       : `رصيد دائن: ${formatCurrency(-bal, settings.currency)}`}
@@ -380,14 +477,23 @@ export function SalesInvoiceEditPage() {
               />
             </Field>
             <Field label="التاريخ" required>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
             </Field>
             {driversEnabled && (
               <Field label="السائق">
-                <Select value={driverId} onChange={(e) => setDriverId(e.target.value)}>
+                <Select
+                  value={driverId}
+                  onChange={(e) => setDriverId(e.target.value)}
+                >
                   <option value="">— بدون سائق —</option>
                   {drivers.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
                   ))}
                 </Select>
               </Field>
@@ -410,7 +516,9 @@ export function SalesInvoiceEditPage() {
             <div className="text-center py-8 text-sm text-ink-faint">
               لا توجد بنود.
               <div className="mt-3">
-                <Button onClick={addLine}><Plus className="w-4 h-4" /> إضافة بند</Button>
+                <Button onClick={addLine}>
+                  <Plus className="w-4 h-4" /> إضافة بند
+                </Button>
               </div>
             </div>
           ) : (
@@ -418,7 +526,9 @@ export function SalesInvoiceEditPage() {
               <THead>
                 <TR>
                   <TH>المنتج</TH>
-                  {multiSalePricesEnabled && <TH className="w-32">نوع السعر</TH>}
+                  {multiSalePricesEnabled && (
+                    <TH className="w-32">نوع السعر</TH>
+                  )}
                   <TH className="w-20 text-center">متاح</TH>
                   <TH className="w-24">الكمية</TH>
                   <TH className="w-28">السعر</TH>
@@ -430,19 +540,41 @@ export function SalesInvoiceEditPage() {
                 {lines.map((l) => {
                   const p = products.find((x) => x.id === l.productId);
                   const ept = effectiveStockPriceType(l);
-                  const currentBaseQty = quantityAsBaseUnits(p, l.quantity, ept);
+                  const currentBaseQty = quantityAsBaseUnits(
+                    p,
+                    l.quantity,
+                    ept,
+                  );
                   const availableBase = p
-                    ? (p.piecesPerUnit ? p.quantity * p.piecesPerUnit + (p.looseQuantity ?? 0) : p.quantity) +
+                    ? (p.piecesPerUnit
+                        ? p.quantity * p.piecesPerUnit + (p.looseQuantity ?? 0)
+                        : p.quantity) +
                       (originalBaseQtyByProduct.get(l.productId) ?? 0)
                     : 0;
                   const otherDraftBaseQty = lines
-                    .filter((ol) => ol.id !== l.id && ol.productId === l.productId)
+                    .filter(
+                      (ol) => ol.id !== l.id && ol.productId === l.productId,
+                    )
                     .reduce((sum, ol) => {
-                      const otherProduct = products.find((x) => x.id === ol.productId);
-                      return sum + quantityAsBaseUnits(otherProduct, ol.quantity, effectiveStockPriceType(ol));
+                      const otherProduct = products.find(
+                        (x) => x.id === ol.productId,
+                      );
+                      return (
+                        sum +
+                        quantityAsBaseUnits(
+                          otherProduct,
+                          ol.quantity,
+                          effectiveStockPriceType(ol),
+                        )
+                      );
                     }, 0);
-                  const remainingBaseForLine = Math.max(0, availableBase - otherDraftBaseQty);
-                  const available = p ? availableFromBaseUnits(p, remainingBaseForLine, ept) : 0;
+                  const remainingBaseForLine = Math.max(
+                    0,
+                    availableBase - otherDraftBaseQty,
+                  );
+                  const available = p
+                    ? availableFromBaseUnits(p, remainingBaseForLine, ept)
+                    : 0;
                   const availUnit = p
                     ? ept === "retail" && p.piecesPerUnit
                       ? (p.retailUnit ?? "قطعة")
@@ -455,7 +587,9 @@ export function SalesInvoiceEditPage() {
                         <SearchableProductSelect
                           products={products}
                           value={l.productId}
-                          onChange={(pid) => updateLine(l.id, { productId: pid })}
+                          onChange={(pid) =>
+                            updateLine(l.id, { productId: pid })
+                          }
                           placeholder="— اختر منتجاً —"
                           showStock
                         />
@@ -464,7 +598,11 @@ export function SalesInvoiceEditPage() {
                         <TD>
                           <Select
                             value={l.priceType}
-                            onChange={(e) => updateLine(l.id, { priceType: e.target.value as SalesPriceType })}
+                            onChange={(e) =>
+                              updateLine(l.id, {
+                                priceType: e.target.value as SalesPriceType,
+                              })
+                            }
                           >
                             <option value="wholesale">جملة</option>
                             <option value="retail">تجزئة</option>
@@ -473,10 +611,14 @@ export function SalesInvoiceEditPage() {
                       )}
                       <TD className="text-center text-xs">
                         {p ? (
-                          <Badge tone={available <= p.minStock ? "amber" : "slate"}>
+                          <Badge
+                            tone={available <= p.minStock ? "amber" : "slate"}
+                          >
                             {available} {availUnit}
                           </Badge>
-                        ) : "—"}
+                        ) : (
+                          "—"
+                        )}
                       </TD>
                       <TD>
                         <Input
@@ -485,7 +627,10 @@ export function SalesInvoiceEditPage() {
                           value={l.quantity}
                           onChange={(e) =>
                             updateLine(l.id, {
-                              quantity: Math.max(1, parseNumericInput(e.target.value, l.quantity)),
+                              quantity: Math.max(
+                                1,
+                                parseNumericInput(e.target.value, l.quantity),
+                              ),
                             })
                           }
                           className={exceeds ? "border-rose-400" : ""}
@@ -499,13 +644,19 @@ export function SalesInvoiceEditPage() {
                           value={l.price}
                           onChange={(e) =>
                             updateLine(l.id, {
-                              price: Math.max(0, parseNumericInput(e.target.value, l.price)),
+                              price: Math.max(
+                                0,
+                                parseNumericInput(e.target.value, l.price),
+                              ),
                             })
                           }
                         />
                       </TD>
                       <TD className="text-end font-medium">
-                        {formatCurrency(l.quantity * l.price, settings.currency)}
+                        {formatCurrency(
+                          l.quantity * l.price,
+                          settings.currency,
+                        )}
                       </TD>
                       <TD>
                         <Button
@@ -534,12 +685,24 @@ export function SalesInvoiceEditPage() {
             <Field label="طريقة الدفع" required>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="radio" checked={paymentType === "cash"} onChange={() => setPaymentType("cash")} disabled={hasReturns} className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer" />
+                  <input
+                    type="radio"
+                    checked={paymentType === "cash"}
+                    onChange={() => setPaymentType("cash")}
+                    disabled={hasReturns}
+                    className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer"
+                  />
                   كاش
                 </label>
                 {(creditSalesEnabled || inv.paymentType === "account") && (
                   <label className="flex items-center gap-2 text-sm">
-                    <input type="radio" checked={paymentType === "account"} onChange={() => setPaymentType("account")} disabled={hasReturns || !creditSalesEnabled} className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer" />
+                    <input
+                      type="radio"
+                      checked={paymentType === "account"}
+                      onChange={() => setPaymentType("account")}
+                      disabled={hasReturns || !creditSalesEnabled}
+                      className="w-4 h-4 border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer"
+                    />
                     آجل (حساب)
                   </label>
                 )}
@@ -547,7 +710,12 @@ export function SalesInvoiceEditPage() {
             </Field>
             {paymentType === "account" && (
               <Field label="تاريخ الاستحقاق" required>
-                <Input type="date" value={paymentDueDate} onChange={(e) => setPaymentDueDate(e.target.value)} required />
+                <Input
+                  type="date"
+                  value={paymentDueDate}
+                  onChange={(e) => setPaymentDueDate(e.target.value)}
+                  required
+                />
               </Field>
             )}
             <Field label="المبلغ المدفوع (سابقاً)">
@@ -559,11 +727,16 @@ export function SalesInvoiceEditPage() {
               />
             </Field>
             <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-3 text-xs text-blue-800 dark:text-blue-400">
-              التعديل هنا للبنود فقط، والمبلغ المدفوع لا يتغيّر. لو دفع العميل فرقاً بعد
-              التعديل، سجّله من صفحة الفاتورة عبر <strong>«تسجيل دفعة»</strong>.
+              التعديل هنا للبنود فقط، والمبلغ المدفوع لا يتغيّر. لو دفع العميل
+              فرقاً بعد التعديل، سجّله من صفحة الفاتورة عبر{" "}
+              <strong>«تسجيل دفعة»</strong>.
             </div>
             <Field label="ملاحظات">
-              <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <Textarea
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
             </Field>
           </CardBody>
         </Card>
@@ -573,7 +746,9 @@ export function SalesInvoiceEditPage() {
           <CardBody className="space-y-2 text-sm">
             <div className="flex justify-between text-ink-muted">
               <span>إجمالي البنود</span>
-              <span className="font-mono">{formatCurrency(gross, settings.currency)}</span>
+              <span className="font-mono">
+                {formatCurrency(gross, settings.currency)}
+              </span>
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-ink-muted">خصم</span>
@@ -583,25 +758,47 @@ export function SalesInvoiceEditPage() {
                 step="0.01"
                 value={discount || ""}
                 onChange={(e) =>
-                  setDiscount(Math.max(0, parseNumericInput(e.target.value, discount)))
+                  setDiscount(
+                    Math.max(0, parseNumericInput(e.target.value, discount)),
+                  )
                 }
                 placeholder="0.00"
                 className="w-28 h-8"
               />
             </div>
+            {shippingFee > 0 && (
+              <div className="flex justify-between text-ink-muted">
+                <span>رسوم التوصيل</span>
+                <span className="font-mono">
+                  {formatCurrency(shippingFee, settings.currency)}
+                </span>
+              </div>
+            )}
             {discount > 0 && (
               <div className="flex justify-between text-ink font-semibold">
                 <span>صافي الفاتورة</span>
-                <span className="font-mono">{formatCurrency(invoiceNet, settings.currency)}</span>
+                <span className="font-mono">
+                  {formatCurrency(invoiceNet, settings.currency)}
+                </span>
               </div>
             )}
             <div className="flex justify-between text-ink-muted">
               <span>المدفوع</span>
-              <span className="font-mono">{formatCurrency(Math.min(amountReceived, invoiceNet), settings.currency)}</span>
+              <span className="font-mono">
+                {formatCurrency(
+                  Math.min(amountReceived, invoiceNet),
+                  settings.currency,
+                )}
+              </span>
             </div>
             <div className="border-t border-line pt-2 flex justify-between text-lg font-bold text-amber-700 dark:text-amber-400">
               <span>المتبقي</span>
-              <span className="font-mono">{formatCurrency(Math.max(0, invoiceNet - amountReceived), settings.currency)}</span>
+              <span className="font-mono">
+                {formatCurrency(
+                  Math.max(0, invoiceNet - amountReceived),
+                  settings.currency,
+                )}
+              </span>
             </div>
             <div className="pt-2">
               <Button onClick={submit} size="lg" className="w-full">
@@ -623,4 +820,3 @@ export function SalesInvoiceEditPage() {
     </>
   );
 }
-

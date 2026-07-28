@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { createHashRouter, RouterProvider } from "react-router-dom";
 import App from "./App";
 import { AppProvider } from "./store/AppContext";
+import { ShippingProvider } from "./store/ShippingContext";
 import { ToastProvider } from "./components/ui/Toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { loadStorageCache } from "./lib/storage";
@@ -34,10 +35,12 @@ loadStorageCache().then(() => {
       <ErrorBoundary>
         <ToastProvider>
           <AppProvider>
-            <RouterProvider router={router} />
+            <ShippingProvider>
+              <RouterProvider router={router} />
+            </ShippingProvider>
           </AppProvider>
         </ToastProvider>
       </ErrorBoundary>
-    </StrictMode>
+    </StrictMode>,
   );
 });

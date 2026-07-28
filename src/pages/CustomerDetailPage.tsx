@@ -38,6 +38,11 @@ import type { Customer } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { printAppRoute } from "../lib/print";
 import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleFormDialog";
+import { AddressFields, type AddressDraft } from "../features/shipping/AddressFields";
+import { defaultCustomerAddress } from "../lib/shipping";
+import { uid } from "../lib/utils";
+
+const EMPTY_ADDRESS: AddressDraft = { label: "العنوان الرئيسي", governorate: "", city: "", addressLine: "", isDefault: true };
 
 function whatsappHref(phone: string | undefined, message: string) {
   const digits = String(phone ?? "").replace(/\D/g, "");
@@ -80,6 +85,7 @@ export function CustomerDetailPage() {
     creditLimit: undefined,
     notes: "",
   });
+  const [addressDraft, setAddressDraft] = useState<AddressDraft>(EMPTY_ADDRESS);
 
   const invoices = useMemo(
     () => (customer ? salesInvoices.filter((s) => s.customerId === customer.id) : []),
@@ -133,6 +139,8 @@ export function CustomerDetailPage() {
       creditLimit: customer.creditLimit,
       notes: customer.notes ?? "",
     });
+    const address = defaultCustomerAddress(customer);
+    setAddressDraft(address ? { label: address.label, recipientName: address.recipientName, phone: address.phone, governorate: address.governorate, city: address.city, district: address.district, addressLine: address.addressLine, landmark: address.landmark, buildingNumber: address.buildingNumber, floor: address.floor, apartment: address.apartment, postalCode: address.postalCode, isDefault: true, bosta: address.bosta } : { ...EMPTY_ADDRESS, addressLine: customer.address ?? "" });
     setEditOpen(true);
   }
 
@@ -150,11 +158,15 @@ export function CustomerDetailPage() {
       toast.error("رقم الهاتف غير صحيح", "يجب أن يكون 11 رقم بالضبط");
       return;
     }
-    if (!form.address?.trim()) {
-      toast.error("العنوان مطلوب");
+    if (!addressDraft.addressLine.trim() || !addressDraft.governorate || !addressDraft.city) {
+      toast.error("عنوان التوصيل غير مكتمل", "العنوان والمحافظة والمدينة مطلوبة لحساب التوصيل");
       return;
     }
-    updateCustomer(customer.id, form);
+    const timestamp = new Date().toISOString();
+    const previousDefault = defaultCustomerAddress(customer);
+    const address = { ...addressDraft, id: previousDefault && !previousDefault.id.startsWith("legacy-") ? previousDefault.id : uid("address"), recipientName: addressDraft.recipientName?.trim() || form.name.trim(), phone: addressDraft.phone?.trim() || form.phone?.trim(), isDefault: true, createdAt: previousDefault?.createdAt ?? timestamp, updatedAt: timestamp };
+    const others = customer.addresses?.filter((item) => item.id !== previousDefault?.id).map((item) => ({ ...item, isDefault: false })) ?? [];
+    updateCustomer(customer.id, { ...form, address: address.addressLine, addresses: [address, ...others] });
     toast.success("تم تحديث بيانات العميل");
     setEditOpen(false);
   }
@@ -298,6 +310,20 @@ export function CustomerDetailPage() {
               </Info>
             ) : null}
           </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="عناوين التوصيل المحفوظة" subtitle="يستخدم الكاشير العنوان الافتراضي ويحسب السعر حسب المحافظة والمدينة" actions={canEdit ? <Button size="sm" variant="outline" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> تعديل الرئيسي</Button> : undefined} />
+        <CardBody className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {(customer.addresses?.length ? customer.addresses : defaultCustomerAddress(customer) ? [defaultCustomerAddress(customer)!] : []).map((address) => (
+            <div key={address.id} className="rounded-xl border border-line bg-surface-muted/30 p-3">
+              <div className="flex items-center justify-between gap-2"><div className="font-semibold text-ink">{address.label}</div>{address.isDefault ? <Badge tone="blue">افتراضي</Badge> : null}</div>
+              <div className="mt-2 text-sm text-ink-muted">{address.governorate || "محافظة غير محددة"}، {address.city || "مدينة غير محددة"}{address.district ? `، ${address.district}` : ""}</div>
+              <div className="mt-1 text-sm text-ink">{address.addressLine}</div>
+              {address.phone ? <div className="mt-2 font-mono text-xs text-ink-faint" dir="ltr">{address.phone}</div> : null}
+            </div>
+          ))}
         </CardBody>
       </Card>
 
@@ -472,9 +498,7 @@ export function CustomerDetailPage() {
               inputMode="numeric"
             />
           </Field>
-          <Field label="العنوان" required>
-            <Input value={form.address ?? ""} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-          </Field>
+          <div className="col-span-2 rounded-xl border border-line bg-surface-muted/20 p-3"><div className="mb-3 text-sm font-bold text-ink">عنوان التوصيل الرئيسي</div><AddressFields value={addressDraft} onChange={setAddressDraft} showRecipient={false} /></div>
           <Field label="الحد الائتماني" hint="أقصى مديونية مسموحة للبيع الآجل — اتركه فارغاً لعدم وضع حد">
             <Input
               type="number"

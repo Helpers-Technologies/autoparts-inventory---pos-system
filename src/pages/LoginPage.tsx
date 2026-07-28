@@ -52,6 +52,8 @@ export function LoginPage() {
   const [mfaSubmitting, setMfaSubmitting] = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryStage, setRecoveryStage] = useState<"code" | "password">("code");
+  const [recoveryMethod, setRecoveryMethod] = useState<"totp" | "backup">("totp");
+  const [recoveryUsername, setRecoveryUsername] = useState("");
   const [recoveryCode, setRecoveryCode] = useState("");
   const [recoveryChallengeId, setRecoveryChallengeId] = useState("");
   const [recoveredUsername, setRecoveredUsername] = useState("");
@@ -235,6 +237,8 @@ export function LoginPage() {
 
   function resetRecoveryDialog() {
     setRecoveryStage("code");
+    setRecoveryMethod("totp");
+    setRecoveryUsername(username.trim());
     setRecoveryCode("");
     setRecoveryChallengeId("");
     setRecoveredUsername("");
@@ -279,7 +283,58 @@ export function LoginPage() {
     }
   }
 
-  async function completeRecoveryWithBackupCode() {
+  async function beginRecoveryWithTotp() {
+    if (!window.desktopAPI?.auth.beginAccountRecoveryWithTotp) {
+      setRecoveryError("استرداد الحساب عبر Authenticator غير متاح في هذا الإصدار.");
+      return;
+    }
+    if (!recoveryUsername.trim()) {
+      setRecoveryError("أدخل اسم الدخول المرتبط بالمصادقة الثنائية.");
+      return;
+    }
+    if (!/^\d{6}$/.test(recoveryCode.trim())) {
+      setRecoveryError("أدخل الرمز الحالي المكوّن من 6 أرقام من تطبيق Authenticator.");
+      return;
+    }
+    setRecoverySubmitting(true);
+    setRecoveryError("");
+    try {
+      const result = await window.desktopAPI.auth.beginAccountRecoveryWithTotp(
+        recoveryUsername.trim(),
+        recoveryCode.trim()
+      );
+      if (!result.ok || !result.challengeId || !result.username) {
+        const messages: Record<string, string> = {
+          code_reused: "تم استخدام هذا الرمز بالفعل. انتظر ظهور الرمز التالي.",
+          rate_limited: `محاولات كثيرة. حاول بعد ${result.remainSeconds ?? 60} ثانية.`,
+        };
+        setRecoveryError(
+          messages[result.error ?? ""] ??
+          "اسم الدخول أو رمز Authenticator غير صحيح، أو المصادقة الثنائية غير مفعّلة للحساب."
+        );
+        return;
+      }
+      setRecoveryChallengeId(result.challengeId);
+      setRecoveredUsername(result.username);
+      setResetMfaDuringRecovery(false);
+      setRecoveryStage("password");
+      setRecoveryCode("");
+    } catch {
+      setRecoveryError("تعذر التحقق من رمز Authenticator.");
+    } finally {
+      setRecoverySubmitting(false);
+    }
+  }
+
+  function selectRecoveryMethod(method: "totp" | "backup") {
+    if (recoverySubmitting) return;
+    setRecoveryMethod(method);
+    setRecoveryCode("");
+    setRecoveryError("");
+    setResetMfaDuringRecovery(method === "backup");
+  }
+
+  async function completeAccountRecovery() {
     if (!window.desktopAPI?.auth.completeAccountRecovery || !recoveryChallengeId) return;
     if (recoveryPassword.length < 6) {
       setRecoveryError("كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف.");
@@ -300,7 +355,7 @@ export function LoginPage() {
       if (!result.ok || !result.username) {
         setRecoveryError(
           result.error === "challenge_expired"
-            ? "انتهت مهلة الاسترداد. ابدأ بكود احتياطي جديد."
+            ? "انتهت مهلة الاسترداد. ابدأ التحقق من جديد عبر 2FA أو كود احتياطي."
             : "تعذر تعيين كلمة المرور الجديدة."
         );
         return;
@@ -511,7 +566,7 @@ export function LoginPage() {
                     }}
                     className="w-full text-xs font-bold text-cyan-300 transition-colors hover:text-cyan-200"
                   >
-                    نسيت اسم الدخول أو كلمة المرور؟ استخدم كودًا احتياطيًا
+                    نسيت بيانات الدخول؟ استرد الحساب عبر 2FA أو كود احتياطي
                   </button>
                   <button
                     type="button"
@@ -677,10 +732,10 @@ export function LoginPage() {
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-amber-400/10 text-amber-300"><KeyRound className="h-5 w-5" /></div>
-                <h3 id="backup-recovery-title" className="text-xl font-black tracking-[-0.025em] text-white">استرداد الحساب بكود احتياطي</h3>
+                <h3 id="backup-recovery-title" className="text-xl font-black tracking-[-0.025em] text-white">استرداد الحساب عبر المصادقة الثنائية</h3>
                 <p className="mt-1 text-xs leading-5 text-slate-400">
                   {recoveryStage === "code"
-                    ? "لا تحتاج إلى تذكر اسم الدخول أو كلمة المرور؛ الكود يحدد حسابك بأمان."
+                    ? "استخدم تطبيق Authenticator، أو اختر كودًا احتياطيًا إذا لم يكن التطبيق متاحًا."
                     : "تم التحقق من الحساب. عيّن كلمة مرور جديدة."}
                 </p>
               </div>
@@ -689,13 +744,35 @@ export function LoginPage() {
 
             {recoveryStage === "code" ? (
               <div className="space-y-4">
-                <Field label="أحد الأكواد الاحتياطية">
-                  <Input value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} placeholder="XXXX-XXXX-XXXX-XXXX" autoFocus dir="ltr" className={`${darkInputClass} pr-3 text-center font-mono tracking-wider`} />
-                </Field>
-                <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">بعد قبول الكود سيُستهلك ولن يمكن استخدامه مرة أخرى.</div>
+                <div className="grid grid-cols-2 rounded-xl border border-white/10 bg-black/20 p-1" role="tablist" aria-label="طريقة استرداد الحساب">
+                  <button type="button" role="tab" aria-selected={recoveryMethod === "totp"} onClick={() => selectRecoveryMethod("totp")} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${recoveryMethod === "totp" ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:text-white"}`}>
+                    تطبيق Authenticator
+                  </button>
+                  <button type="button" role="tab" aria-selected={recoveryMethod === "backup"} onClick={() => selectRecoveryMethod("backup")} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${recoveryMethod === "backup" ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:text-white"}`}>
+                    كود احتياطي
+                  </button>
+                </div>
+                {recoveryMethod === "totp" ? (
+                  <>
+                    <Field label="اسم الدخول">
+                      <Input value={recoveryUsername} onChange={(event) => setRecoveryUsername(event.target.value)} placeholder="اسم الدخول" autoFocus autoComplete="username" dir="ltr" className={`${darkInputClass} pr-3`} />
+                    </Field>
+                    <Field label="رمز Authenticator الحالي">
+                      <Input value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" autoComplete="one-time-code" inputMode="numeric" dir="ltr" className={`${darkInputClass} pr-3 text-center font-mono text-lg tracking-[0.35em]`} />
+                    </Field>
+                    <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs leading-5 text-cyan-100">استخدام الرمز لا يلغي إعداد 2FA، وستظل تستخدمه عند تسجيل الدخول.</div>
+                  </>
+                ) : (
+                  <>
+                    <Field label="أحد الأكواد الاحتياطية">
+                      <Input value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} placeholder="XXXX-XXXX-XXXX-XXXX" autoFocus dir="ltr" className={`${darkInputClass} pr-3 text-center font-mono tracking-wider`} />
+                    </Field>
+                    <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">لا تحتاج إلى اسم الدخول. بعد قبول الكود سيُستهلك ولن يمكن استخدامه مرة أخرى.</div>
+                  </>
+                )}
                 {recoveryError ? <div className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-300">{recoveryError}</div> : null}
-                <Button type="button" className="h-11 w-full rounded-xl bg-cyan-400 font-black text-slate-950 hover:bg-cyan-300" onClick={beginRecoveryWithBackupCode} disabled={recoverySubmitting}>
-                  {recoverySubmitting ? "جاري التحقق..." : "تحقق من الكود"}
+                <Button type="button" className="h-11 w-full rounded-xl bg-cyan-400 font-black text-slate-950 hover:bg-cyan-300" onClick={recoveryMethod === "totp" ? beginRecoveryWithTotp : beginRecoveryWithBackupCode} disabled={recoverySubmitting}>
+                  {recoverySubmitting ? "جاري التحقق..." : recoveryMethod === "totp" ? "تحقق عبر 2FA" : "تحقق من الكود"}
                 </Button>
               </div>
             ) : (
@@ -714,7 +791,7 @@ export function LoginPage() {
                   <span><strong className="block text-white">إلغاء إعداد 2FA القديم</strong>فعّل هذا الخيار إذا كان الهاتف أو تطبيق Authenticator غير متاح. يمكنك إعداد 2FA جديد بعد الدخول.</span>
                 </label>
                 {recoveryError ? <div className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-300">{recoveryError}</div> : null}
-                <Button type="button" className="h-11 w-full rounded-xl bg-cyan-400 font-black text-slate-950 hover:bg-cyan-300" onClick={completeRecoveryWithBackupCode} disabled={recoverySubmitting}>
+                <Button type="button" className="h-11 w-full rounded-xl bg-cyan-400 font-black text-slate-950 hover:bg-cyan-300" onClick={completeAccountRecovery} disabled={recoverySubmitting}>
                   {recoverySubmitting ? "جاري الحفظ..." : "تعيين كلمة المرور واسترداد الحساب"}
                 </Button>
               </div>

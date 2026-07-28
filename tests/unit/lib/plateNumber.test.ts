@@ -17,6 +17,11 @@ describe("Egyptian License Plate Formatter & Validator", () => {
     expect(formatEgyptianPlateNumber("أ ب ج د 1 2 3 4 5")).toBe("أ ب ج    1 2 3 4");
   });
 
+  it("removes English letters from typed and pasted values", () => {
+    expect(formatEgyptianPlateNumber("ddswv")).toBe("");
+    expect(formatEgyptianPlateNumber("أ d ب s ١ x 2 ٣")).toBe("أ ب    1 2 3");
+  });
+
   it("validates 2-3 letters and 3-4 numbers rule", () => {
     expect(validateEgyptianPlateNumber("أ ب ج 1 2 3 4").isValid).toBe(true);
     expect(validateEgyptianPlateNumber("أ ب 1 2 3").isValid).toBe(true);

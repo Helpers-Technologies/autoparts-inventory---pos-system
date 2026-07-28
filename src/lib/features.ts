@@ -50,7 +50,10 @@ export type FeatureKey =
   | "supplierCommissions"
   | "purchasingAssistant"
   | "bulkProductTools"
-  | "posMultiHold";
+  | "posMultiHold"
+  | "employeePayroll"
+  | "shippingManagement"
+  | "bostaIntegration";
 
 export interface FeatureDef {
   key: FeatureKey;
@@ -87,7 +90,7 @@ export const FEATURES: FeatureDef[] = [
   { key: "advancedAlerts", label: "لوحة التنبيهات المتقدمة", description: "كروت ذكية للفواتير المتأخرة والأرصدة والتنبيهات القابلة للتخصيص", defaultEnabled: false },
   { key: "advancedSecurity", label: "النسخ الاحتياطي والأمان المتقدم", description: "نسخ احتياطي تلقائي وقفل شاشة تلقائي وخيارات أمان إضافية", defaultEnabled: false },
   { key: "twoFactorAuth", label: "المصادقة الثنائية والأكواد الاحتياطية", description: "حماية الدخول بتطبيق Authenticator وأكواد استرداد للحساب", defaultEnabled: false },
-  { key: "barcodeSystem", label: "نظام الباركود", description: "توليد وطباعة باركود المنتجات ودعم قارئ الباركود", defaultEnabled: false },
+  { key: "barcodeSystem", label: "نظام الباركود والمسح السريع", description: "توليد وطباعة باركود المنتجات ودعم قارئ الباركود ومسح المخزون السريع", defaultEnabled: false },
   { key: "multiSalePrices", label: "أسعار البيع المتعددة", description: "دعم سعر جملة وسعر تجزئة لنفس المنتج والبيع بأي منهما", defaultEnabled: false },
   { key: "creditPayment", label: "الدفع بالرصيد الدائن", description: "السماح للعميل بالدفع من رصيده الدائن ضمن وسائل الدفع", defaultEnabled: true },
   { key: "creditSales", label: "البيع الآجل", description: "السماح بإنشاء فواتير مبيعات آجلة وتحديد تاريخ الاستحقاق", defaultEnabled: false },
@@ -98,8 +101,11 @@ export const FEATURES: FeatureDef[] = [
   { key: "pricingRules", label: "شرائح وقواعد الأسعار المتقدمة", description: "إنشاء شرائح تسعير غير محدودة (جملة، تجزئة، تكلفة) مع حد أدنى هامش ربح تلقائي ومعاينة حية للأسعار عبر الكتالوج", defaultEnabled: false },
   { key: "supplierCommissions", label: "عمولات وبونص الموردين", description: "شرائح عمولة تلقائية حسب حجم المشتريات من كل مورد مع حساب العمولة المستحقة تلقائيًا", defaultEnabled: false },
   { key: "purchasingAssistant", label: "مساعد المشتريات الذكي", description: "تحليل سرعة البيع وتغطية المخزون، اقتراح كميات إعادة الطلب لكل مورد، وتحويلها مباشرة لفاتورة شراء", defaultEnabled: false },
-  { key: "bulkProductTools", label: "أدوات التعديل الجماعي غير المحدودة", description: "تعديل السعر أو الرف أو التصنيف لعدد غير محدود من الأصناف دفعة واحدة (النسخة المجانية تدعم حتى 9 أصناف في المرة الواحدة)", defaultEnabled: false },
+  { key: "bulkProductTools", label: "تخصيص الأعمدة وأدوات التعديل الجماعي", description: "اختيار أعمدة جداول المنتجات والمخزون وتعديل السعر أو الرف أو التصنيف لعدد غير محدود من الأصناف دفعة واحدة", defaultEnabled: false },
   { key: "posMultiHold", label: "تعليق فواتير متعددة في نقطة البيع", description: "تعليق أكثر من فاتورة واحدة في نفس الوقت داخل نقطة البيع (النسخة المجانية تدعم فاتورة معلّقة واحدة فقط)", defaultEnabled: false },
+  { key: "employeePayroll", label: "إدارة الموظفين والمرتبات", description: "إدارة الموظفين والسائقين بدون حساب نظام، المرتبات والمستحقات والبونص والخصومات والصرف التلقائي", defaultEnabled: false },
+  { key: "shippingManagement", label: "إدارة التوصيل والشحن", description: "أوامر التوصيل بسائق الفرع وشركات الشحن، قوائم الأسعار والعناوين والتحصيل والتقارير وكشف حساب السائق", defaultEnabled: false },
+  { key: "bostaIntegration", label: "الربط المباشر مع بوسطة", description: "إنشاء الشحنات وجلب الأسعار والتتبع داخل النظام وتحديث الحالات تلقائيًا عبر واجهة بوسطة وWebhook", defaultEnabled: false },
 ];
 
 export const FEATURE_MAP: Record<FeatureKey, FeatureDef> = FEATURES.reduce(
@@ -175,6 +181,9 @@ export const FEATURE_CATEGORY_BY_KEY: Record<FeatureKey, FeatureCategoryId> = {
   purchasingAssistant: "sales",
   bulkProductTools: "inventory",
   posMultiHold: "sales",
+  employeePayroll: "finance",
+  shippingManagement: "sales",
+  bostaIntegration: "automation",
 };
 
 export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
@@ -201,6 +210,9 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
   "purchasingAssistant",
   "bulkProductTools",
   "posMultiHold",
+  "employeePayroll",
+  "shippingManagement",
+  "bostaIntegration",
 ]);
 
 /**
@@ -250,6 +262,8 @@ export const FEATURE_TIER: Record<FeatureKey, PackageTier> = {
   purchasingAssistant: "pro",
   bulkProductTools: "pro",
   posMultiHold: "pro",
+  employeePayroll: "pro",
+  shippingManagement: "pro",
   warrantyCenter: "full",
   advancedAnalytics: "full",
   marketingHub: "full",
@@ -259,6 +273,7 @@ export const FEATURE_TIER: Record<FeatureKey, PackageTier> = {
   activityLog: "full",
   advancedAlerts: "full",
   darkMode: "full",
+  bostaIntegration: "full",
 };
 
 /**

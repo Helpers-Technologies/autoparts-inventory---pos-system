@@ -67,6 +67,7 @@ export function HelpPage() {
   const [assistantInput, setAssistantInput] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([WELCOME_MESSAGE]);
   const assistantEndRef = useRef<HTMLDivElement>(null);
+  const assistantMessageSequence = useRef(0);
 
   // Only show help for modules the install actually has.
   const available = useMemo(
@@ -109,7 +110,8 @@ export function HelpPage() {
     if (!question) return;
 
     const answer = answerHelpQuestion(available, question);
-    const stamp = `${Date.now()}-${assistantMessages.length}`;
+    assistantMessageSequence.current += 1;
+    const stamp = String(assistantMessageSequence.current);
     const userMessage: AssistantMessage = {
       id: `user-${stamp}`,
       role: "user",

@@ -156,10 +156,10 @@ function StatCard({
   };
   return (
     <Card
-      className={onClick ? "cursor-pointer hover:border-brand-500/50 hover:shadow-md transition-all group" : undefined}
+      className={`h-32 ${onClick ? "cursor-pointer hover:border-brand-500/50 hover:shadow-md transition-all group" : ""}`}
       onClick={onClick}
     >
-      <CardBody className="flex items-start gap-3">
+      <CardBody className="flex h-full items-start gap-3">
         <div className={`w-10 h-10 rounded-lg grid place-items-center shrink-0 ${toneMap[tone]}`}>
           {icon}
         </div>
@@ -369,7 +369,7 @@ export function DashboardPage() {
     const cutoff = localISODate(ninetyDaysAgo);
     const soldRecently = new Set(validSales.filter((invoice) => invoice.date >= cutoff).flatMap((invoice) => invoice.lines.map((line) => line.productId)));
     const deadStockValue = activeProducts.filter((product) => product.quantity > 0 && !soldRecently.has(product.id)).reduce((sum, product) => sum + product.quantity * (product.avgCost ?? product.purchasePrice), 0);
-    const openWarrantyClaims = pro.warrantyClaims.filter((claim) => !["rejected", "replaced"].includes(claim.status)).length;
+    const openWarrantyClaims = pro.warrantyClaims.filter((claim) => !["rejected", "replaced", "compensated"].includes(claim.status)).length;
 
     const receivables = customers.reduce((sum, customer) => sum + Math.max(0, customerBalance(customer.id)), 0);
     const payables = suppliers.reduce((sum, supplier) => sum + Math.max(0, supplierBalance(supplier.id)), 0);
@@ -555,7 +555,7 @@ export function DashboardPage() {
 
       {/* ── Stat Cards ── */}
       {visibleCards.length > 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid auto-rows-[8rem] grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
           {visibleCards.map((c) => renderCard(c.id))}
         </div>
       ) : (

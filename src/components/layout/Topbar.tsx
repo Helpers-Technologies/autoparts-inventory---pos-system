@@ -36,6 +36,8 @@ const TITLES: Record<string, string> = {
   "/audit-log": "سجل النشاط",
   "/my-profile": "ملفي الشخصي",
   "/settings": "الإعدادات",
+  "/shipping": "إدارة التوصيل والشحن",
+  "/integrations": "مركز الربط والتكاملات",
 };
 
 export function Topbar({

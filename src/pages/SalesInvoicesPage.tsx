@@ -427,7 +427,6 @@ export function SalesInvoicesPage() {
                 remaining={inv.remaining}
                 notes={inv.notes}
                 paymentLabel={salesPaymentDisplay(inv)}
-                priceTypeLabel={priceTypeLabel}
                 returns={linkedReturns.length > 0 ? linkedReturns : undefined}
                 paymentDueDate={inv.paymentDueDate}
                 customerBalance={totalBalance}
@@ -436,7 +435,11 @@ export function SalesInvoicesPage() {
                 overpayment={inv.overpayment}
                 vehicleLabel={inv.vehicleLabel}
                 branchName={inv.branchName}
-                priceTierName={inv.priceTierName}
+                deliveryMethod={inv.deliveryMethod}
+                deliveryAddress={inv.deliveryAddress}
+                shippingProviderName={inv.shippingProviderName}
+                shippingFee={inv.shippingFee}
+                collectOnDelivery={inv.collectOnDelivery}
               />
             </div>
           </div>,
@@ -448,6 +451,8 @@ export function SalesInvoicesPage() {
 }
 
 function salesPaymentDisplay(invoice: SalesInvoice) {
+  if (invoice.collectOnDelivery) return "دفع عند الاستلام";
+
   const methodLabel =
     invoice.paymentMethod === "other" && invoice.paymentMethodLabel
       ? invoice.paymentMethodLabel

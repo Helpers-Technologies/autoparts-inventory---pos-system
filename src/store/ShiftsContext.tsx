@@ -6,7 +6,7 @@ export interface ShiftsContextValue {
   activeShift: CashierShift | null;
   openShift: (opts: { openingCash: number | string; note?: string; branchId?: string; branchName?: string }) => CashierShift;
   closeShift: (shiftId: string, closingCashActual: number | string, note?: string) => CashierShift;
-  getShiftSummary: (shiftId: string) => any;
+  getShiftSummary: (shiftId: string) => CashierShift;
 }
 
 export const ShiftsContext = createContext<ShiftsContextValue | null>(null);

@@ -1,6 +1,59 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { computeCreditPaymentView } from "../../../src/store/_pure";
+import {
+  calculateCustomerAccountBalance,
+  computeCreditPaymentView,
+  normalizeInitialSalesPayment,
+  requiresCreditSalesFeature,
+} from "../../../src/store/_pure";
+
+describe("COD licensing", () => {
+  it("does not treat carrier collection as a licensed credit sale", () => {
+    expect(requiresCreditSalesFeature("account", true)).toBe(false);
+  });
+
+  it("still requires the credit-sales feature for a normal account invoice", () => {
+    expect(requiresCreditSalesFeature("account", false)).toBe(true);
+    expect(requiresCreditSalesFeature("cash", false)).toBe(false);
+  });
+
+  it("forces a COD invoice to start uncollected even if cash defaults leak in", () => {
+    expect(
+      normalizeInitialSalesPayment({
+        amountReceived: 232,
+        overpayment: 15,
+        paymentType: "cash",
+        paymentMethod: "cash",
+        collectOnDelivery: true,
+      }),
+    ).toEqual({
+      amountReceived: 0,
+      overpayment: undefined,
+      paymentType: "account",
+      paymentMethod: undefined,
+    });
+  });
+
+  it("does not charge pending COD orders to the customer's credit account", () => {
+    expect(
+      calculateCustomerAccountBalance(
+        [
+          {
+            customerId: "customer-1",
+            remaining: 232,
+            collectOnDelivery: true,
+          },
+          {
+            customerId: "customer-1",
+            remaining: 80,
+            collectOnDelivery: false,
+          },
+        ],
+        "customer-1",
+      ),
+    ).toBe(80);
+  });
+});
 
 /**
  * الدفع بالرصيد الدائن — customer settles an invoice (partly/wholly) from their

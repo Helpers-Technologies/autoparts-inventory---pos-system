@@ -582,7 +582,7 @@ export function TwoFactorSecurityPanel({
               ) : null}
             </div>
             <Button type="button" disabled={!status.available} onClick={() => openDialog("enroll")}>
-              <Smartphone className="h-4 w-4" /> تفعيل المصادقة الثنائية
+              <Smartphone className="h-4 w-4" /> تفعيل
             </Button>
           </div>
         )}

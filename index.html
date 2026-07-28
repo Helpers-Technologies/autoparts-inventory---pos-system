@@ -2,7 +2,10 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self';" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://app.bosta.co; object-src 'none'; base-uri 'self';"
+    />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
     <link rel="icon" type="image/png" href="./helpers_tech_logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -21,7 +24,12 @@
         gap: 14px;
         background: #0f172a;
         color: #94a3b8;
-        font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Tahoma,
+          sans-serif;
       }
       #boot-loader .spinner {
         width: 34px;
@@ -35,7 +43,9 @@
         font-size: 13px;
       }
       @keyframes boot-spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
     </style>
   </head>

@@ -3,7 +3,8 @@ export type ID = string;
 export type PaymentStatus = "paid" | "partial" | "unpaid";
 export type SalesPaymentType = "cash" | "account";
 export type SalesPriceType = "wholesale" | "retail";
-export type MfaPolicyMode = "disabled" | "optional" | "required_owner" | "required_all";
+export type MfaPolicyMode =
+  "disabled" | "optional" | "required_owner" | "required_all";
 export type LoginResult = {
   ok: boolean;
   error?:
@@ -67,11 +68,7 @@ export type MfaActionError =
 
 export type UserRole = "owner" | "employee";
 export type ActivationState =
-  | "inactive"
-  | "active"
-  | "expired"
-  | "machine_mismatch"
-  | "clock_tampered";
+  "inactive" | "active" | "expired" | "machine_mismatch" | "clock_tampered";
 
 export interface LicensePayload {
   licenseId: string;
@@ -138,16 +135,52 @@ export interface UserPermissions {
     applyDiscount: boolean;
     holdCart: boolean;
   };
-  products: { view: boolean; add: boolean; edit: boolean; delete: boolean; printBarcode: boolean };
-  inventory: { view: boolean; adjust: boolean; stocktakes: boolean; transfers: boolean };
-  purchaseInvoices: { view: boolean; add: boolean; edit: boolean; pay: boolean; delete: boolean; purchasingAssistant: boolean };
-  salesInvoices: { view: boolean; add: boolean; edit: boolean; receive: boolean; cancel: boolean; delete: boolean };
+  products: {
+    view: boolean;
+    add: boolean;
+    edit: boolean;
+    delete: boolean;
+    printBarcode: boolean;
+  };
+  inventory: {
+    view: boolean;
+    adjust: boolean;
+    stocktakes: boolean;
+    transfers: boolean;
+  };
+  purchaseInvoices: {
+    view: boolean;
+    add: boolean;
+    edit: boolean;
+    pay: boolean;
+    delete: boolean;
+    purchasingAssistant: boolean;
+  };
+  salesInvoices: {
+    view: boolean;
+    add: boolean;
+    edit: boolean;
+    receive: boolean;
+    cancel: boolean;
+    delete: boolean;
+  };
   customers: { view: boolean; add: boolean; edit: boolean; delete: boolean };
-  suppliers: { view: boolean; add: boolean; edit: boolean; delete: boolean; commissions: boolean };
+  suppliers: {
+    view: boolean;
+    add: boolean;
+    edit: boolean;
+    delete: boolean;
+    commissions: boolean;
+  };
   drivers: { view: boolean; add: boolean; edit: boolean; delete: boolean };
   returns: { view: boolean; add: boolean; approve: boolean };
   alerts: { view: boolean };
-  cashbox: { view: boolean; add: boolean; spend: boolean; editOpeningBalance: boolean };
+  cashbox: {
+    view: boolean;
+    add: boolean;
+    spend: boolean;
+    editOpeningBalance: boolean;
+  };
   reports: { view: boolean; analytics: boolean; export: boolean };
 }
 
@@ -208,6 +241,9 @@ export interface Customer {
   name: string;
   phone?: string;
   address?: string;
+  /** Structured delivery addresses. Legacy `address` remains as the primary
+   * display value so old invoices and imports continue to work. */
+  addresses?: CustomerAddress[];
   shippingDirection?: "qibli" | "bahri";
   /** Consent captured by the shop before sending promotional messages. */
   marketingConsent?: "unknown" | "opted_in" | "opted_out";
@@ -218,12 +254,43 @@ export interface Customer {
   createdAt: string;
 }
 
+export interface CustomerAddress {
+  id: ID;
+  label: string;
+  recipientName?: string;
+  phone?: string;
+  /** Optional recipient email forwarded to the shipping provider. */
+  recipientEmail?: string;
+  governorate: string;
+  city: string;
+  district?: string;
+  addressLine: string;
+  landmark?: string;
+  buildingNumber?: string;
+  floor?: string;
+  apartment?: string;
+  postalCode?: string;
+  isDefault?: boolean;
+  /** Provider-specific address identifiers, populated from Bosta coverage data. */
+  bosta?: {
+    cityId?: string;
+    cityName?: string;
+    zoneId?: string;
+    zoneName?: string;
+    districtId?: string;
+    districtName?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Driver {
   id: ID;
   name: string;
   phone?: string;
   licenseNumber?: string;
   salary?: number;
+  monthlyConfigs?: Record<string, MonthlyEmployeeConfig>;
   createdAt: string;
 }
 
@@ -322,6 +389,14 @@ export interface SalesInvoice {
   customerName: string;
   driverId?: ID;
   driverName?: string;
+  deliveryMethod?: DeliveryMethod;
+  deliveryAddress?: CustomerAddressSnapshot;
+  shippingProviderId?: ID;
+  shippingProviderName?: string;
+  shippingFee?: number;
+  deliveryOrderId?: ID;
+  /** The carrier collects the invoice amount on delivery; this is not a licensed credit sale. */
+  collectOnDelivery?: boolean;
   lines: InvoiceLine[];
   total: number;
   discount?: number;
@@ -346,6 +421,139 @@ export interface SalesInvoice {
   createdByUserId?: ID;
   shiftId?: ID;
   createdAt: string;
+}
+
+export type DeliveryMethod = "pickup" | "branch_driver" | "shipping_company";
+
+export interface CustomerAddressSnapshot {
+  addressId?: ID;
+  label?: string;
+  recipientName: string;
+  phone: string;
+  recipientEmail?: string;
+  governorate: string;
+  city: string;
+  district?: string;
+  addressLine: string;
+  landmark?: string;
+  buildingNumber?: string;
+  floor?: string;
+  apartment?: string;
+  postalCode?: string;
+  bosta?: CustomerAddress["bosta"];
+}
+
+export type ShippingProviderKind = "manual" | "bosta";
+
+export interface ShippingProvider {
+  id: ID;
+  name: string;
+  kind: ShippingProviderKind;
+  /** Locally stored company logo used in POS provider cards. */
+  logoDataUrl?: string;
+  phone?: string;
+  trackingUrlTemplate?: string;
+  active: boolean;
+  supportsCashOnDelivery: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ShippingRate {
+  id: ID;
+  providerId: ID;
+  governorate: string;
+  city?: string;
+  district?: string;
+  fee: number;
+  cashOnDeliveryFee?: number;
+  returnFee?: number;
+  estimatedDaysMin?: number;
+  estimatedDaysMax?: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DeliveryOrderStatus =
+  | "draft"
+  | "ready"
+  | "assigned"
+  | "pickup_requested"
+  | "picked_up"
+  | "in_transit"
+  | "out_for_delivery"
+  | "delivered"
+  | "exception"
+  | "returned"
+  | "cancelled";
+
+export interface DeliveryStatusEvent {
+  id: ID;
+  status: DeliveryOrderStatus;
+  label: string;
+  occurredAt: string;
+  source: "system" | "user" | "bosta";
+  externalCode?: number;
+  note?: string;
+}
+
+export interface DeliveryOrder {
+  id: ID;
+  orderNumber: string;
+  invoiceId: ID;
+  invoiceNumber: string;
+  customerId: ID;
+  customerName: string;
+  branchId?: ID;
+  branchName?: string;
+  method: Exclude<DeliveryMethod, "pickup">;
+  address: CustomerAddressSnapshot;
+  shippingFee: number;
+  codAmount: number;
+  codSettledAmount?: number;
+  codSettledAt?: string;
+  codSettlementMethod?: PaymentMethod;
+  driverId?: ID;
+  driverName?: string;
+  providerId?: ID;
+  providerName?: string;
+  status: DeliveryOrderStatus;
+  externalShipmentId?: string;
+  trackingNumber?: string;
+  trackingUrl?: string;
+  externalStateCode?: number;
+  promisedDate?: string;
+  exceptionReason?: string;
+  packageType?: "SMALL" | "MEDIUM" | "LARGE" | "Light Bulky" | "Heavy Bulky";
+  itemsCount?: number;
+  packageDescription?: string;
+  allowOpenPackage?: boolean;
+  notes?: string;
+  events: DeliveryStatusEvent[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BostaIntegrationConfig {
+  enabled: boolean;
+  autoTrackingEnabled?: boolean;
+  autoTrackingIntervalMinutes?: number;
+  businessLocationId?: string;
+  webhookUrl?: string;
+  webhookHeaderName?: string;
+  webhookHeaderConfigured?: boolean;
+  webhookHeaderHint?: string;
+  webhookRelayReady?: boolean;
+  webhookPollTokenConfigured?: boolean;
+  webhookPollTokenHint?: string;
+  defaultPackageType: DeliveryOrder["packageType"];
+  allowOpenPackage: boolean;
+  configured: boolean;
+  apiKeyHint?: string;
+  lastTestedAt?: string;
+  lastTestOk?: boolean;
 }
 
 export interface CashierShift {
@@ -380,11 +588,7 @@ export interface CashierShift {
 }
 
 export type StockMovementType =
-  | "purchase"
-  | "sale"
-  | "adjustment-in"
-  | "adjustment-out"
-  | "return";
+  "purchase" | "sale" | "adjustment-in" | "adjustment-out" | "return";
 
 export interface ReturnLine {
   id: ID;
@@ -496,7 +700,8 @@ export type CashEntryType =
   | "manual-remove"
   | "adjustment";
 
-export type PaymentMethod = "cash" | "bank" | "card" | "vodafone" | "instapay" | "other" | "credit";
+export type PaymentMethod =
+  "cash" | "bank" | "card" | "vodafone" | "instapay" | "other" | "credit";
 
 export interface PaymentLogEntry {
   id: ID;
@@ -577,17 +782,15 @@ export interface OfflineEmployee {
   name: string;
   idNumber?: string;
   basicSalary: number;
+  jobTitle?: string;
+  phone?: string;
   notes?: string;
   archived?: boolean;
   createdAt: string;
 }
 
 export type OfflineEmployeeTransactionType =
-  | "salary"
-  | "advance"
-  | "incentive"
-  | "deduction"
-  | "advance-deduction";
+  "salary" | "advance" | "incentive" | "deduction" | "advance-deduction";
 
 export interface OfflineEmployeeTransaction {
   id: ID;
@@ -712,7 +915,8 @@ export type WarrantyClaimStatus =
   | "supplier"
   | "approved"
   | "rejected"
-  | "replaced";
+  | "replaced"
+  | "compensated";
 
 export interface WarrantyClaim {
   id: ID;
@@ -731,6 +935,11 @@ export interface WarrantyClaim {
   stockDeducted?: boolean;
   /** Cost of the replacement unit given to the customer (product avgCost/purchasePrice at the time of replacement). */
   replacementCost?: number;
+  /** Cash paid back to the customer as a warranty settlement instead of replacing the part. */
+  compensationAmount?: number;
+  /** Cash-entry reference; its presence prevents paying the same compensation twice. */
+  compensationCashEntryId?: ID;
+  compensatedAt?: string;
   openedAt: string;
   updatedAt: string;
 }
@@ -847,7 +1056,8 @@ export interface VehicleEngine {
   createdAt: string;
 }
 
-export type PartAlternativeRelation = "equivalent" | "economy" | "premium" | "superseded";
+export type PartAlternativeRelation =
+  "equivalent" | "economy" | "premium" | "superseded";
 
 export interface ProductAlternative {
   id: ID;

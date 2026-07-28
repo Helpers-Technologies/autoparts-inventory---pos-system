@@ -10,9 +10,76 @@ import type {
   OfflineEmployee,
   OfflineEmployeeTransaction,
   PaymentMethod,
+  SalesPaymentType,
 } from "../types";
 
 export type PaymentStatusResult = "paid" | "partial" | "unpaid";
+
+/** COD stays outstanding until carrier settlement, but it is not a credit sale. */
+export function requiresCreditSalesFeature(
+  paymentType: SalesPaymentType,
+  collectOnDelivery = false,
+): boolean {
+  return paymentType === "account" && !collectOnDelivery;
+}
+
+export interface InitialSalesPayment {
+  amountReceived: number;
+  overpayment?: number;
+  paymentType: SalesPaymentType;
+  paymentMethod?: PaymentMethod;
+}
+
+/**
+ * COD is an uncollected carrier receivable at invoice creation time. Never let
+ * a stale/default cash value create a receipt, payment log, or paid invoice.
+ */
+export function normalizeInitialSalesPayment(args: InitialSalesPayment & {
+  collectOnDelivery?: boolean;
+}): InitialSalesPayment {
+  if (!args.collectOnDelivery) {
+    return {
+      amountReceived: args.amountReceived,
+      overpayment: args.overpayment,
+      paymentType: args.paymentType,
+      paymentMethod: args.paymentMethod,
+    };
+  }
+  return {
+    amountReceived: 0,
+    overpayment: undefined,
+    paymentType: "account",
+    paymentMethod: undefined,
+  };
+}
+
+/** COD is tracked by its delivery order, not as customer credit-account debt. */
+export function calculateCustomerAccountBalance(
+  invoices: Array<
+    Pick<
+      SalesInvoice,
+      | "customerId"
+      | "cancelled"
+      | "collectOnDelivery"
+      | "remaining"
+      | "overpayment"
+    >
+  >,
+  customerId: string,
+): number {
+  return invoices
+    .filter(
+      (invoice) =>
+        invoice.customerId === customerId &&
+        !invoice.cancelled &&
+        !invoice.collectOnDelivery,
+    )
+    .reduce(
+      (balance, invoice) =>
+        balance + invoice.remaining - (invoice.overpayment ?? 0),
+      0,
+    );
+}
 
 export interface CreditPaymentView {
   /** Credit drawn from the customer's balance toward THIS invoice. */
@@ -74,14 +141,33 @@ export function buildEmployeeStatementRows(
   const mine = transactions
     .filter((t) => t.employeeId === employeeId)
     .slice()
-    .sort((a, b) => (a.date + (a.createdAt ?? "")).localeCompare(b.date + (b.createdAt ?? "")));
+    .sort((a, b) =>
+      (a.date + (a.createdAt ?? "")).localeCompare(
+        b.date + (b.createdAt ?? ""),
+      ),
+    );
   let outstandingAdvance = 0;
   return mine.map((t) => {
     if (t.type === "advance") outstandingAdvance += t.amount || 0;
-    else if (t.type === "advance-deduction") outstandingAdvance = Math.max(0, outstandingAdvance - (t.amount || 0));
-    const credit = t.type === "salary" || t.type === "incentive" || t.type === "advance" ? (t.amount || 0) : 0;
-    const debit = t.type === "deduction" || t.type === "advance-deduction" ? (t.amount || 0) : 0;
-    return { key: t.id, date: t.date, type: t.type, credit, debit, notes: t.notes, outstandingAdvance };
+    else if (t.type === "advance-deduction")
+      outstandingAdvance = Math.max(0, outstandingAdvance - (t.amount || 0));
+    const credit =
+      t.type === "salary" || t.type === "incentive" || t.type === "advance"
+        ? t.amount || 0
+        : 0;
+    const debit =
+      t.type === "deduction" || t.type === "advance-deduction"
+        ? t.amount || 0
+        : 0;
+    return {
+      key: t.id,
+      date: t.date,
+      type: t.type,
+      credit,
+      debit,
+      notes: t.notes,
+      outstandingAdvance,
+    };
   });
 }
 
@@ -102,11 +188,16 @@ export interface OfflineEmployeeSummary {
  */
 export function computeOfflineEmployeeSummary(
   employeeId: OfflineEmployee["id"],
-  transactions: Pick<OfflineEmployeeTransaction, "employeeId" | "type" | "amount">[],
+  transactions: Pick<
+    OfflineEmployeeTransaction,
+    "employeeId" | "type" | "amount"
+  >[],
 ): OfflineEmployeeSummary {
   const mine = transactions.filter((t) => t.employeeId === employeeId);
   const sum = (type: OfflineEmployeeTransaction["type"]) =>
-    mine.filter((t) => t.type === type).reduce((s, t) => s + (t.amount || 0), 0);
+    mine
+      .filter((t) => t.type === type)
+      .reduce((s, t) => s + (t.amount || 0), 0);
   const totalAdvances = sum("advance");
   const totalAdvanceDeductions = sum("advance-deduction");
   return {
@@ -119,7 +210,10 @@ export function computeOfflineEmployeeSummary(
   };
 }
 
-export function computeStatus(total: number, paid: number): PaymentStatusResult {
+export function computeStatus(
+  total: number,
+  paid: number,
+): PaymentStatusResult {
   if (total <= 0) return "paid";
   if (paid <= 0) return "unpaid";
   if (paid >= total) return "paid";
@@ -153,18 +247,33 @@ export interface SalesInvoiceEditFinancials {
 export function recomputeSalesInvoiceAfterEdit(args: {
   linesTotal: number;
   discount: number;
+  shippingFee?: number;
   carriedPaid: number;
   prevCash: number;
   returnsTotal: number;
 }): SalesInvoiceEditFinancials {
-  const total = Math.max(0, args.linesTotal - args.discount);
-  const effectiveTotal = Math.max(0, total - Math.min(total, args.returnsTotal));
+  const total = Math.max(
+    0,
+    args.linesTotal - args.discount + (args.shippingFee ?? 0),
+  );
+  const effectiveTotal = Math.max(
+    0,
+    total - Math.min(total, args.returnsTotal),
+  );
   const amountReceived = Math.min(args.carriedPaid, effectiveTotal);
   const overpayment = Math.max(0, args.carriedPaid - effectiveTotal);
   const remaining = Math.max(0, effectiveTotal - amountReceived);
   const status = computeStatus(effectiveTotal, amountReceived);
   const cashDelta = amountReceived + overpayment - args.prevCash;
-  return { total, effectiveTotal, amountReceived, overpayment, remaining, status, cashDelta };
+  return {
+    total,
+    effectiveTotal,
+    amountReceived,
+    overpayment,
+    remaining,
+    status,
+    cashDelta,
+  };
 }
 
 export interface PurchaseInvoiceEditFinancials {
@@ -230,15 +339,28 @@ export function applyWeightedAverageCostDelta(args: {
   addQty?: number;
   addValue?: number;
 }): number {
-  const { currentQty, currentAvgCost, removeQty = 0, removeValue = 0, addQty = 0, addValue = 0 } = args;
+  const {
+    currentQty,
+    currentAvgCost,
+    removeQty = 0,
+    removeValue = 0,
+    addQty = 0,
+    addValue = 0,
+  } = args;
   const afterRemoveQty = Math.max(0, currentQty - removeQty);
-  const afterRemoveValue = Math.max(0, currentQty * currentAvgCost - removeValue);
+  const afterRemoveValue = Math.max(
+    0,
+    currentQty * currentAvgCost - removeValue,
+  );
   const finalQty = afterRemoveQty + addQty;
   const finalValue = afterRemoveValue + addValue;
   return finalQty > 0 ? finalValue / finalQty : currentAvgCost;
 }
 
-export function applyPieceDeduction(p: Product, pieces: number): Partial<Product> {
+export function applyPieceDeduction(
+  p: Product,
+  pieces: number,
+): Partial<Product> {
   const ppu = p.piecesPerUnit!;
   const loose = p.looseQuantity ?? 0;
   if (loose >= pieces) {
@@ -252,7 +374,10 @@ export function applyPieceDeduction(p: Product, pieces: number): Partial<Product
   };
 }
 
-export function applyPieceAddition(p: Product, pieces: number): Partial<Product> {
+export function applyPieceAddition(
+  p: Product,
+  pieces: number,
+): Partial<Product> {
   const ppu = p.piecesPerUnit!;
   const newLoose = (p.looseQuantity ?? 0) + pieces;
   const fullCartons = Math.floor(newLoose / ppu);
@@ -262,7 +387,10 @@ export function applyPieceAddition(p: Product, pieces: number): Partial<Product>
   };
 }
 
-export function applyReturnToInvoiceLines(lines: InvoiceLine[], returns: ReturnLine[]) {
+export function applyReturnToInvoiceLines(
+  lines: InvoiceLine[],
+  returns: ReturnLine[],
+) {
   const remainingByLine = new Map<string, number>();
   const remainingByProduct = new Map<string, number>();
 
@@ -285,14 +413,22 @@ export function applyReturnToInvoiceLines(lines: InvoiceLine[], returns: ReturnL
     .map((line) => {
       const lineReturnQty = remainingByLine.get(line.id);
       const productReturnQty =
-        lineReturnQty === undefined ? remainingByProduct.get(line.productId) : undefined;
+        lineReturnQty === undefined
+          ? remainingByProduct.get(line.productId)
+          : undefined;
       const requestedReturnQty = lineReturnQty ?? productReturnQty ?? 0;
-      const appliedQty = Math.min(line.quantity, Math.max(0, requestedReturnQty));
+      const appliedQty = Math.min(
+        line.quantity,
+        Math.max(0, requestedReturnQty),
+      );
 
       if (lineReturnQty !== undefined) {
         remainingByLine.set(line.id, Math.max(0, lineReturnQty - appliedQty));
       } else if (productReturnQty !== undefined) {
-        remainingByProduct.set(line.productId, Math.max(0, productReturnQty - appliedQty));
+        remainingByProduct.set(
+          line.productId,
+          Math.max(0, productReturnQty - appliedQty),
+        );
       }
 
       appliedTotal += appliedQty * line.price;
@@ -342,7 +478,10 @@ export function employeeCollectedCash(
   );
   const empReturnIds = new Set(
     salesReturns
-      .filter((r) => r.originalInvoiceId != null && empInvoiceIds.has(r.originalInvoiceId))
+      .filter(
+        (r) =>
+          r.originalInvoiceId != null && empInvoiceIds.has(r.originalInvoiceId),
+      )
       .map((r) => r.id),
   );
   return cashEntries
@@ -378,7 +517,12 @@ export function employeeCollectedCashBatch(
 
   const invoiceOwner = new Map<string, string>();
   for (const inv of salesInvoices) {
-    if (inv.cancelled || !inv.createdByUserId || !wantedUsers.has(inv.createdByUserId)) continue;
+    if (
+      inv.cancelled ||
+      !inv.createdByUserId ||
+      !wantedUsers.has(inv.createdByUserId)
+    )
+      continue;
     invoiceOwner.set(inv.id, inv.createdByUserId);
   }
   const returnOwner = new Map<string, string>();
@@ -391,7 +535,10 @@ export function employeeCollectedCashBatch(
   for (const ce of cashEntries) {
     if (ce.referenceId == null || ce.date < from || ce.date > to) continue;
     const invoiceUser = invoiceOwner.get(ce.referenceId);
-    if (invoiceUser && (ce.type === "sales-receipt" || ce.type === "adjustment")) {
+    if (
+      invoiceUser &&
+      (ce.type === "sales-receipt" || ce.type === "adjustment")
+    ) {
       result.set(invoiceUser, (result.get(invoiceUser) ?? 0) + ce.amount);
       continue;
     }
@@ -458,8 +605,6 @@ export function settlePurchaseInvoiceReturn(
   };
 }
 
-
-
 export function computeShiftSummary(args: {
   shift: import("../types").CashierShift;
   salesInvoices: SalesInvoice[];
@@ -484,10 +629,18 @@ export function computeShiftSummary(args: {
   const invoiceIdSet = new Set(salesInvoiceIds);
   const shiftReturnIds = new Set(
     salesReturns
-      .filter((ret) => invoiceIdSet.has(ret.originalInvoiceId) && ret.createdAt >= start && ret.createdAt <= end)
+      .filter(
+        (ret) =>
+          invoiceIdSet.has(ret.originalInvoiceId) &&
+          ret.createdAt >= start &&
+          ret.createdAt <= end,
+      )
       .map((ret) => ret.id),
   );
-  const totalSalesAmount = shiftInvoices.reduce((sum, inv) => sum + inv.total, 0);
+  const totalSalesAmount = shiftInvoices.reduce(
+    (sum, inv) => sum + inv.total,
+    0,
+  );
   const totalCreditSales = shiftInvoices.reduce(
     (sum, inv) => sum + (inv.paymentType === "account" ? inv.remaining : 0),
     0,
@@ -498,47 +651,78 @@ export function computeShiftSummary(args: {
     // دعم السجلات القديمة قبل إضافة shiftId دون خلط ورديات الكاشير الأخرى.
     return Boolean(
       entry.referenceId &&
-      (invoiceIdSet.has(entry.referenceId) || shiftReturnIds.has(entry.referenceId)),
+      (invoiceIdSet.has(entry.referenceId) ||
+        shiftReturnIds.has(entry.referenceId)),
     );
   });
-  const isPhysicalCash = (entry: CashEntry) => !entry.paymentMethod || entry.paymentMethod === "cash";
+  const isPhysicalCash = (entry: CashEntry) =>
+    !entry.paymentMethod || entry.paymentMethod === "cash";
   const isSalesRefund = (entry: CashEntry) =>
     entry.amount < 0 &&
     entry.type === "adjustment" &&
     Boolean(
-      (entry.referenceId && (invoiceIdSet.has(entry.referenceId) || shiftReturnIds.has(entry.referenceId))) ||
+      (entry.referenceId &&
+        (invoiceIdSet.has(entry.referenceId) ||
+          shiftReturnIds.has(entry.referenceId))) ||
       /مبيعات|فاتورة مبيعات/.test(entry.description),
     );
 
   // تحصيلات المبيعات النقدية منفصلة عن أي عهدة/إضافة أخرى لتبقى قراءة التقرير واضحة.
   const totalCashSales = shiftEntries
-    .filter((entry) => isPhysicalCash(entry) && entry.type === "sales-receipt" && entry.amount > 0)
+    .filter(
+      (entry) =>
+        isPhysicalCash(entry) &&
+        entry.type === "sales-receipt" &&
+        entry.amount > 0,
+    )
     .reduce((sum, entry) => sum + entry.amount, 0);
   const totalCashAdditions = shiftEntries
-    .filter((entry) => isPhysicalCash(entry) && entry.type !== "sales-receipt" && entry.amount > 0)
+    .filter(
+      (entry) =>
+        isPhysicalCash(entry) &&
+        entry.type !== "sales-receipt" &&
+        entry.amount > 0,
+    )
     .reduce((sum, entry) => sum + entry.amount, 0);
   const nonCashSalesEntries = shiftEntries.filter(
-    (entry) => !isPhysicalCash(entry) && entry.paymentMethod !== "credit" && entry.amount > 0,
+    (entry) =>
+      !isPhysicalCash(entry) &&
+      entry.paymentMethod !== "credit" &&
+      entry.amount > 0,
   );
-  const totalVisaSales = nonCashSalesEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalVisaSales = nonCashSalesEntries.reduce(
+    (sum, entry) => sum + entry.amount,
+    0,
+  );
   // Real per-method breakdown (بنكي/فودافون كاش/انستاباي/أخرى) — totalVisaSales
   // above lumps all of these under one legacy "Visa" bucket for old records;
   // new shift reports should read from here instead.
   const paymentMethodTotals: Partial<Record<PaymentMethod, number>> = {};
   for (const entry of nonCashSalesEntries) {
     const method = entry.paymentMethod ?? "other";
-    paymentMethodTotals[method] = Math.round(((paymentMethodTotals[method] ?? 0) + entry.amount) * 100) / 100;
+    paymentMethodTotals[method] =
+      Math.round(((paymentMethodTotals[method] ?? 0) + entry.amount) * 100) /
+      100;
   }
   const totalRefunds = shiftEntries
     .filter((entry) => isPhysicalCash(entry) && isSalesRefund(entry))
     .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
   const totalExpenses = shiftEntries
-    .filter((entry) => isPhysicalCash(entry) && entry.amount < 0 && !isSalesRefund(entry))
+    .filter(
+      (entry) =>
+        isPhysicalCash(entry) && entry.amount < 0 && !isSalesRefund(entry),
+    )
     .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
 
-  const expectedCash = Math.round(
-    (shift.openingCash + totalCashSales + totalCashAdditions - totalRefunds - totalExpenses) * 100,
-  ) / 100;
+  const expectedCash =
+    Math.round(
+      (shift.openingCash +
+        totalCashSales +
+        totalCashAdditions -
+        totalRefunds -
+        totalExpenses) *
+        100,
+    ) / 100;
   const difference =
     typeof shift.closingCashActual === "number"
       ? Math.round((shift.closingCashActual - expectedCash) * 100) / 100

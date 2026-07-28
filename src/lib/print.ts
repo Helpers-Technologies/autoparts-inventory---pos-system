@@ -1,4 +1,12 @@
 export async function printAppRoute(route: string): Promise<{ ok: boolean; error?: string }> {
+  // Account statements are full renderer pages with their own Print/PDF/Excel
+  // toolbar. Electron's native print route only accepts invoice documents, so
+  // navigate to statement pages inside the current HashRouter window first.
+  if (/^\/(customers|suppliers|drivers)\/[^/]+\/statement$/.test(route)) {
+    window.location.hash = route;
+    return { ok: true };
+  }
+
   if (window.desktopAPI?.print) {
     return window.desktopAPI.print.route(route);
   }

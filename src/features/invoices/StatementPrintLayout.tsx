@@ -15,7 +15,7 @@ export interface StatementRow {
 }
 
 interface Props {
-  kind: "customer" | "supplier";
+  kind: "customer" | "supplier" | "driver";
   partyName: string;
   partyCode?: string;
   partyPhone?: string;
@@ -26,7 +26,7 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
   const { settings } = useSettings();
   const excelExportEnabled = useFeatures().isEnabled("excelExport");
 
-  const title = kind === "customer" ? "كشف حساب عميل" : "كشف حساب مورد";
+  const title = kind === "customer" ? "كشف حساب عميل" : kind === "supplier" ? "كشف حساب مورد" : "كشف حساب سائق";
   const finalBalance = rows.length > 0 ? rows[rows.length - 1].balance : 0;
   const totalMadin = rows.reduce((s, r) => s + r.madin, 0);
   const totalDaen = rows.reduce((s, r) => s + r.daen, 0);
@@ -96,36 +96,36 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
               onClick={downloadXlsx}
               className="h-9 px-4 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700"
             >
-              ⬇ Excel
+              Excel
             </button>
           )}
           <button
             onClick={() => window.print()}
             className="h-9 px-5 bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-800"
           >
-            🖨 طباعة
+            طباعة
           </button>
           <button
             onClick={() => window.print()}
             className="h-9 px-5 bg-slate-600 text-white rounded-lg text-sm font-medium hover:bg-slate-700"
           >
-            📄 حفظ PDF
+            حفظ PDF
           </button>
           <button
             onClick={() => {
               const balanceText = finalBalance === 0
                 ? "الحساب متوازن"
                 : finalBalance > 0
-                  ? `مستحق ${kind === "customer" ? "على العميل" : "علينا للمورد"}: ${formatCurrency(Math.abs(finalBalance), settings.currency)}`
-                  : `رصيد دائن ${kind === "customer" ? "للعميل" : "لصالحنا"}: ${formatCurrency(Math.abs(finalBalance), settings.currency)}`;
+                  ? `${kind === "driver" ? "متبقي تحصيل الرحلات" : `مستحق ${kind === "customer" ? "على العميل" : "علينا للمورد"}`}: ${formatCurrency(Math.abs(finalBalance), settings.currency)}`
+                  : `${kind === "driver" ? "زيادة في التحصيل" : `رصيد دائن ${kind === "customer" ? "للعميل" : "لصالحنا"}`}: ${formatCurrency(Math.abs(finalBalance), settings.currency)}`;
               const msg = [
-                `📋 ${title}`,
-                `👤 ${partyName}${partyCode ? ` (${partyCode})` : ""}`,
-                `📅 ${printDate}`,
+                title,
+                `${partyName}${partyCode ? ` (${partyCode})` : ""}`,
+                printDate,
                 ``,
-                `💳 ${balanceText}`,
-                `📊 إجمالي المدين: ${formatCurrency(totalMadin, settings.currency)}`,
-                `💰 إجمالي الدائن: ${formatCurrency(totalDaen, settings.currency)}`,
+                balanceText,
+                `إجمالي المدين: ${formatCurrency(totalMadin, settings.currency)}`,
+                `إجمالي الدائن: ${formatCurrency(totalDaen, settings.currency)}`,
               ].join("\n");
               const phone = String(partyPhone ?? "").replace(/\D/g, "");
               const normalized = phone.startsWith("0") ? `20${phone.slice(1)}` : phone;
@@ -136,7 +136,7 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
             }}
             className="h-9 px-5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
           >
-            💬 واتساب
+            واتساب
           </button>
         </div>
       </div>
@@ -208,7 +208,7 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
               padding: "8px 12px",
             }}>
               <div style={{ fontSize: 9, color: "#64748b", marginBottom: 3, letterSpacing: 0.3 }}>
-                {kind === "customer" ? "العميل" : "المورد"}
+                {kind === "customer" ? "العميل" : kind === "supplier" ? "المورد" : "السائق"}
               </div>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#1e40af" }}>{partyName}</div>
             </div>
@@ -235,15 +235,15 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
                   <th style={{ ...TH, width: 74, textAlign: "center" }}>التاريخ</th>
                   <th style={{ ...TH, textAlign: "right" }}>البيان / التفاصيل</th>
                   <th style={{ ...TH, width: 112, textAlign: "center" }}>
-                    {kind === "customer" ? "على العميل" : "على الحساب"}
+                    {kind === "customer" ? "على العميل" : kind === "supplier" ? "على الحساب" : "قيمة الرحلة"}
                     <div style={{ fontSize: 7.5, fontWeight: 400, opacity: 0.75, marginTop: 2 }}>
-                      {kind === "customer" ? "(فواتير — مطلوب)" : "(فواتير — مستحق)"}
+                      {kind === "customer" ? "(فواتير — مطلوب)" : kind === "supplier" ? "(فواتير — مستحق)" : "(إجمالي الفاتورة)"}
                     </div>
                   </th>
                   <th style={{ ...TH, width: 112, textAlign: "center" }}>
-                    {kind === "customer" ? "للعميل / سداد" : "دفعنا"}
+                    {kind === "customer" ? "للعميل / سداد" : kind === "supplier" ? "دفعنا" : "المحصل"}
                     <div style={{ fontSize: 7.5, fontWeight: 400, opacity: 0.75, marginTop: 2 }}>
-                      {kind === "customer" ? "(مدفوع — مرتجع)" : "(مدفوعات — مرتجع)"}
+                      {kind === "customer" ? "(مدفوع — مرتجع)" : kind === "supplier" ? "(مدفوعات — مرتجع)" : "(المبلغ المستلم)"}
                     </div>
                   </th>
                   <th style={{ ...TH, width: 120, textAlign: "center" }}>رصيد الحساب</th>
@@ -293,8 +293,8 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
                           {row.balance !== 0 && (
                             <span style={{ display: "block", fontSize: 8.5, fontWeight: 600, opacity: 0.85, fontFamily: "inherit" }}>
                               {row.balance > 0
-                                ? (kind === "customer" ? "← على العميل" : "← مستحق علينا")
-                                : (kind === "customer" ? "← للعميل" : "← لصالحنا")}
+                                ? (kind === "customer" ? "← على العميل" : kind === "supplier" ? "← مستحق علينا" : "← متبقي تحصيله")
+                                : (kind === "customer" ? "← للعميل" : kind === "supplier" ? "← لصالحنا" : "← زيادة تحصيل")}
                             </span>
                           )}
                         </td>
@@ -311,10 +311,10 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
             {/* Total debit */}
             <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderTop: "3px solid #dc2626", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
               <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4 }}>
-                {kind === "customer" ? "إجمالي ما على العميل" : "إجمالي ما على الحساب"}
+                {kind === "customer" ? "إجمالي ما على العميل" : kind === "supplier" ? "إجمالي ما على الحساب" : "إجمالي قيمة الرحلات"}
               </div>
               <div style={{ fontSize: 8.5, color: "#f87171", marginBottom: 5 }}>
-                {kind === "customer" ? "(مجموع الفواتير)" : "(مجموع فواتير الشراء)"}
+                {kind === "customer" ? "(مجموع الفواتير)" : kind === "supplier" ? "(مجموع فواتير الشراء)" : "(مجموع فواتير الرحلات)"}
               </div>
               <div style={{ fontSize: 16, fontWeight: 800, color: "#dc2626", fontFamily: "monospace" }}>
                 {formatCurrency(totalMadin, settings.currency)}
@@ -324,10 +324,10 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
             {/* Total daen */}
             <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderTop: "3px solid #16a34a", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
               <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4 }}>
-                {kind === "customer" ? "إجمالي ما سُدِّد" : "إجمالي ما دفعناه"}
+                {kind === "customer" ? "إجمالي ما سُدِّد" : kind === "supplier" ? "إجمالي ما دفعناه" : "إجمالي المحصل"}
               </div>
               <div style={{ fontSize: 8.5, color: "#4ade80", marginBottom: 5 }}>
-                {kind === "customer" ? "(مجموع المدفوعات والمرتجعات)" : "(مجموع المدفوعات)"}
+                {kind === "customer" ? "(مجموع المدفوعات والمرتجعات)" : kind === "supplier" ? "(مجموع المدفوعات)" : "(المبالغ المستلمة)"}
               </div>
               <div style={{ fontSize: 16, fontWeight: 800, color: "#16a34a", fontFamily: "monospace" }}>
                 {formatCurrency(totalDaen, settings.currency)}
@@ -352,8 +352,8 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
               {finalBalance !== 0 && (
                 <div style={{ marginTop: 6, padding: "3px 8px", borderRadius: 4, display: "inline-block", fontSize: 10, fontWeight: 700, background: finalBalance > 0 ? "#dc2626" : "#16a34a", color: "white" }}>
                   {finalBalance > 0
-                    ? (kind === "customer" ? `مستحق على العميل` : `مستحق علينا للمورد`)
-                    : (kind === "customer" ? `رصيد دائن للعميل` : `رصيد دائن لصالحنا`)}
+                    ? (kind === "customer" ? `مستحق على العميل` : kind === "supplier" ? `مستحق علينا للمورد` : `متبقي تحصيل الرحلات`)
+                    : (kind === "customer" ? `رصيد دائن للعميل` : kind === "supplier" ? `رصيد دائن لصالحنا` : `زيادة في التحصيل`)}
                 </div>
               )}
             </div>

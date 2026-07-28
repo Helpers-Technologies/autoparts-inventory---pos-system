@@ -1,4 +1,4 @@
-import { buildXlsx } from "../lib/xlsx";
+import { buildXlsx, type XlsxCell } from "../lib/xlsx";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, BadgeDollarSign, Building2, CarFront, MapPin, PackageSearch, ShieldCheck, TrendingUp, Undo2, Download, Printer } from "lucide-react";
@@ -20,6 +20,7 @@ import { Dialog } from "../components/ui/Dialog";
 import { localISODate } from "../lib/utils";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
+import type { Product } from "../types";
 
 const ORIGIN_LABELS: Record<string, string> = {
   CN: "الصين 🇨🇳",
@@ -28,6 +29,11 @@ const ORIGIN_LABELS: Record<string, string> = {
   JP: "اليابان 🇯🇵",
   US: "الولايات المتحدة 🇺🇸",
   IT: "إيطاليا 🇮🇹",
+};
+
+type ReorderReportRow = {
+  product: Product;
+  suggested: number;
 };
 
 export function AutoPartsReportsPage() {
@@ -199,7 +205,7 @@ export function AutoPartsReportsPage() {
       skuCount: rows.filter((row) => row.quantity > 0).length,
     };
   }).sort((a, b) => b.quantity - a.quantity);
-  const openWarrantyClaims = pro.warrantyClaims.filter((claim) => !["rejected", "replaced"].includes(claim.status));
+  const openWarrantyClaims = pro.warrantyClaims.filter((claim) => !["rejected", "replaced", "compensated"].includes(claim.status));
   const priceTierPerformance = (() => {
     const map = new Map<string, { invoices: number; revenue: number }>();
     for (const invoice of periodSales) {
@@ -944,17 +950,17 @@ function PrintableReportView({
 }: {
   target: "stagnant" | "returns" | "reorder";
   onClose: () => void;
-  deadStock: any[];
+  deadStock: Product[];
   returnedByProduct: Map<string, number>;
-  productById: Map<string, any>;
-  reorderRows: any[];
+  productById: Map<string, Product>;
+  reorderRows: ReorderReportRow[];
   currency: string;
 }) {
   const excelExportEnabled = useFeatures().isEnabled("excelExport");
 
   function downloadXlsx() {
     let headers: string[] = [];
-    let rows: any[][] = [];
+    let rows: XlsxCell[][] = [];
     let fileName = "";
     
     if (target === "stagnant") {

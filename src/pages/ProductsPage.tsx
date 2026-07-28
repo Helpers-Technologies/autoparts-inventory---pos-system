@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Pencil, Plus, Trash2, Eye, Package, Search, Archive, ArchiveRestore, ArrowUpNarrowWide, ArrowDownNarrowWide, ScanLine, SlidersHorizontal, Download, DollarSign, MapPin, Folder, CarFront } from "lucide-react";
+import { Pencil, Plus, Trash2, Eye, Package, Search, Archive, ArchiveRestore, ArrowUpNarrowWide, ArrowDownNarrowWide, ScanLine, SlidersHorizontal, Download, DollarSign, MapPin, Folder, CarFront, ChevronDown, Columns3 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -26,6 +26,54 @@ import { buildXlsx } from "../lib/xlsx";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 
 type SortKey = "name" | "quantity" | "wholesalePrice" | "retailPrice" | "purchasePrice";
+
+type ProductColumnKey =
+  | "selection"
+  | "partNumber"
+  | "product"
+  | "category"
+  | "unit"
+  | "quantity"
+  | "stockStatus"
+  | "purchasePrice"
+  | "salePrice"
+  | "retailPrice"
+  | "expiryDate"
+  | "expiryStatus"
+  | "supplier"
+  | "actions";
+
+const PRODUCT_COLUMN_STORAGE_KEY = "products-table-visible-columns";
+const PRODUCT_COLUMN_OPTIONS: Array<{ key: ProductColumnKey; label: string }> = [
+  { key: "selection", label: "التحديد الجماعي" },
+  { key: "partNumber", label: "رقم القطعة" },
+  { key: "product", label: "المنتج" },
+  { key: "category", label: "الفئة" },
+  { key: "unit", label: "الوحدة" },
+  { key: "quantity", label: "الكمية" },
+  { key: "stockStatus", label: "حالة الكمية" },
+  { key: "purchasePrice", label: "سعر الشراء" },
+  { key: "salePrice", label: "سعر البيع / الجملة" },
+  { key: "retailPrice", label: "سعر التجزئة" },
+  { key: "expiryDate", label: "تاريخ الصلاحية" },
+  { key: "expiryStatus", label: "حالة الصلاحية" },
+  { key: "supplier", label: "المورد" },
+  { key: "actions", label: "الإجراءات" },
+];
+
+function defaultProductColumns(): Record<ProductColumnKey, boolean> {
+  return Object.fromEntries(PRODUCT_COLUMN_OPTIONS.map(({ key }) => [key, true])) as Record<ProductColumnKey, boolean>;
+}
+
+function loadProductColumns(): Record<ProductColumnKey, boolean> {
+  const defaults = defaultProductColumns();
+  try {
+    const saved = JSON.parse(localStorage.getItem(PRODUCT_COLUMN_STORAGE_KEY) || "{}") as Partial<Record<ProductColumnKey, boolean>>;
+    return { ...defaults, ...saved };
+  } catch {
+    return defaults;
+  }
+}
 
 export function ProductsPage() {
   const { products, suppliers, deleteProduct, archiveProduct, updateProduct } = useCatalog();
@@ -82,6 +130,14 @@ export function ProductsPage() {
   const [brandFilter, setBrandFilter] = useState("");
   const [originCountryFilter, setOriginCountryFilter] = useState("");
   const [conditionFilter, setConditionFilter] = useState("");
+  const [displayBatchSize, setDisplayBatchSize] = useState(10);
+  const [productPagination, setProductPagination] = useState({ key: "", count: 10 });
+  const [columnsDialogOpen, setColumnsDialogOpen] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<Record<ProductColumnKey, boolean>>(loadProductColumns);
+
+  useEffect(() => {
+    if (!bulkProductToolsEnabled) setVisibleColumns(defaultProductColumns());
+  }, [bulkProductToolsEnabled]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -160,6 +216,27 @@ export function ProductsPage() {
     [products],
   );
   const advancedFilterCount = [qualityGradeFilter, brandFilter, originCountryFilter, conditionFilter].filter(Boolean).length;
+  const availableColumnOptions = PRODUCT_COLUMN_OPTIONS.filter(({ key }) => {
+    if (key === "retailPrice") return multiSalePricesEnabled;
+    if (key === "expiryDate" || key === "expiryStatus") return expiryTrackingEnabled;
+    return true;
+  });
+  const visibleColumnCount = availableColumnOptions.filter(({ key }) => visibleColumns[key]).length;
+
+  function saveVisibleColumns(next: Record<ProductColumnKey, boolean>) {
+    setVisibleColumns(next);
+    localStorage.setItem(PRODUCT_COLUMN_STORAGE_KEY, JSON.stringify(next));
+  }
+
+  function toggleProductColumn(key: ProductColumnKey) {
+    saveVisibleColumns({ ...visibleColumns, [key]: !visibleColumns[key] });
+  }
+
+  function setAllProductColumns(visible: boolean) {
+    const next = { ...visibleColumns };
+    availableColumnOptions.forEach(({ key }) => { next[key] = visible; });
+    saveVisibleColumns(next);
+  }
 
   function clearAdvancedFilters() {
     setQualityGradeFilter("");
@@ -208,6 +285,26 @@ export function ProductsPage() {
     });
     return list;
   }, [products, q, category, supplier, qualityGradeFilter, brandFilter, originCountryFilter, conditionFilter, expiryFilter, stockFilter, sort, sortDir, expiryTrackingEnabled]);
+
+  const productPaginationKey = JSON.stringify([
+    q,
+    category,
+    supplier,
+    qualityGradeFilter,
+    brandFilter,
+    originCountryFilter,
+    conditionFilter,
+    expiryFilter,
+    stockFilter,
+    sort,
+    sortDir,
+    displayBatchSize,
+  ]);
+  const productVisibleCount = productPagination.key === productPaginationKey
+    ? productPagination.count
+    : displayBatchSize;
+  const visibleProducts = filtered.slice(0, productVisibleCount);
+  const remainingProducts = Math.max(0, filtered.length - visibleProducts.length);
 
   function handleDelete() {
     if (!toDelete) return;
@@ -400,6 +497,16 @@ export function ProductsPage() {
                 تصدير الكتالوج
               </Button>
             )}
+            {bulkProductToolsEnabled && <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5 text-white hover:text-white"
+              onClick={() => setColumnsDialogOpen(true)}
+              title="اختيار أعمدة الجدول الظاهرة"
+            >
+              <Columns3 className="w-4 h-4" />
+              تعديل الأعمدة
+            </Button>}
             {canAddProduct && (
               <Button
                 onClick={() => {
@@ -432,31 +539,31 @@ export function ProductsPage() {
           ) : undefined}
         />
         <CardBody className="space-y-3">
-          <div className="flex gap-2.5 items-end flex-wrap">
+          <div className="flex gap-2 items-end flex-wrap xl:flex-nowrap">
             <Field label="بحث" className="flex-1 min-w-[200px]">
               <div className="relative">
-                <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint pointer-events-none" />
+                <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 start-3 text-ink-faint pointer-events-none" />
                 <Input
                   ref={searchInputRef}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Part No. / OEM / باركود / اسم"
-                  className="pe-9"
+                  className="ps-9 pe-11"
                 />
+                <button
+                  type="button"
+                  className="absolute end-1 top-1/2 grid h-7 w-8 -translate-y-1/2 place-items-center rounded-md border border-cyan-300 bg-cyan-50/80 text-cyan-600 transition-colors hover:bg-cyan-100 dark:border-cyan-500/40 dark:bg-cyan-500/10 dark:text-cyan-300 dark:hover:bg-cyan-500/20"
+                  title="سكان بالباركود"
+                  aria-label="سكان بالباركود"
+                  onClick={() => {
+                    searchInputRef.current?.focus();
+                    toast.info("جاهز لقراءة الباركود (الاسكانر)", "وجّه الاسكانر على عبوة المنتج أو اكتب الباركود مباشرة في حقل البحث");
+                  }}
+                >
+                  <ScanLine className="h-4 w-4" />
+                </button>
               </div>
             </Field>
-            <Button
-              type="button"
-              variant="outline"
-              className="w-9 h-9 p-0 self-end shrink-0 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/40 bg-cyan-50/50 dark:bg-cyan-500/10 hover:bg-cyan-100 dark:hover:bg-cyan-500/20 flex items-center justify-center"
-              title="سكان بالباركود"
-              onClick={() => {
-                searchInputRef.current?.focus();
-                toast.info("جاهز لقراءة الباركود (الاسكانر)", "وجّه الاسكانر على عبوة المنتج أو اكتب الباركود مباشرة في حقل البحث");
-              }}
-            >
-              <ScanLine className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-            </Button>
             <Field label="الفئة" className="min-w-[130px]">
               <Select value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value="">كل الفئات</option>
@@ -498,35 +605,37 @@ export function ProductsPage() {
                 <option value="out">نفذ</option>
               </Select>
             </Field>
-            <div className="flex items-end gap-1 min-w-[140px]">
-              <Field label="ترتيب حسب" className="w-full">
-                <Select
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value as SortKey)}
-                >
-                  <option value="name">الاسم</option>
-                  <option value="quantity">الكمية</option>
-                  <option value="wholesalePrice">{multiSalePricesEnabled ? "سعر الجملة" : "سعر البيع"}</option>
-                  {multiSalePricesEnabled && <option value="retailPrice">سعر التجزئة</option>}
-                  <option value="purchasePrice">سعر الشراء</option>
-                </Select>
-              </Field>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 self-end shrink-0"
-                title={sortDir === "asc" ? "تصاعدي" : "تنازلي"}
-                onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            <Field label="ترتيب حسب" className="min-w-[140px]">
+              <Select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
               >
-                {sortDir === "asc"
-                  ? <ArrowUpNarrowWide className="w-4 h-4" />
-                  : <ArrowDownNarrowWide className="w-4 h-4" />}
-              </Button>
-            </div>
+                <option value="name">الاسم</option>
+                <option value="quantity">الكمية</option>
+                <option value="wholesalePrice">{multiSalePricesEnabled ? "سعر الجملة" : "سعر البيع"}</option>
+                {multiSalePricesEnabled && <option value="retailPrice">سعر التجزئة</option>}
+                <option value="purchasePrice">سعر الشراء</option>
+              </Select>
+            </Field>
+            <Field label="عدد العرض" className="w-24 shrink-0">
+              <Input
+                type="number"
+                min={1}
+                max={1000}
+                value={displayBatchSize}
+                onChange={(event) => {
+                  const nextSize = Math.min(1000, Math.max(1, Math.floor(Number(event.target.value) || 1)));
+                  setDisplayBatchSize(nextSize);
+                }}
+                aria-label="عدد القطع المعروضة"
+                title="اكتب عدد القطع المطلوب عرضها"
+                placeholder="10"
+              />
+            </Field>
             <Button
               type="button"
               variant="outline"
-              className={`h-9 gap-1.5 self-end shrink-0 relative ${
+              className={`h-9 gap-1.5 self-end shrink-0 whitespace-nowrap relative ${
                 showAdvancedFilters || advancedFilterCount > 0
                   ? "text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-500/40 bg-cyan-50/50 dark:bg-cyan-500/10"
                   : "text-ink-muted"
@@ -540,6 +649,19 @@ export function ProductsPage() {
                   {advancedFilterCount}
                 </span>
               )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 self-end shrink-0"
+              title={sortDir === "asc" ? "تصاعدي" : "تنازلي"}
+              aria-label={sortDir === "asc" ? "الترتيب تصاعدي" : "الترتيب تنازلي"}
+              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            >
+              {sortDir === "asc"
+                ? <ArrowUpNarrowWide className="w-4 h-4" />
+                : <ArrowDownNarrowWide className="w-4 h-4" />}
             </Button>
           </div>
 
@@ -631,34 +753,35 @@ export function ProductsPage() {
               description="جرّب تعديل البحث أو الفلاتر."
             />
           ) : (
+            <>
             <Table>
               <THead>
                 <TR>
-                  <TH className="w-10">
+                  {visibleColumns.selection && <TH className="w-10">
                     <input
                       type="checkbox"
                       checked={isAllSelected}
                       onChange={toggleSelectAll}
                       className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                     />
-                  </TH>
-                  <TH>رقم القطعة</TH>
-                  <TH>المنتج</TH>
-                  <TH>الفئة</TH>
-                  <TH>الوحدة</TH>
-                  <TH className="text-end">الكمية</TH>
-                  <TH>حالة الكمية</TH>
-                  <TH className="text-end">سعر الشراء</TH>
-                  <TH className="text-end">{multiSalePricesEnabled ? "سعر الجملة" : "سعر البيع"}</TH>
-                  {multiSalePricesEnabled && <TH className="text-end">سعر التجزئة</TH>}
-                  {expiryTrackingEnabled && <TH>الصلاحية</TH>}
-                  {expiryTrackingEnabled && <TH>حالة الصلاحية</TH>}
-                  <TH>المورد</TH>
-                  <TH className="text-end">إجراءات</TH>
+                  </TH>}
+                  {visibleColumns.partNumber && <TH>رقم القطعة</TH>}
+                  {visibleColumns.product && <TH>المنتج</TH>}
+                  {visibleColumns.category && <TH>الفئة</TH>}
+                  {visibleColumns.unit && <TH>الوحدة</TH>}
+                  {visibleColumns.quantity && <TH className="text-end">الكمية</TH>}
+                  {visibleColumns.stockStatus && <TH>حالة الكمية</TH>}
+                  {visibleColumns.purchasePrice && <TH className="text-end">سعر الشراء</TH>}
+                  {visibleColumns.salePrice && <TH className="text-end">{multiSalePricesEnabled ? "سعر الجملة" : "سعر البيع"}</TH>}
+                  {multiSalePricesEnabled && visibleColumns.retailPrice && <TH className="text-end">سعر التجزئة</TH>}
+                  {expiryTrackingEnabled && visibleColumns.expiryDate && <TH>الصلاحية</TH>}
+                  {expiryTrackingEnabled && visibleColumns.expiryStatus && <TH>حالة الصلاحية</TH>}
+                  {visibleColumns.supplier && <TH>المورد</TH>}
+                  {visibleColumns.actions && <TH className="text-end">إجراءات</TH>}
                 </TR>
               </THead>
               <TBody>
-                {filtered.map((p) => {
+                {visibleProducts.map((p) => {
                   const supName = p.supplierId ? supplierById.get(p.supplierId) : undefined;
                   const du = daysUntil(p.expiryDate);
                   const out = p.quantity <= 0;
@@ -669,26 +792,26 @@ export function ProductsPage() {
                   const alts = alternativesByProductId.get(p.id) || [];
                   return (
                     <TR key={p.id}>
-                      <TD>
+                      {visibleColumns.selection && <TD>
                         <input
                           type="checkbox"
                           checked={selectedIds.has(p.id)}
                           onChange={() => toggleSelect(p.id)}
                           className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 cursor-pointer"
                         />
-                      </TD>
-                      <TD><div className="font-mono text-xs" dir="ltr">{p.partNumber || p.code}</div>{p.partBrand ? <div className="text-[11px] text-ink-faint" dir="ltr">{p.partBrand}</div> : null}</TD>
-                      <TD>
+                      </TD>}
+                      {visibleColumns.partNumber && <TD><div className="font-mono text-xs" dir="ltr">{p.partNumber || p.code}</div>{p.partBrand ? <div className="text-[11px] text-ink-faint" dir="ltr">{p.partBrand}</div> : null}</TD>}
+                      {visibleColumns.product && <TD>
                         <span className="font-medium text-ink">{p.name}</span>
-                      </TD>
-                      <TD>{p.category}</TD>
-                      <TD>{p.unit}</TD>
-                      <TD className="text-end font-medium">
+                      </TD>}
+                      {visibleColumns.category && <TD>{p.category}</TD>}
+                      {visibleColumns.unit && <TD>{p.unit}</TD>}
+                      {visibleColumns.quantity && <TD className="text-end font-medium">
                         {multiSalePricesEnabled && p.piecesPerUnit
                           ? `${p.quantity} ${p.unit}${p.looseQuantity ? ` + ${p.looseQuantity} ${p.retailUnit ?? "قطعة"}` : ""}`
                           : `${p.quantity} ${p.unit}`}
-                      </TD>
-                      <TD>
+                      </TD>}
+                      {visibleColumns.stockStatus && <TD>
                         {out ? (
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <Badge tone="red">نفذ</Badge>
@@ -708,19 +831,19 @@ export function ProductsPage() {
                         ) : (
                           <Badge tone="green">متوفر</Badge>
                         )}
-                      </TD>
-                      <TD className="text-end text-ink-muted">
+                      </TD>}
+                      {visibleColumns.purchasePrice && <TD className="text-end text-ink-muted">
                         {formatCurrency(p.purchasePrice, settings.currency)}
-                      </TD>
-                      <TD className="text-end font-medium">
+                      </TD>}
+                      {visibleColumns.salePrice && <TD className="text-end font-medium">
                         {formatCurrency(p.wholesalePrice, settings.currency)}
-                      </TD>
-                      {multiSalePricesEnabled && (
+                      </TD>}
+                      {multiSalePricesEnabled && visibleColumns.retailPrice && (
                         <TD className="text-end font-medium">
                           {formatCurrency(p.retailPrice, settings.currency)}
                         </TD>
                       )}
-                      {expiryTrackingEnabled && (
+                      {expiryTrackingEnabled && visibleColumns.expiryDate && (
                         <TD>
                           {p.hasExpiry && p.expiryDate ? (
                             <span className="text-xs text-ink-muted">
@@ -731,7 +854,7 @@ export function ProductsPage() {
                           )}
                         </TD>
                       )}
-                      {expiryTrackingEnabled && (
+                      {expiryTrackingEnabled && visibleColumns.expiryStatus && (
                         <TD>
                           {!p.hasExpiry ? (
                             <span className="text-xs text-ink-faint">—</span>
@@ -744,8 +867,8 @@ export function ProductsPage() {
                           )}
                         </TD>
                       )}
-                      <TD className="text-ink-muted text-xs">{supName ?? "—"}</TD>
-                      <TD className="text-end">
+                      {visibleColumns.supplier && <TD className="text-ink-muted text-xs">{supName ?? "—"}</TD>}
+                      {visibleColumns.actions && <TD className="text-end">
                         <div className="inline-flex items-center gap-1">
                           <Button
                             size="icon"
@@ -780,26 +903,26 @@ export function ProductsPage() {
                             </Button>
                           ) : null}
                         </div>
-                      </TD>
+                      </TD>}
                     </TR>
                   );
                 })}
                 {showArchived && products.filter((p) => p.archived).map((p) => (
                   <TR key={p.id} className="opacity-50 bg-surface-muted">
-                    <TD />
-                    <TD className="text-ink-faint font-mono text-xs">{p.code}</TD>
-                    <TD className="text-ink-muted line-through">{p.name}</TD>
-                    <TD className="text-ink-faint">{p.category}</TD>
-                    <TD />
-                    <TD />
-                    <TD />
-                    <TD />
-                    <TD />
-                    <TD />
-                    <TD />
-                    <TD />
-                    <TD />
-                    <TD className="text-end">
+                    {visibleColumns.selection && <TD />}
+                    {visibleColumns.partNumber && <TD className="text-ink-faint font-mono text-xs">{p.code}</TD>}
+                    {visibleColumns.product && <TD className="text-ink-muted line-through">{p.name}</TD>}
+                    {visibleColumns.category && <TD className="text-ink-faint">{p.category}</TD>}
+                    {visibleColumns.unit && <TD />}
+                    {visibleColumns.quantity && <TD />}
+                    {visibleColumns.stockStatus && <TD />}
+                    {visibleColumns.purchasePrice && <TD />}
+                    {visibleColumns.salePrice && <TD />}
+                    {multiSalePricesEnabled && visibleColumns.retailPrice && <TD />}
+                    {expiryTrackingEnabled && visibleColumns.expiryDate && <TD />}
+                    {expiryTrackingEnabled && visibleColumns.expiryStatus && <TD />}
+                    {visibleColumns.supplier && <TD />}
+                    {visibleColumns.actions && <TD className="text-end">
                       <div className="inline-flex items-center gap-1">
                         <Button
                           size="sm"
@@ -823,14 +946,74 @@ export function ProductsPage() {
                           </Button>
                         )}
                       </div>
-                    </TD>
+                    </TD>}
                   </TR>
                 ))}
               </TBody>
             </Table>
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs text-ink-muted">
+              <span>عرض {visibleProducts.length} من {filtered.length} قطعة</span>
+              {remainingProducts > 0 ? (
+                <Button
+                  variant="outline"
+                  className="min-w-56"
+                  onClick={() => setProductPagination({
+                    key: productPaginationKey,
+                    count: productVisibleCount + displayBatchSize,
+                  })}
+                >
+                  <ChevronDown className="h-4 w-4" /> عرض المزيد ({remainingProducts} متبقي)
+                </Button>
+              ) : null}
+            </div>
+            </>
           )}
         </CardBody>
       </Card>
+
+      <Dialog
+        open={columnsDialogOpen}
+        onClose={() => setColumnsDialogOpen(false)}
+        title="أعمدة جدول قطع الغيار"
+        subtitle="اختر الأعمدة التي تريد إظهارها — سيتم حفظ اختيارك تلقائيًا"
+        width="md"
+        footer={<Button onClick={() => setColumnsDialogOpen(false)}>تم</Button>}
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => setAllProductColumns(true)}>
+              إظهار الكل
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setAllProductColumns(false)}>
+              إخفاء الكل
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => saveVisibleColumns(defaultProductColumns())}>
+              استعادة الافتراضي
+            </Button>
+            <span className="mr-auto text-xs text-ink-faint">ظاهر {visibleColumnCount} من {availableColumnOptions.length}</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {availableColumnOptions.map(({ key, label }) => (
+              <label
+                key={key}
+                className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
+                  visibleColumns[key]
+                    ? "border-brand-300 bg-brand-50/70 text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+                    : "border-line bg-surface text-ink-muted hover:bg-surface-muted"
+                }`}
+              >
+                <span className="text-sm font-semibold">{label}</span>
+                <input
+                  type="checkbox"
+                  checked={visibleColumns[key]}
+                  onChange={() => toggleProductColumn(key)}
+                  className="h-4 w-4 cursor-pointer rounded border-line accent-brand-600"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      </Dialog>
 
       <ProductFormDialog
         open={formOpen}
@@ -862,7 +1045,7 @@ export function ProductsPage() {
       >
         <div className="space-y-3" dir="rtl">
           <Field label="السعر المراد تعديله">
-            <Select value={bulkPriceTarget} onChange={(e) => setBulkPriceTarget(e.target.value as any)}>
+            <Select value={bulkPriceTarget} onChange={(e) => setBulkPriceTarget(e.target.value as typeof bulkPriceTarget)}>
               <option value="wholesalePrice">{multiSalePricesEnabled ? "سعر الجملة" : "سعر البيع"}</option>
               {multiSalePricesEnabled && <option value="retailPrice">سعر التجزئة</option>}
               <option value="purchasePrice">سعر الشراء</option>
@@ -870,7 +1053,7 @@ export function ProductsPage() {
             </Select>
           </Field>
           <Field label="نوع التعديل">
-            <Select value={bulkPriceType} onChange={(e) => setBulkPriceType(e.target.value as any)}>
+            <Select value={bulkPriceType} onChange={(e) => setBulkPriceType(e.target.value as typeof bulkPriceType)}>
               <option value="percentage">نسبة مئوية % (مثال: 10 لزيادة 10% أو -5 لتخفيض 5%)</option>
               <option value="fixed_add">إضافة/خصم قيمة ثابتة (مثال: 20 أو -10)</option>
               <option value="set_value">تحديد قيمة ثابتة موحدة</option>

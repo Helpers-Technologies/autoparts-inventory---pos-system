@@ -56,6 +56,7 @@ const WARRANTY_STATUS: Record<WarrantyClaimStatus, { label: string; tone: "blue"
   approved: { label: "مقبول", tone: "green" },
   rejected: { label: "مرفوض", tone: "red" },
   replaced: { label: "تم الاستبدال", tone: "emerald" },
+  compensated: { label: "تم التعويض نقديًا", tone: "emerald" },
 };
 
 export function ProductDetailPage() {

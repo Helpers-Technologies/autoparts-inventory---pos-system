@@ -340,8 +340,8 @@ export function EmployeeProfilePage() {
           title="الموظف غير موجود"
           description="لم نتمكن من العثور على بيانات هذا المستخدم في النظام."
           action={
-            <Button variant="outline" onClick={() => navigate("/users")}>
-              <ArrowRight className="w-4 h-4 ml-1.5" /> العودة لقائمة المستخدمين
+            <Button variant="outline" onClick={() => navigate("/employees")}>
+              <ArrowRight className="w-4 h-4 ml-1.5" /> العودة للموظفين
             </Button>
           }
         />
@@ -392,8 +392,8 @@ export function EmployeeProfilePage() {
                 </Button>
               </>
             )}
-            <Button variant="outline" onClick={() => navigate("/users")}>
-              <ArrowRight className="w-4 h-4 ml-1.5" /> العودة للمستخدمين
+            <Button variant="outline" onClick={() => navigate("/employees")}>
+              <ArrowRight className="w-4 h-4 ml-1.5" /> العودة للموظفين
             </Button>
           </div>
         }

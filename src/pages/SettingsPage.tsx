@@ -1407,7 +1407,7 @@ export function SettingsPage() {
                           
                           let text = form.whatsappInvoiceTemplate || DEFAULT_INVOICE_WHATSAPP_TEMPLATE;
                           Object.entries(mockValues).forEach(([tag, val]) => {
-                            const regex = new RegExp(tag.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+                            const regex = new RegExp(tag.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
                             text = text.replace(regex, val);
                           });
                           

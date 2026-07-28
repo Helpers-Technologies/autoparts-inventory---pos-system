@@ -34,9 +34,13 @@ import { formatCurrency, formatDate } from "../lib/format";
 import type { Customer } from "../types";
 import { Link, useLocation } from "react-router-dom";
 import { hasPermission } from "../lib/permissions";
+import { AddressFields, type AddressDraft } from "../features/shipping/AddressFields";
+import { defaultCustomerAddress } from "../lib/shipping";
+import { uid } from "../lib/utils";
 
 type Segment = "all" | "debtors" | "creditors" | "inactive";
 type SortKey = "recent" | "purchases" | "balance" | "name" | "new";
+const EMPTY_ADDRESS: AddressDraft = { label: "العنوان الرئيسي", governorate: "", city: "", addressLine: "", isDefault: true };
 
 interface CustomerRow {
   customer: Customer;
@@ -88,6 +92,7 @@ export function CustomersPage() {
     marketingConsent: "unknown",
     notes: "",
   });
+  const [addressDraft, setAddressDraft] = useState<AddressDraft>(EMPTY_ADDRESS);
 
   // ── Per-customer analytics ──
   const allRows = useMemo<CustomerRow[]>(() => {
@@ -180,6 +185,7 @@ export function CustomersPage() {
   function openNew() {
     setEditing(null);
     setForm({ code: `CUS-${String(nextCustomerCode).padStart(4, "0")}`, name: "", phone: "", address: "", marketingConsent: "unknown", notes: "" });
+    setAddressDraft({ ...EMPTY_ADDRESS });
     setOpen(true);
   }
   function openEdit(c: Customer) {
@@ -192,6 +198,23 @@ export function CustomersPage() {
       marketingConsent: c.marketingConsent ?? "unknown",
       notes: c.notes ?? "",
     });
+    const address = defaultCustomerAddress(c);
+    setAddressDraft(address ? {
+      label: address.label,
+      recipientName: address.recipientName,
+      phone: address.phone,
+      governorate: address.governorate,
+      city: address.city,
+      district: address.district,
+      addressLine: address.addressLine,
+      landmark: address.landmark,
+      buildingNumber: address.buildingNumber,
+      floor: address.floor,
+      apartment: address.apartment,
+      postalCode: address.postalCode,
+      isDefault: true,
+      bosta: address.bosta,
+    } : { ...EMPTY_ADDRESS, addressLine: c.address ?? "" });
     setOpen(true);
   }
   function submit() {
@@ -207,15 +230,28 @@ export function CustomersPage() {
       toast.error("رقم الهاتف غير صحيح", "يجب أن يكون 11 رقم بالضبط");
       return;
     }
-    if (!form.address?.trim()) {
-      toast.error("العنوان مطلوب");
+    if (!addressDraft.addressLine.trim() || !addressDraft.governorate || !addressDraft.city) {
+      toast.error("عنوان التوصيل غير مكتمل", "العنوان والمحافظة والمدينة مطلوبة لحساب التوصيل");
       return;
     }
+    const timestamp = new Date().toISOString();
+    const previousDefault = editing ? defaultCustomerAddress(editing) : undefined;
+    const address = {
+      ...addressDraft,
+      id: previousDefault && !previousDefault.id.startsWith("legacy-") ? previousDefault.id : uid("address"),
+      recipientName: addressDraft.recipientName?.trim() || form.name.trim(),
+      phone: addressDraft.phone?.trim() || form.phone?.trim(),
+      isDefault: true,
+      createdAt: previousDefault?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    const otherAddresses = editing?.addresses?.filter((item) => item.id !== previousDefault?.id).map((item) => ({ ...item, isDefault: false })) ?? [];
+    const payload = { ...form, address: address.addressLine, addresses: [address, ...otherAddresses] };
     if (editing) {
-      updateCustomer(editing.id, form);
+      updateCustomer(editing.id, payload);
       toast.success("تم تحديث العميل");
     } else {
-      addCustomer(form);
+      addCustomer(payload);
       toast.success("تم إضافة العميل");
     }
     setOpen(false);
@@ -516,12 +552,7 @@ export function CustomersPage() {
               inputMode="numeric"
             />
           </Field>
-          <Field label="العنوان" required>
-            <Input
-              value={form.address ?? ""}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-            />
-          </Field>
+          <div className="col-span-2 rounded-xl border border-line bg-surface-muted/20 p-3"><div className="mb-3 text-sm font-bold text-ink">عنوان التوصيل الرئيسي</div><AddressFields value={addressDraft} onChange={setAddressDraft} showRecipient={false} /></div>
           <Field
             label="الموافقة على التواصل التسويقي"
             hint="سجّل اختيار العميل قبل إضافته لأي عروض أو حملات. العملاء الرافضون يُستبعدون تلقائيًا."

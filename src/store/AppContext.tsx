@@ -75,6 +75,9 @@ import {
   adjustStockCartonDelta,
   computeShiftSummary,
   applyWeightedAverageCostDelta,
+  requiresCreditSalesFeature,
+  normalizeInitialSalesPayment,
+  calculateCustomerAccountBalance,
 } from "./_pure";
 import { SettingsContext } from "./SettingsContext";
 import { AuditLogContext } from "./AuditLogContext";
@@ -86,6 +89,7 @@ import { ReportingContext } from "./ReportingContext";
 import { UsersContext } from "./UsersContext";
 import { VehicleCatalogProvider } from "./VehicleCatalogContext";
 import { AutoPartsProProvider } from "./AutoPartsProContext";
+import { ShippingProvider } from "./ShippingContext";
 
 interface AppState {
   auth: AuthState;
@@ -1738,12 +1742,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Sales invoices
   const addSalesInvoice: AppActions["addSalesInvoice"] = (inv) => {
-    if (isDesktop && inv.paymentType === "account" && !isFeatureEnabled("creditSales", settings, licenseStatus?.license ?? null)) {
+    if (
+      isDesktop &&
+      requiresCreditSalesFeature(
+        inv.paymentType,
+        inv.collectOnDelivery,
+      ) &&
+      !isFeatureEnabled(
+        "creditSales",
+        settings,
+        licenseStatus?.license ?? null,
+      )
+    ) {
       throw new Error("ميزة البيع الآجل غير مفعّلة في الترخيص الحالي");
     }
+    const normalizedPayment = normalizeInitialSalesPayment({
+      amountReceived: inv.amountReceived,
+      overpayment: inv.overpayment,
+      paymentType: inv.paymentType,
+      paymentMethod: inv.paymentMethod,
+      collectOnDelivery: inv.collectOnDelivery,
+    });
     const id = uid("sal");
-    const status = computeStatus(inv.total, inv.amountReceived);
-    const remaining = Math.max(0, inv.total - inv.amountReceived);
+    const status = computeStatus(inv.total, normalizedPayment.amountReceived);
+    const remaining = Math.max(
+      0,
+      inv.total - normalizedPayment.amountReceived,
+    );
     const invoicePriceType = inv.priceType ?? "wholesale";
     const enrichedLines = inv.lines.map((l) => {
       const lineWithPriceType = {
@@ -1760,6 +1785,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     const full: SalesInvoice = {
       ...inv,
+      ...normalizedPayment,
       lines: enrichedLines,
       id,
       priceType: invoicePriceType,
@@ -1792,7 +1818,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
     setStockMovements((list) => [...movements, ...list]);
 
-    const totalCashReceived = inv.amountReceived + (inv.overpayment ?? 0);
+    const totalCashReceived =
+      full.amountReceived + (full.overpayment ?? 0);
     if (totalCashReceived > 0) {
       const ce: CashEntry = {
         id: uid("cash_s"),
@@ -1801,19 +1828,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         description: `تحصيل فاتورة مبيعات ${inv.invoiceNumber} — ${inv.customerName}`,
         referenceId: id,
         date: inv.date,
-        paymentMethod: inv.paymentMethod,
+        paymentMethod: full.paymentMethod,
       };
       setCashEntries((list) => [attachCashEntryToActiveShift(ce), ...list]);
     }
     // Include overpayment in the initial log entry so the log reflects the full
     // amount the customer actually paid at creation time, not just amountReceived.
-    const initPaid = inv.amountReceived + (inv.overpayment ?? 0);
+    const initPaid = full.amountReceived + (full.overpayment ?? 0);
     if (initPaid > 0) {
       const initEntry: import("../types").PaymentLogEntry = {
         id: uid("slog"),
         date: inv.date,
         amount: initPaid,
-        paymentMethod: inv.paymentMethod ?? "cash",
+        paymentMethod: full.paymentMethod ?? "cash",
       };
       setSalesInvoices((list) =>
         list.map((s) => s.id === id ? { ...s, paymentLog: [initEntry] } : s)
@@ -1871,7 +1898,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!inv || inv.cancelled) return;
     // Existing deferred invoices remain serviceable after a downgrade, but a
     // cash invoice cannot be converted to deferred without the add-on.
-    if (isDesktop && patch.paymentType === "account" && inv.paymentType !== "account" && !isFeatureEnabled("creditSales", settings, licenseStatus?.license ?? null)) {
+    if (
+      isDesktop &&
+      requiresCreditSalesFeature(
+        patch.paymentType,
+        patch.collectOnDelivery ?? inv.collectOnDelivery,
+      ) &&
+      inv.paymentType !== "account" &&
+      !isFeatureEnabled(
+        "creditSales",
+        settings,
+        licenseStatus?.license ?? null,
+      )
+    ) {
       throw new Error("ميزة البيع الآجل غير مفعّلة في الترخيص الحالي");
     }
 
@@ -1950,6 +1989,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const fin = recomputeSalesInvoiceAfterEdit({
       linesTotal,
       discount: patch.discount ?? 0,
+      shippingFee: patch.shippingFee ?? inv.shippingFee ?? 0,
       carriedPaid: patch.amountReceived,
       prevCash,
       returnsTotal,
@@ -2613,13 +2653,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [settings.openingBalance, cashEntries]);
 
   const customerBalance = useCallback(
-    (customerId: string) => {
-      // remaining already reflects non-cash return credits.
-      // overpayment (excess payment or excess return credit) further reduces the balance.
-      return salesInvoices
-        .filter((s) => s.customerId === customerId && !s.cancelled)
-        .reduce((a, s) => a + s.remaining - (s.overpayment ?? 0), 0);
-    },
+    (customerId: string) =>
+      calculateCustomerAccountBalance(salesInvoices, customerId),
     [salesInvoices]
   );
 
@@ -2969,6 +3004,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         priceTiers: lsGet("priceTiers", []),
         marketingCampaigns: lsGet("marketingCampaigns", []),
         marketingContactLog: lsGet("marketingContactLog", []),
+        shippingProviders: lsGet("shippingProviders", []),
+        shippingRates: lsGet("shippingRates", []),
+        deliveryOrders: lsGet("deliveryOrders", []),
       }
     };
   }, [settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts, offlineEmployees, offlineTransactions]);
@@ -3181,6 +3219,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (Array.isArray(s.priceTiers)) batchFlush.priceTiers = s.priceTiers;
       if (Array.isArray(s.marketingCampaigns)) batchFlush.marketingCampaigns = s.marketingCampaigns;
       if (Array.isArray(s.marketingContactLog)) batchFlush.marketingContactLog = s.marketingContactLog;
+      if (Array.isArray(s.shippingProviders)) batchFlush.shippingProviders = s.shippingProviders;
+      if (Array.isArray(s.shippingRates)) batchFlush.shippingRates = s.shippingRates;
+      if (Array.isArray(s.deliveryOrders)) batchFlush.deliveryOrders = s.deliveryOrders;
       if (Array.isArray(s.offlineEmployees)) batchFlush.offlineEmployees = s.offlineEmployees;
       if (Array.isArray(s.offlineTransactions)) batchFlush.offlineTransactions = s.offlineTransactions;
       if (Array.isArray(s.users)) {
@@ -3577,9 +3618,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 <AutoPartsProProvider>
                   <UsersContext.Provider value={usersValue}>
                     <InvoicingContext.Provider value={invoicingValue}>
-                      <ReportingContext.Provider value={reportingValue}>
-                        <AppContext.Provider value={value}>{children}</AppContext.Provider>
-                      </ReportingContext.Provider>
+                      <ShippingProvider>
+                        <ReportingContext.Provider value={reportingValue}>
+                          <AppContext.Provider value={value}>{children}</AppContext.Provider>
+                        </ReportingContext.Provider>
+                      </ShippingProvider>
                     </InvoicingContext.Provider>
                   </UsersContext.Provider>
                 </AutoPartsProProvider>

@@ -12,11 +12,16 @@ import { useSettings } from "../store/SettingsContext";
 import { useReporting } from "../store/ReportingContext";
 import { useToast } from "../components/ui/Toast";
 import { todayISO, uid } from "../lib/utils";
-import type { InvoiceLine, PaymentMethod, Product, SalesPaymentType, SalesPriceType } from "../types";
+import type {
+  InvoiceLine,
+  PaymentMethod,
+  Product,
+  SalesPaymentType,
+  SalesPriceType,
+} from "../types";
 import { formatCurrency, PAYMENT_METHOD_LABELS } from "../lib/format";
 import { Badge } from "../components/ui/Badge";
 import { ConfirmDialog } from "../components/ui/Dialog";
-import { DriverDialog } from "../features/drivers/DriverDialog";
 import { BarcodeScanInput } from "../features/products/BarcodeScanInput";
 import { CustomerFormDialog } from "../features/customers/CustomerFormDialog";
 import { useAuth } from "../store/AuthContext";
@@ -27,6 +32,13 @@ import { parseNumericInput } from "../lib/numberInput";
 import { findProductScanCandidates } from "../lib/partSearch";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
 import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
+import {
+  DeliveryConfigurator,
+  EMPTY_DELIVERY,
+  type DeliveryDraft,
+} from "../features/shipping/DeliveryConfigurator";
+import { DeliveryReviewDialog } from "../features/shipping/DeliveryReviewDialog";
+import { BOSTA_PROVIDER_ID, useShipping } from "../store/ShippingContext";
 
 interface LineDraft {
   id: string;
@@ -54,6 +66,7 @@ interface DraftState {
   amountReceived: number;
   notes: string;
   lines: LineDraft[];
+  delivery?: DeliveryDraft;
 }
 
 function normalizePriceType(value: unknown): SalesPriceType {
@@ -64,6 +77,7 @@ function normalizeDraft(state: DraftState): DraftState {
   const fallback = normalizePriceType(state.priceType);
   return {
     ...state,
+    delivery: state.delivery ?? EMPTY_DELIVERY,
     priceType: fallback,
     lines: state.lines.map((line) => ({
       ...line,
@@ -92,7 +106,7 @@ function clearDraft() {
 function quantityAsBaseUnits(
   product: Product | undefined,
   quantity: number,
-  priceType: SalesPriceType
+  priceType: SalesPriceType,
 ) {
   if (!product?.piecesPerUnit) return quantity;
   return priceType === "retail" ? quantity : quantity * product.piecesPerUnit;
@@ -107,10 +121,12 @@ function productStockAsBaseUnits(product: Product) {
 function availableFromBaseUnits(
   product: Product,
   baseUnits: number,
-  priceType: SalesPriceType
+  priceType: SalesPriceType,
 ) {
   if (!product.piecesPerUnit) return baseUnits;
-  return priceType === "retail" ? baseUnits : Math.floor(baseUnits / product.piecesPerUnit);
+  return priceType === "retail"
+    ? baseUnits
+    : Math.floor(baseUnits / product.piecesPerUnit);
 }
 
 function nextInvoiceNumber(existing: string[]): string {
@@ -118,56 +134,92 @@ function nextInvoiceNumber(existing: string[]): string {
     .map((x) => parseInt(x.replace(/\D/g, ""), 10))
     .filter((n) => !Number.isNaN(n));
   const currentMax = nums.length ? Math.max(...nums) : 1000;
-  const storedMax = parseInt(localStorage.getItem("seq_sales_invoice") || "0", 10);
+  const storedMax = parseInt(
+    localStorage.getItem("seq_sales_invoice") || "0",
+    10,
+  );
   const absoluteMax = Math.max(currentMax, storedMax);
   return `INV-${absoluteMax + 1}`;
 }
 
 export function SalesInvoiceNewPage() {
-  const { products: allProducts, customers: allCustomers, drivers } = useCatalog();
+  const {
+    products: allProducts,
+    customers: allCustomers,
+    drivers,
+  } = useCatalog();
   const { currentUser } = useAuth();
   const canAddCustomer = hasPermission(currentUser, "customers", "add");
-  const products = useMemo(() => allProducts.filter((p) => !p.archived), [allProducts]);
-  const customers = useMemo(() => allCustomers.filter((c) => !c.archived), [allCustomers]);
-  const { salesInvoices, addSalesInvoice, applyCustomerCredit } = useInvoicing();
+  const products = useMemo(
+    () => allProducts.filter((p) => !p.archived),
+    [allProducts],
+  );
+  const customers = useMemo(
+    () => allCustomers.filter((c) => !c.archived),
+    [allCustomers],
+  );
+  const { salesInvoices, addSalesInvoice, applyCustomerCredit } =
+    useInvoicing();
+  const { createDeliveryOrder } = useShipping();
   const { settings } = useSettings();
   const { customerBalance } = useReporting();
   const { isEnabled } = useFeatures();
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const creditPaymentEnabled = isEnabled("creditPayment");
   const creditSalesEnabled = isEnabled("creditSales");
-  const driversEnabled = isEnabled("drivers");
+  const shippingManagementEnabled = isEnabled("shippingManagement");
   const navigate = useNavigate();
   const toast = useToast();
 
   const [draftRestored, setDraftRestored] = useState(() => !!loadDraft());
-  const [invoiceNumber, setInvoiceNumber] = useState(() =>
-    loadDraft()?.invoiceNumber ?? nextInvoiceNumber(salesInvoices.map((s) => s.invoiceNumber))
+  const [invoiceNumber, setInvoiceNumber] = useState(
+    () =>
+      loadDraft()?.invoiceNumber ??
+      nextInvoiceNumber(salesInvoices.map((s) => s.invoiceNumber)),
   );
   const [date, setDate] = useState(() => loadDraft()?.date ?? todayISO());
-  const [customerId, setCustomerId] = useState(() => loadDraft()?.customerId ?? customers[0]?.id ?? "");
-  const [driverId, setDriverId] = useState(() => loadDraft()?.driverId ?? "");
-  const [paymentType, setPaymentType] = useState<SalesPaymentType>(() => loadDraft()?.paymentType ?? "cash");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => loadDraft()?.paymentMethod ?? "cash");
-  const [paymentMethodLabel, setPaymentMethodLabel] = useState(() => loadDraft()?.paymentMethodLabel ?? "");
-  const [useCredit, setUseCredit] = useState(false);
-  const [invoicePriceType, setInvoicePriceType] = useState<SalesPriceType>(() =>
-    loadDraft()?.priceType ?? DEFAULT_PRICE_TYPE
+  const [customerId, setCustomerId] = useState(
+    () => loadDraft()?.customerId ?? customers[0]?.id ?? "",
   );
-  const [paymentDueDate, setPaymentDueDate] = useState(() => loadDraft()?.paymentDueDate ?? "");
-  const [discount, setDiscount] = useState<number>(() => loadDraft()?.discount ?? 0);
-  const [amountReceived, setAmountReceived] = useState<number>(() => loadDraft()?.amountReceived ?? 0);
+  const [driverId, setDriverId] = useState(() => loadDraft()?.driverId ?? "");
+  const [paymentType, setPaymentType] = useState<SalesPaymentType>(
+    () => loadDraft()?.paymentType ?? "cash",
+  );
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    () => loadDraft()?.paymentMethod ?? "cash",
+  );
+  const [paymentMethodLabel, setPaymentMethodLabel] = useState(
+    () => loadDraft()?.paymentMethodLabel ?? "",
+  );
+  const [useCredit, setUseCredit] = useState(false);
+  const [invoicePriceType, setInvoicePriceType] = useState<SalesPriceType>(
+    () => loadDraft()?.priceType ?? DEFAULT_PRICE_TYPE,
+  );
+  const [paymentDueDate, setPaymentDueDate] = useState(
+    () => loadDraft()?.paymentDueDate ?? "",
+  );
+  const [discount, setDiscount] = useState<number>(
+    () => loadDraft()?.discount ?? 0,
+  );
+  const [amountReceived, setAmountReceived] = useState<number>(
+    () => loadDraft()?.amountReceived ?? 0,
+  );
   const [notes, setNotes] = useState(() => loadDraft()?.notes ?? "");
+  const [delivery, setDelivery] = useState<DeliveryDraft>(
+    () => loadDraft()?.delivery ?? EMPTY_DELIVERY,
+  );
+  const [deliveryReviewOpen, setDeliveryReviewOpen] = useState(false);
   const [lines, setLines] = useState<LineDraft[]>(() =>
     (loadDraft()?.lines ?? []).map((line) => ({
       ...line,
       priceType: multiSalePricesEnabled ? line.priceType : invoicePriceType,
-    }))
+    })),
   );
-  const [newDriverOpen, setNewDriverOpen] = useState(false);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const isDirtyRef = useRef(false);
-  useEffect(() => { isDirtyRef.current = lines.length > 0; }, [lines]);
+  useEffect(() => {
+    isDirtyRef.current = lines.length > 0;
+  }, [lines]);
   const blocker = useBlocker(useCallback(() => isDirtyRef.current, []));
 
   useEffect(() => {
@@ -176,15 +228,47 @@ export function SalesInvoiceNewPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      saveDraft({ invoiceNumber, date, customerId, driverId, paymentType, paymentMethod, paymentMethodLabel, priceType: invoicePriceType, paymentDueDate, discount, amountReceived, notes, lines });
+      saveDraft({
+        invoiceNumber,
+        date,
+        customerId,
+        driverId,
+        paymentType,
+        paymentMethod,
+        paymentMethodLabel,
+        priceType: invoicePriceType,
+        paymentDueDate,
+        discount,
+        amountReceived,
+        notes,
+        lines,
+        delivery,
+      });
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [invoiceNumber, date, customerId, driverId, paymentType, paymentMethod, paymentMethodLabel, invoicePriceType, paymentDueDate, discount, amountReceived, notes, lines]);
+  }, [
+    invoiceNumber,
+    date,
+    customerId,
+    driverId,
+    paymentType,
+    paymentMethod,
+    paymentMethodLabel,
+    invoicePriceType,
+    paymentDueDate,
+    discount,
+    amountReceived,
+    notes,
+    lines,
+    delivery,
+  ]);
 
   function handleClearDraft() {
     clearDraft();
     setDraftRestored(false);
-    setInvoiceNumber(nextInvoiceNumber(salesInvoices.map((s) => s.invoiceNumber)));
+    setInvoiceNumber(
+      nextInvoiceNumber(salesInvoices.map((s) => s.invoiceNumber)),
+    );
     setDate(todayISO());
     setCustomerId(customers[0]?.id ?? "");
     setDriverId("");
@@ -196,28 +280,47 @@ export function SalesInvoiceNewPage() {
     setPaymentDueDate("");
     setAmountReceived(0);
     setNotes("");
+    setDelivery(EMPTY_DELIVERY);
     setLines([]);
   }
 
   const gross = useMemo(
     () => lines.reduce((a, l) => a + (l.quantity || 0) * (l.price || 0), 0),
-    [lines]
+    [lines],
   );
-  const invoiceNet = Math.max(0, gross - (discount || 0));
+  const invoiceNet =
+    Math.max(0, gross - (discount || 0)) + (delivery.shippingFee || 0);
   // Net available credit = overpayment surplus after netting out any open balances on other invoices
-  const creditAvailable = customerId ? Math.max(0, -customerBalance(customerId)) : 0;
-  const { creditApplied, totalEffective, remainingDue, customerChange } = computeCreditPaymentView({
-    invoiceNet,
-    amountReceived,
-    creditAvailable,
-    useCredit,
-  });
+  const creditAvailable = customerId
+    ? Math.max(0, -customerBalance(customerId))
+    : 0;
+  const { creditApplied, totalEffective, remainingDue, customerChange } =
+    computeCreditPaymentView({
+      invoiceNet,
+      amountReceived,
+      creditAvailable,
+      useCredit,
+    });
 
   useEffect(() => {
-    if (paymentType !== "cash") { setAmountReceived(0); return; }
+    if (delivery.collectOnDelivery) {
+      setAmountReceived(0);
+      return;
+    }
+    if (paymentType !== "cash") {
+      setAmountReceived(0);
+      return;
+    }
     const cr = useCredit ? Math.min(creditAvailable, invoiceNet) : 0;
     setAmountReceived(Math.max(0, invoiceNet - cr));
-  }, [paymentType, invoiceNet, useCredit, customerId, creditAvailable]);
+  }, [
+    paymentType,
+    invoiceNet,
+    useCredit,
+    customerId,
+    creditAvailable,
+    delivery.collectOnDelivery,
+  ]);
 
   useEffect(() => {
     if (paymentType === "cash") setPaymentDueDate("");
@@ -226,7 +329,8 @@ export function SalesInvoiceNewPage() {
   // A draft saved while the add-on was available must not silently create a
   // deferred sale after the license/package changes.
   useEffect(() => {
-    if (!creditSalesEnabled && paymentType === "account") setPaymentType("cash");
+    if (!creditSalesEnabled && paymentType === "account")
+      setPaymentType("cash");
   }, [creditSalesEnabled, paymentType]);
 
   useEffect(() => {
@@ -234,7 +338,13 @@ export function SalesInvoiceNewPage() {
   }, [customerId]);
 
   const stockWarnings = useMemo(() => {
-    const out: { productId: string; requested: number; available: number; name: string; unit: string }[] = [];
+    const out: {
+      productId: string;
+      requested: number;
+      available: number;
+      name: string;
+      unit: string;
+    }[] = [];
     const byProduct = new Map<string, number>();
     lines.forEach((l) => {
       if (!l.productId) return;
@@ -242,7 +352,8 @@ export function SalesInvoiceNewPage() {
       const ept = multiSalePricesEnabled ? l.priceType : invoicePriceType;
       byProduct.set(
         l.productId,
-        (byProduct.get(l.productId) ?? 0) + quantityAsBaseUnits(product, l.quantity, ept)
+        (byProduct.get(l.productId) ?? 0) +
+          quantityAsBaseUnits(product, l.quantity, ept),
       );
     });
     byProduct.forEach((requestedBase, pid) => {
@@ -262,15 +373,23 @@ export function SalesInvoiceNewPage() {
     return out;
   }, [lines, products, multiSalePricesEnabled, invoicePriceType]);
 
-  function productPrice(product: Product, selectedPriceType: SalesPriceType = DEFAULT_PRICE_TYPE) {
+  function productPrice(
+    product: Product,
+    selectedPriceType: SalesPriceType = DEFAULT_PRICE_TYPE,
+  ) {
     const effectivePriceType = selectedPriceType;
-    if (effectivePriceType === "retail" && product.piecesPerUnit) return product.retailPrice;
-    return effectivePriceType === "retail" ? product.retailPrice : product.wholesalePrice;
+    if (effectivePriceType === "retail" && product.piecesPerUnit)
+      return product.retailPrice;
+    return effectivePriceType === "retail"
+      ? product.retailPrice
+      : product.wholesalePrice;
   }
 
   function addLine(productId?: string) {
     const p = productId ? products.find((x) => x.id === productId) : undefined;
-    const priceType = multiSalePricesEnabled ? DEFAULT_PRICE_TYPE : invoicePriceType;
+    const priceType = multiSalePricesEnabled
+      ? DEFAULT_PRICE_TYPE
+      : invoicePriceType;
     setLines((l) => [
       ...l,
       {
@@ -286,30 +405,51 @@ export function SalesInvoiceNewPage() {
   function handleScan(code: string) {
     const candidates = findProductScanCandidates(products, code);
     if (candidates.length > 1) {
-      toast.info(`يوجد ${candidates.length} بدائل لهذا الرقم`, "استخدم رقم القطعة أو باركود العبوة لتحديد الصنف");
+      toast.info(
+        `يوجد ${candidates.length} بدائل لهذا الرقم`,
+        "استخدم رقم القطعة أو باركود العبوة لتحديد الصنف",
+      );
       return;
     }
     const product = candidates[0]?.product;
     if (!product) {
-      toast.error("الكود غير معروف", `لا يوجد باركود أو Part Number أو OEM مطابق: ${code}`);
+      toast.error(
+        "الكود غير معروف",
+        `لا يوجد باركود أو Part Number أو OEM مطابق: ${code}`,
+      );
       return;
     }
-    const defaultPriceType = multiSalePricesEnabled ? DEFAULT_PRICE_TYPE : invoicePriceType;
-    const wasExisting = lines.some((l) => l.productId === product.id && l.priceType === defaultPriceType);
+    const defaultPriceType = multiSalePricesEnabled
+      ? DEFAULT_PRICE_TYPE
+      : invoicePriceType;
+    const wasExisting = lines.some(
+      (l) => l.productId === product.id && l.priceType === defaultPriceType,
+    );
     // Functional update keeps rapid consecutive scans of the same item accurate.
     setLines((arr) => {
-      const existing = arr.find((l) => l.productId === product.id && l.priceType === defaultPriceType);
+      const existing = arr.find(
+        (l) => l.productId === product.id && l.priceType === defaultPriceType,
+      );
       if (existing) {
         return arr.map((l) =>
-          l.id === existing.id ? { ...l, quantity: l.quantity + 1 } : l
+          l.id === existing.id ? { ...l, quantity: l.quantity + 1 } : l,
         );
       }
       return [
         ...arr,
-        { id: uid("line"), productId: product.id, quantity: 1, price: productPrice(product, defaultPriceType), priceType: defaultPriceType },
+        {
+          id: uid("line"),
+          productId: product.id,
+          quantity: 1,
+          price: productPrice(product, defaultPriceType),
+          priceType: defaultPriceType,
+        },
       ];
     });
-    toast.success(wasExisting ? "تم تحديث الكمية" : "تمت إضافة المنتج", product.name);
+    toast.success(
+      wasExisting ? "تم تحديث الكمية" : "تمت إضافة المنتج",
+      product.name,
+    );
   }
 
   function updateLine(id: string, patch: Partial<LineDraft>) {
@@ -317,13 +457,15 @@ export function SalesInvoiceNewPage() {
       arr.map((l) => {
         if (l.id !== id) return l;
         const next = { ...l, ...patch };
-        next.priceType = multiSalePricesEnabled ? (next.priceType ?? DEFAULT_PRICE_TYPE) : invoicePriceType;
+        next.priceType = multiSalePricesEnabled
+          ? (next.priceType ?? DEFAULT_PRICE_TYPE)
+          : invoicePriceType;
         if (patch.productId !== undefined || patch.priceType !== undefined) {
           const p = products.find((x) => x.id === next.productId);
           if (p) next.price = productPrice(p, next.priceType);
         }
         return next;
-      })
+      }),
     );
   }
 
@@ -331,7 +473,7 @@ export function SalesInvoiceNewPage() {
     setLines((arr) => arr.filter((l) => l.id !== id));
   }
 
-  function submit() {
+  function submit(confirmedDelivery = false) {
     if (!customerId) {
       toast.error("اختر العميل");
       return;
@@ -342,7 +484,9 @@ export function SalesInvoiceNewPage() {
     }
     const invalidIdx = lines.findIndex((l) => !l.productId || l.quantity <= 0);
     if (invalidIdx >= 0) {
-      toast.error(`السطر ${invalidIdx + 1}: تأكد من اختيار المنتج وإدخال كمية صحيحة`);
+      toast.error(
+        `السطر ${invalidIdx + 1}: تأكد من اختيار المنتج وإدخال كمية صحيحة`,
+      );
       return;
     }
     if (stockWarnings.length > 0) {
@@ -350,7 +494,7 @@ export function SalesInvoiceNewPage() {
         "الكمية المطلوبة تتجاوز المخزون",
         stockWarnings
           .map((w) => `${w.name}: متاح ${w.available} / مطلوب ${w.requested}`)
-          .join(" • ")
+          .join(" • "),
       );
       return;
     }
@@ -362,32 +506,92 @@ export function SalesInvoiceNewPage() {
       toast.error("المبلغ المدفوع غير صحيح");
       return;
     }
-    if (paymentType === "cash" && totalEffective <= 0 && invoiceNet > 0) {
+    if (
+      !delivery.collectOnDelivery &&
+      paymentType === "cash" &&
+      totalEffective <= 0 &&
+      invoiceNet > 0
+    ) {
       toast.error("أدخل المبلغ المدفوع أو استخدم الرصيد الدائن");
       return;
     }
     // Cash with partial payment → auto-convert to account and require due date
-    if (paymentType === "cash" && remainingDue > 0) {
+    if (
+      !delivery.collectOnDelivery &&
+      paymentType === "cash" &&
+      remainingDue > 0
+    ) {
       if (!creditSalesEnabled) {
-        toast.error("ميزة البيع الآجل غير مفعّلة في ترخيصك", "سدّد إجمالي الفاتورة أو فعّل الميزة من الباقة.");
+        toast.error(
+          "ميزة البيع الآجل غير مفعّلة في ترخيصك",
+          "سدّد إجمالي الفاتورة أو فعّل الميزة من الباقة.",
+        );
         return;
       }
       setPaymentType("account");
       if (!paymentDueDate) {
-        toast.error("المبلغ أقل من الإجمالي — تم التحويل لآجل، أضف تاريخ الاستحقاق");
+        toast.error(
+          "المبلغ أقل من الإجمالي — تم التحويل لآجل، أضف تاريخ الاستحقاق",
+        );
         return;
       }
     }
-    if (paymentType === "account" && !creditSalesEnabled) {
+    if (
+      !delivery.collectOnDelivery &&
+      paymentType === "account" &&
+      !creditSalesEnabled
+    ) {
       toast.error("ميزة البيع الآجل غير مفعّلة في ترخيصك");
       return;
     }
-    if ((paymentType === "account" || remainingDue > 0) && !paymentDueDate) {
+    if (
+      !delivery.collectOnDelivery &&
+      (paymentType === "account" || remainingDue > 0) &&
+      !paymentDueDate
+    ) {
       toast.error("أدخل تاريخ الاستحقاق");
       return;
     }
 
     const customer = customers.find((c) => c.id === customerId)!;
+    if (delivery.method !== "pickup") {
+      if (
+        !delivery.address?.governorate ||
+        !delivery.address.city ||
+        !delivery.address.addressLine
+      )
+        return toast.error("عنوان التوصيل غير مكتمل");
+      if (delivery.method === "branch_driver" && !delivery.driverId)
+        return toast.error("اختر سائق الفرع");
+      if (delivery.method === "shipping_company" && !delivery.providerId)
+        return toast.error("اختر شركة الشحن");
+      if (
+        delivery.providerId === BOSTA_PROVIDER_ID &&
+        !delivery.address.bosta?.cityId
+      )
+        return toast.error(
+          "عنوان Bosta غير مطابق",
+          "اختر مدينة Bosta المطابقة للعنوان قبل إتمام الطلب",
+        );
+      if (
+        delivery.providerId === BOSTA_PROVIDER_ID &&
+        (!delivery.address.recipientName.trim() ||
+          !delivery.address.phone.trim())
+      )
+        return toast.error(
+          "بيانات مستلم Bosta غير مكتملة",
+          "أدخل اسم المستلم ورقم الهاتف قبل إتمام الطلب",
+        );
+      if (delivery.method === "shipping_company" && delivery.shippingFee <= 0)
+        return toast.error(
+          "لا يوجد سعر توصيل لهذه المنطقة",
+          "أضف السعر من إدارة التوصيل والشحن",
+        );
+      if (!confirmedDelivery) {
+        setDeliveryReviewOpen(true);
+        return;
+      }
+    }
     const invLines: InvoiceLine[] = lines.map((l) => {
       const p = products.find((x) => x.id === l.productId)!;
       const ept = multiSalePricesEnabled ? l.priceType : invoicePriceType;
@@ -410,19 +614,40 @@ export function SalesInvoiceNewPage() {
     });
 
     // If cash payment was partial it was converted to account above
-    const effectivePaymentType: SalesPaymentType = remainingDue > 0 ? "account" : paymentType;
-    const effectiveDueDate = (effectivePaymentType === "account" || remainingDue > 0) && paymentDueDate ? paymentDueDate : undefined;
+    const effectivePaymentType: SalesPaymentType =
+      delivery.collectOnDelivery || remainingDue > 0 ? "account" : paymentType;
+    const effectiveDueDate =
+      !delivery.collectOnDelivery &&
+      (effectivePaymentType === "account" || remainingDue > 0) &&
+      paymentDueDate
+        ? paymentDueDate
+        : undefined;
 
-    const actualCashReceived = Math.min(amountReceived, invoiceNet);
-    const cashOverpayment = Math.max(0, amountReceived - invoiceNet);
+    const actualCashReceived = delivery.collectOnDelivery
+      ? 0
+      : Math.min(amountReceived, invoiceNet);
+    const cashOverpayment = delivery.collectOnDelivery
+      ? 0
+      : Math.max(0, amountReceived - invoiceNet);
+    const deliveryOrderId =
+      delivery.method === "pickup" ? undefined : uid("delivery");
 
     const inv = addSalesInvoice({
       invoiceNumber,
       date,
       customerId,
       customerName: customer.name,
-      driverId: driverId || undefined,
-      driverName: driverId ? drivers.find(d => d.id === driverId)?.name : undefined,
+      driverId: delivery.driverId || driverId || undefined,
+      driverName:
+        delivery.driverName ||
+        (driverId ? drivers.find((d) => d.id === driverId)?.name : undefined),
+      deliveryMethod: delivery.method,
+      deliveryAddress: delivery.address,
+      shippingProviderId: delivery.providerId,
+      shippingProviderName: delivery.providerName,
+      shippingFee: delivery.shippingFee || undefined,
+      deliveryOrderId,
+      collectOnDelivery: delivery.collectOnDelivery || undefined,
       lines: invLines,
       total: invoiceNet,
       discount: discount > 0 ? discount : undefined,
@@ -430,11 +655,37 @@ export function SalesInvoiceNewPage() {
       overpayment: cashOverpayment > 0 ? cashOverpayment : undefined,
       paymentType: effectivePaymentType,
       paymentMethod,
-      paymentMethodLabel: paymentMethod === "other" && paymentMethodLabel.trim() ? paymentMethodLabel.trim() : undefined,
+      paymentMethodLabel:
+        paymentMethod === "other" && paymentMethodLabel.trim()
+          ? paymentMethodLabel.trim()
+          : undefined,
       priceType: aggregateSalesPriceType(invLines),
       paymentDueDate: effectiveDueDate,
       notes: notes.trim() || undefined,
     });
+
+    if (deliveryOrderId && delivery.address && delivery.method !== "pickup") {
+      createDeliveryOrder({
+        id: deliveryOrderId,
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        customerId: customer.id,
+        customerName: customer.name,
+        method: delivery.method,
+        address: delivery.address,
+        shippingFee: delivery.shippingFee,
+        codAmount: delivery.collectOnDelivery ? invoiceNet : 0,
+        driverId: delivery.driverId,
+        driverName: delivery.driverName,
+        providerId: delivery.providerId,
+        providerName: delivery.providerName,
+        packageType: delivery.packageType,
+        itemsCount: invLines.reduce((sum, line) => sum + line.quantity, 0),
+        allowOpenPackage: delivery.allowOpenPackage,
+        notes:
+          delivery.shippingNotes?.trim() || notes.trim() || undefined,
+      });
+    }
 
     if (creditApplied > 0) {
       applyCustomerCredit(customerId, inv.id, creditApplied);
@@ -442,20 +693,46 @@ export function SalesInvoiceNewPage() {
 
     const issuedNum = parseInt(inv.invoiceNumber.replace(/\D/g, ""), 10);
     if (!Number.isNaN(issuedNum)) {
-      const storedMax = parseInt(localStorage.getItem("seq_sales_invoice") || "0", 10);
-      localStorage.setItem("seq_sales_invoice", Math.max(storedMax, issuedNum).toString());
+      const storedMax = parseInt(
+        localStorage.getItem("seq_sales_invoice") || "0",
+        10,
+      );
+      localStorage.setItem(
+        "seq_sales_invoice",
+        Math.max(storedMax, issuedNum).toString(),
+      );
     }
 
     isDirtyRef.current = false;
     clearDraft();
     toast.success("تم حفظ الفاتورة", `رقم ${inv.invoiceNumber}`);
     navigate(`/sales/${inv.id}`);
+    return true;
   }
 
   const customer = customers.find((c) => c.id === customerId);
 
   return (
     <>
+      <DeliveryReviewDialog
+        open={deliveryReviewOpen}
+        delivery={delivery}
+        currency={settings.currency}
+        total={invoiceNet}
+        onClose={() => setDeliveryReviewOpen(false)}
+        onConfirm={() => {
+          try {
+            if (submit(true)) setDeliveryReviewOpen(false);
+          } catch (error) {
+            toast.error(
+              "تعذر إتمام الطلب",
+              error instanceof Error
+                ? error.message
+                : "حدث خطأ غير متوقع أثناء حفظ الفاتورة",
+            );
+          }
+        }}
+      />
       <PageHeader
         title="فاتورة مبيعات جديدة"
         description="أدخل بنود الفاتورة — يتم خصم الكميات من المخزون تلقائياً عند الحفظ."
@@ -465,7 +742,7 @@ export function SalesInvoiceNewPage() {
               <ArrowRight className="w-4 h-4" />
               رجوع
             </Button>
-            <Button onClick={submit}>
+            <Button onClick={() => submit()}>
               <Save className="w-4 h-4" />
               حفظ الفاتورة
             </Button>
@@ -484,11 +761,14 @@ export function SalesInvoiceNewPage() {
 
       {stockWarnings.length > 0 ? (
         <div className="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 rounded-lg p-3 text-sm">
-          <div className="font-semibold mb-1">⚠ تحذير: الكمية تتجاوز المخزون</div>
+          <div className="font-semibold mb-1">
+            ⚠ تحذير: الكمية تتجاوز المخزون
+          </div>
           <ul className="list-disc ps-5 space-y-0.5 text-xs">
             {stockWarnings.map((w) => (
               <li key={w.productId}>
-                {w.name}: المتاح {w.available} {w.unit} / المطلوب {w.requested} {w.unit}
+                {w.name}: المتاح {w.available} {w.unit} / المطلوب {w.requested}{" "}
+                {w.unit}
               </li>
             ))}
           </ul>
@@ -507,11 +787,20 @@ export function SalesInvoiceNewPage() {
               />
             </Field>
             <Field label="التاريخ" required>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
             </Field>
             <Field label="العميل" required>
               <div className="flex items-center gap-1.5">
-                <Select aria-label="العميل" value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="flex-1">
+                <Select
+                  aria-label="العميل"
+                  value={customerId}
+                  onChange={(e) => setCustomerId(e.target.value)}
+                  className="flex-1"
+                >
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -519,30 +808,18 @@ export function SalesInvoiceNewPage() {
                   ))}
                 </Select>
                 {canAddCustomer && (
-                  <Button size="icon" variant="outline" className="shrink-0"
-                    onClick={() => setCustomerDialogOpen(true)} title="إضافة عميل جديد">
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => setCustomerDialogOpen(true)}
+                    title="إضافة عميل جديد"
+                  >
                     <Plus className="w-4 h-4" />
                   </Button>
                 )}
               </div>
             </Field>
-            {driversEnabled && (
-              <Field label="السائق (اختياري)">
-                <div className="flex items-center gap-2">
-                  <Select value={driverId} onChange={(e) => setDriverId(e.target.value)} className="flex-1">
-                    <option value="">— اختر سائقاً —</option>
-                    {drivers.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button variant="outline" size="icon" onClick={() => setNewDriverOpen(true)}>
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
-              </Field>
-            )}
           </div>
           {customer ? (
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-ink-faint">
@@ -552,7 +829,9 @@ export function SalesInvoiceNewPage() {
                 const bal = customerBalance(customerId);
                 if (bal === 0) return null;
                 return (
-                  <span className={`font-semibold ${bal > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+                  <span
+                    className={`font-semibold ${bal > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-400"}`}
+                  >
                     {bal > 0
                       ? `مديون: ${formatCurrency(bal, settings.currency)}`
                       : `رصيد دائن: ${formatCurrency(-bal, settings.currency)}`}
@@ -563,6 +842,13 @@ export function SalesInvoiceNewPage() {
           ) : null}
         </CardBody>
       </Card>
+
+      {shippingManagementEnabled ? <DeliveryConfigurator
+        customerId={customerId}
+        value={delivery}
+        onChange={setDelivery}
+        orderSubtotal={Math.max(0, gross - (discount || 0))}
+      /> : null}
 
       <Card>
         <CardHeader
@@ -575,7 +861,10 @@ export function SalesInvoiceNewPage() {
         />
         <CardBody>
           <div className="mb-4">
-            <BarcodeScanInput onScan={handleScan} disabled={products.length === 0} />
+            <BarcodeScanInput
+              onScan={handleScan}
+              disabled={products.length === 0}
+            />
           </div>
           {lines.length === 0 ? (
             <div className="text-center py-8 text-sm text-ink-faint">
@@ -591,7 +880,9 @@ export function SalesInvoiceNewPage() {
               <THead>
                 <TR>
                   <TH className="w-96">المنتج</TH>
-                  {multiSalePricesEnabled && <TH className="w-32">نوع السعر</TH>}
+                  {multiSalePricesEnabled && (
+                    <TH className="w-32">نوع السعر</TH>
+                  )}
                   <TH className="w-20 text-center">متاح</TH>
                   <TH className="w-24">الكمية</TH>
                   <TH className="w-28">السعر</TH>
@@ -602,18 +893,42 @@ export function SalesInvoiceNewPage() {
               <TBody>
                 {lines.map((l) => {
                   const p = products.find((x) => x.id === l.productId);
-                  const ept = multiSalePricesEnabled ? l.priceType : invoicePriceType;
-                  const currentBaseQty = quantityAsBaseUnits(p, l.quantity, ept);
+                  const ept = multiSalePricesEnabled
+                    ? l.priceType
+                    : invoicePriceType;
+                  const currentBaseQty = quantityAsBaseUnits(
+                    p,
+                    l.quantity,
+                    ept,
+                  );
                   const availableBase = p ? productStockAsBaseUnits(p) : 0;
                   const otherDraftBaseQty = lines
-                    .filter((ol) => ol.id !== l.id && ol.productId === l.productId)
+                    .filter(
+                      (ol) => ol.id !== l.id && ol.productId === l.productId,
+                    )
                     .reduce((sum, ol) => {
-                      const otherProduct = products.find((x) => x.id === ol.productId);
-                      const otherPriceType = multiSalePricesEnabled ? ol.priceType : invoicePriceType;
-                      return sum + quantityAsBaseUnits(otherProduct, ol.quantity, otherPriceType);
+                      const otherProduct = products.find(
+                        (x) => x.id === ol.productId,
+                      );
+                      const otherPriceType = multiSalePricesEnabled
+                        ? ol.priceType
+                        : invoicePriceType;
+                      return (
+                        sum +
+                        quantityAsBaseUnits(
+                          otherProduct,
+                          ol.quantity,
+                          otherPriceType,
+                        )
+                      );
                     }, 0);
-                  const remainingBaseForLine = Math.max(0, availableBase - otherDraftBaseQty);
-                  const available = p ? availableFromBaseUnits(p, remainingBaseForLine, ept) : 0;
+                  const remainingBaseForLine = Math.max(
+                    0,
+                    availableBase - otherDraftBaseQty,
+                  );
+                  const available = p
+                    ? availableFromBaseUnits(p, remainingBaseForLine, ept)
+                    : 0;
                   const availUnit = p
                     ? ept === "retail" && p.piecesPerUnit
                       ? (p.retailUnit ?? "قطعة")
@@ -626,14 +941,20 @@ export function SalesInvoiceNewPage() {
                         <ProductCombo
                           products={products}
                           value={l.productId}
-                          onChange={(pid) => updateLine(l.id, { productId: pid })}
+                          onChange={(pid) =>
+                            updateLine(l.id, { productId: pid })
+                          }
                         />
                       </TD>
                       {multiSalePricesEnabled && (
                         <TD>
                           <Select
                             value={l.priceType}
-                            onChange={(e) => updateLine(l.id, { priceType: e.target.value as SalesPriceType })}
+                            onChange={(e) =>
+                              updateLine(l.id, {
+                                priceType: e.target.value as SalesPriceType,
+                              })
+                            }
                           >
                             <option value="wholesale">جملة</option>
                             <option value="retail">تجزئة</option>
@@ -642,7 +963,9 @@ export function SalesInvoiceNewPage() {
                       )}
                       <TD className="text-center text-xs">
                         {p ? (
-                          <Badge tone={available <= p.minStock ? "amber" : "slate"}>
+                          <Badge
+                            tone={available <= p.minStock ? "amber" : "slate"}
+                          >
                             {available} {availUnit}
                           </Badge>
                         ) : (
@@ -656,7 +979,10 @@ export function SalesInvoiceNewPage() {
                           value={l.quantity}
                           onChange={(e) =>
                             updateLine(l.id, {
-                              quantity: Math.max(0, parseNumericInput(e.target.value, l.quantity)),
+                              quantity: Math.max(
+                                0,
+                                parseNumericInput(e.target.value, l.quantity),
+                              ),
                             })
                           }
                           className={exceeds ? "border-rose-400" : ""}
@@ -670,13 +996,19 @@ export function SalesInvoiceNewPage() {
                           value={l.price}
                           onChange={(e) =>
                             updateLine(l.id, {
-                              price: Math.max(0, parseNumericInput(e.target.value, l.price)),
+                              price: Math.max(
+                                0,
+                                parseNumericInput(e.target.value, l.price),
+                              ),
                             })
                           }
                         />
                       </TD>
                       <TD className="text-end font-medium">
-                        {formatCurrency(l.quantity * l.price, settings.currency)}
+                        {formatCurrency(
+                          l.quantity * l.price,
+                          settings.currency,
+                        )}
                       </TD>
                       <TD>
                         <Button
@@ -727,7 +1059,11 @@ export function SalesInvoiceNewPage() {
             </Field>
             <Field label="وسيلة الدفع">
               <div className="flex flex-wrap gap-1.5">
-                {(Object.entries(PAYMENT_METHOD_LABELS).filter(([k]) => k !== "credit") as [PaymentMethod, string][]).map(([key, label]) => (
+                {(
+                  Object.entries(PAYMENT_METHOD_LABELS).filter(
+                    ([k]) => k !== "credit",
+                  ) as [PaymentMethod, string][]
+                ).map(([key, label]) => (
                   <button
                     key={key}
                     type="button"
@@ -753,7 +1089,8 @@ export function SalesInvoiceNewPage() {
                         : "border-emerald-300 bg-surface text-emerald-600 hover:border-emerald-400 dark:border-emerald-500/40"
                     }`}
                   >
-                    رصيد دائن ({formatCurrency(creditAvailable, settings.currency)})
+                    رصيد دائن (
+                    {formatCurrency(creditAvailable, settings.currency)})
                   </button>
                 ) : null}
               </div>
@@ -779,10 +1116,12 @@ export function SalesInvoiceNewPage() {
             {creditPaymentEnabled && creditAvailable > 0 && useCredit ? (
               <div className="rounded-lg border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 px-3 py-2 text-sm">
                 <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                  سيُخصم {formatCurrency(creditApplied, settings.currency)} من رصيد العميل الدائن
+                  سيُخصم {formatCurrency(creditApplied, settings.currency)} من
+                  رصيد العميل الدائن
                 </span>
                 <span className="block text-xs text-emerald-600 mt-0.5">
-                  المتاح: {formatCurrency(creditAvailable, settings.currency)} — اضغط زر «رصيد دائن» بالأعلى للإلغاء
+                  المتاح: {formatCurrency(creditAvailable, settings.currency)} —
+                  اضغط زر «رصيد دائن» بالأعلى للإلغاء
                 </span>
               </div>
             ) : null}
@@ -794,7 +1133,12 @@ export function SalesInvoiceNewPage() {
                   value={amountReceived === 0 ? "" : amountReceived}
                   onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) =>
-                    setAmountReceived(Math.max(0, parseNumericInput(e.target.value, amountReceived)))
+                    setAmountReceived(
+                      Math.max(
+                        0,
+                        parseNumericInput(e.target.value, amountReceived),
+                      ),
+                    )
                   }
                   className="text-right font-bold text-base flex-1"
                   placeholder="0"
@@ -825,24 +1169,50 @@ export function SalesInvoiceNewPage() {
           <CardHeader title="الملخص" />
           <CardBody className="p-0">
             <div className="divide-y divide-line">
-              <SummaryRow label="إجمالي" value={formatCurrency(gross, settings.currency)} />
+              <SummaryRow
+                label="إجمالي"
+                value={formatCurrency(gross, settings.currency)}
+              />
               <div className="flex items-center justify-between px-4 py-2.5 gap-2">
                 <span className="text-sm text-ink-muted">خصم</span>
                 <Input
                   type="text"
                   inputMode="decimal"
-                  value={discount === 0 ? "" : discount.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                  value={
+                    discount === 0
+                      ? ""
+                      : discount.toLocaleString("en-US", {
+                          maximumFractionDigits: 2,
+                        })
+                  }
                   onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) =>
-                    setDiscount(Math.max(0, parseNumericInput(e.target.value, discount)))
+                    setDiscount(
+                      Math.max(0, parseNumericInput(e.target.value, discount)),
+                    )
                   }
                   placeholder="0.00"
                   className="w-28 h-8 text-sm"
                 />
               </div>
-              <SummaryRow label="مستحق" value={formatCurrency(invoiceNet, settings.currency)} bold />
+              {delivery.shippingFee > 0 && (
+                <SummaryRow
+                  label="رسوم التوصيل"
+                  value={`+ ${formatCurrency(delivery.shippingFee, settings.currency)}`}
+                  valueClass="text-brand-600"
+                />
+              )}
+              <SummaryRow
+                label="مستحق"
+                value={formatCurrency(invoiceNet, settings.currency)}
+                bold
+              />
               {creditApplied > 0 && (
-                <SummaryRow label="رصيد دائن مستخدم" value={`- ${formatCurrency(creditApplied, settings.currency)}`} valueClass="text-emerald-700 dark:text-emerald-400" />
+                <SummaryRow
+                  label="رصيد دائن مستخدم"
+                  value={`- ${formatCurrency(creditApplied, settings.currency)}`}
+                  valueClass="text-emerald-700 dark:text-emerald-400"
+                />
               )}
               <SummaryRow
                 label="إجمالي المسدّد"
@@ -850,17 +1220,26 @@ export function SalesInvoiceNewPage() {
                 valueClass="text-emerald-700 dark:text-emerald-400"
                 bold
               />
-              <div className={`flex items-center justify-between px-4 py-3 rounded-b-xl ${remainingDue > 0 ? "bg-amber-50 dark:bg-amber-500/10" : "bg-emerald-50 dark:bg-emerald-500/10"}`}>
-                <span className={`text-base font-bold ${remainingDue > 0 ? "text-amber-800 dark:text-amber-300" : "text-emerald-800 dark:text-emerald-300"}`}>
+              <div
+                className={`flex items-center justify-between px-4 py-3 rounded-b-xl ${remainingDue > 0 ? "bg-amber-50 dark:bg-amber-500/10" : "bg-emerald-50 dark:bg-emerald-500/10"}`}
+              >
+                <span
+                  className={`text-base font-bold ${remainingDue > 0 ? "text-amber-800 dark:text-amber-300" : "text-emerald-800 dark:text-emerald-300"}`}
+                >
                   {customerChange > 0 ? "باقي للعميل" : "المتبقي"}
                 </span>
-                <span className={`text-xl font-bold ${remainingDue > 0 ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}`}>
-                  {formatCurrency(customerChange > 0 ? customerChange : remainingDue, settings.currency)}
+                <span
+                  className={`text-xl font-bold ${remainingDue > 0 ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}`}
+                >
+                  {formatCurrency(
+                    customerChange > 0 ? customerChange : remainingDue,
+                    settings.currency,
+                  )}
                 </span>
               </div>
             </div>
             <div className="p-4">
-              <Button onClick={submit} size="lg" className="w-full">
+              <Button onClick={() => submit()} size="lg" className="w-full">
                 <Save className="w-4 h-4" /> حفظ الفاتورة
               </Button>
             </div>
@@ -868,11 +1247,6 @@ export function SalesInvoiceNewPage() {
         </Card>
       </div>
 
-      <DriverDialog
-        open={newDriverOpen}
-        onClose={() => setNewDriverOpen(false)}
-        onSaved={(drv) => setDriverId(drv.id)}
-      />
       <CustomerFormDialog
         open={customerDialogOpen}
         onClose={() => setCustomerDialogOpen(false)}
@@ -911,11 +1285,29 @@ function ProductCombo({
   );
 }
 
-function SummaryRow({ label, value, bold, valueClass }: { label: string; value: string; bold?: boolean; valueClass?: string }) {
+function SummaryRow({
+  label,
+  value,
+  bold,
+  valueClass,
+}: {
+  label: string;
+  value: string;
+  bold?: boolean;
+  valueClass?: string;
+}) {
   return (
     <div className="flex items-center justify-between px-4 py-2.5 gap-2">
-      <span className={`text-sm ${bold ? "font-semibold text-ink" : "text-ink-muted"}`}>{label}</span>
-      <span className={`text-sm font-mono ${bold ? "font-bold text-ink" : ""} ${valueClass ?? ""}`}>{value}</span>
+      <span
+        className={`text-sm ${bold ? "font-semibold text-ink" : "text-ink-muted"}`}
+      >
+        {label}
+      </span>
+      <span
+        className={`text-sm font-mono ${bold ? "font-bold text-ink" : ""} ${valueClass ?? ""}`}
+      >
+        {value}
+      </span>
     </div>
   );
 }

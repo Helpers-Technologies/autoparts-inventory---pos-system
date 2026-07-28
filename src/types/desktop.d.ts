@@ -3,6 +3,9 @@ import type {
   BranchActivationResult,
   BranchCreationResult,
   BranchLicenseStatus,
+  BostaIntegrationConfig,
+  CustomerAddressSnapshot,
+  DeliveryOrder,
   LicenseStatus,
   LoginResult,
   MfaActionError,
@@ -29,7 +32,9 @@ declare global {
       license: {
         getMachineCode: () => Promise<string>;
         getStatus: () => Promise<LicenseStatus>;
-        activate: (serial: string) => Promise<{ ok: boolean; status: LicenseStatus }>;
+        activate: (
+          serial: string,
+        ) => Promise<{ ok: boolean; status: LicenseStatus }>;
         onRevoked: (cb: () => void) => () => void;
         onRestored: (cb: () => void) => () => void;
       };
@@ -42,10 +47,96 @@ declare global {
           phone?: string;
         }) => Promise<BranchCreationResult>;
       };
+      integrations: {
+        bosta: {
+          getConfig: () => Promise<{
+            ok: boolean;
+            error?: string;
+            config?: BostaIntegrationConfig;
+          }>;
+          saveConfig: (config: {
+            apiKey?: string;
+            enabled: boolean;
+            autoTrackingEnabled?: boolean;
+            autoTrackingIntervalMinutes?: number;
+            businessLocationId?: string;
+            webhookUrl?: string;
+            webhookHeaderName?: string;
+            webhookHeaderValue?: string;
+            webhookPollToken?: string;
+            defaultPackageType: NonNullable<DeliveryOrder["packageType"]>;
+            allowOpenPackage: boolean;
+          }) => Promise<{
+            ok: boolean;
+            error?: string;
+            config?: BostaIntegrationConfig;
+          }>;
+          testConnection: () => Promise<{
+            ok: boolean;
+            error?: string;
+            pickupLocations?: Array<{ id: string; name: string }>;
+          }>;
+          createDelivery: (payload: {
+            businessReference: string;
+            businessLocationId?: string;
+            cod: number;
+            goodsValue?: number;
+            receiver: { fullName: string; phone: string; email?: string };
+            dropOffAddress: CustomerAddressSnapshot;
+            specs: {
+              packageType?: DeliveryOrder["packageType"];
+              itemsCount: number;
+              description: string;
+            };
+            notes?: string;
+            allowOpenPackage: boolean;
+          }) => Promise<{ ok: boolean; error?: string; data?: unknown }>;
+          trackDelivery: (
+            reference: string,
+          ) => Promise<{ ok: boolean; error?: string; data?: unknown }>;
+          getCities: () => Promise<{
+            ok: boolean;
+            error?: string;
+            data?: unknown;
+          }>;
+          getDistricts: (
+            cityId: string,
+          ) => Promise<{ ok: boolean; error?: string; data?: unknown }>;
+          estimatePrice: (payload: {
+            dropOffCity: string;
+            cod: number;
+            size: "Normal" | "Light Bulky" | "Heavy Bulky";
+          }) => Promise<{ ok: boolean; error?: string; data?: unknown }>;
+          getPricingPlan: (payload: {
+            tierIdSelector: "c__CT4DU9I" | "yiqKg_aGM1";
+            pickupSectorId: number;
+            vatIncluded?: boolean;
+          }) => Promise<{ ok: boolean; error?: string; data?: unknown }>;
+          testWebhook: (payload?: {
+            webhookUrl?: string;
+            webhookPollToken?: string;
+          }) => Promise<{
+            ok: boolean;
+            error?: string;
+            stage?: "url" | "token" | "network" | "health" | "authorization" | "complete";
+            status?: number;
+            service?: string;
+            pendingEvents?: number;
+          }>;
+          getWebhookEvents: () => Promise<{
+            ok: boolean;
+            error?: string;
+            data?: unknown;
+          }>;
+          acknowledgeWebhookEvents: (
+            ids: string[],
+          ) => Promise<{ ok: boolean; error?: string; data?: unknown }>;
+        };
+      };
       setup: {
         createOwner: (
           username: string,
-          password: string
+          password: string,
         ) => Promise<{ ok: boolean; user?: AppUser; error?: string }>;
         hasOwner: () => Promise<boolean>;
         selectDirectory: () => Promise<string | null>;
@@ -53,7 +144,7 @@ declare global {
       auth: {
         login: (
           username: string,
-          password: string
+          password: string,
         ) => Promise<LoginResult & { user?: AppUser }>;
         getSession: () => Promise<{
           ok: boolean;
@@ -62,12 +153,14 @@ declare global {
         }>;
         verifySecondFactor: (
           challengeId: string,
-          code: string
-        ) => Promise<LoginResult & {
-          user?: AppUser;
-          usedMethod?: "totp" | "recovery_code";
-          recoveryCodesRemaining?: number;
-        }>;
+          code: string,
+        ) => Promise<
+          LoginResult & {
+            user?: AppUser;
+            usedMethod?: "totp" | "recovery_code";
+            recoveryCodesRemaining?: number;
+          }
+        >;
         beginAccountRecovery: (recoveryCode: string) => Promise<{
           ok: boolean;
           challengeId?: string;
@@ -76,42 +169,70 @@ declare global {
           error?: "invalid_recovery_code" | "rate_limited";
           remainSeconds?: number;
         }>;
+        beginAccountRecoveryWithTotp: (
+          username: string,
+          code: string,
+        ) => Promise<{
+          ok: boolean;
+          challengeId?: string;
+          expiresAt?: string;
+          username?: string;
+          error?:
+            | "invalid_code"
+            | "invalid_recovery_code"
+            | "code_reused"
+            | "rate_limited";
+          remainSeconds?: number;
+          attemptsRemaining?: number;
+        }>;
         completeAccountRecovery: (
           challengeId: string,
           newPassword: string,
-          resetMfa: boolean
+          resetMfa: boolean,
         ) => Promise<{
           ok: boolean;
           username?: string;
           mfaReset?: boolean;
           requiresMfaEnrollment?: boolean;
-          error?: "invalid_input" | "challenge_expired" | "invalid_challenge" | "user_missing";
+          error?:
+            | "invalid_input"
+            | "challenge_expired"
+            | "invalid_challenge"
+            | "user_missing";
         }>;
         logout: () => Promise<{ ok: boolean }>;
         hashPassword: (password: string) => Promise<string>;
         changePassword: (
           userId: string,
           currentPassword: string,
-          newPassword: string
+          newPassword: string,
         ) => Promise<{
           ok: boolean;
           user?: AppUser;
-          error?: "invalid_input" | "user_missing" | "invalid_current_password" | "not_authorized";
+          error?:
+            | "invalid_input"
+            | "user_missing"
+            | "invalid_current_password"
+            | "not_authorized";
         }>;
         updateProfile: (
           userId: string,
           name: string,
           currentPassword?: string,
-          newPassword?: string
+          newPassword?: string,
         ) => Promise<{
           ok: boolean;
           user?: AppUser;
-          error?: "invalid_input" | "user_missing" | "invalid_current_password" | "not_authorized";
+          error?:
+            | "invalid_input"
+            | "user_missing"
+            | "invalid_current_password"
+            | "not_authorized";
         }>;
         resetOwnerPassword: (
           supportCode: string,
           username: string,
-          password: string
+          password: string,
         ) => Promise<{
           ok: boolean;
           user?: AppUser;
@@ -128,7 +249,9 @@ declare global {
         }>;
       };
       mfa: {
-        getOwnStatus: () => Promise<({ ok: true } & MfaStatus) | { ok: false; error: MfaActionError }>;
+        getOwnStatus: () => Promise<
+          ({ ok: true } & MfaStatus) | { ok: false; error: MfaActionError }
+        >;
         beginEnrollment: (password: string) => Promise<{
           ok: boolean;
           challengeId?: string;
@@ -137,7 +260,10 @@ declare global {
           otpauthUri?: string;
           error?: MfaActionError;
         }>;
-        confirmEnrollment: (challengeId: string, code: string) => Promise<{
+        confirmEnrollment: (
+          challengeId: string,
+          code: string,
+        ) => Promise<{
           ok: boolean;
           recoveryCodes?: string[];
           recoveryCodesRemaining?: number;
@@ -146,13 +272,16 @@ declare global {
           error?: MfaActionError;
           attemptsRemaining?: number;
         }>;
-        disableOwn: (password: string, verificationCode: string) => Promise<{
+        disableOwn: (
+          password: string,
+          verificationCode: string,
+        ) => Promise<{
           ok: boolean;
           error?: MfaActionError;
         }>;
         regenerateRecoveryCodes: (
           password: string,
-          verificationCode: string
+          verificationCode: string,
         ) => Promise<{
           ok: boolean;
           recoveryCodes?: string[];
@@ -178,12 +307,14 @@ declare global {
         resetUser: (
           userId: string,
           ownerPassword: string,
-          verificationCode: string
+          verificationCode: string,
         ) => Promise<{ ok: boolean; error?: MfaActionError }>;
       };
       print: {
         route: (route: string) => Promise<{ ok: boolean; error?: string }>;
-        savePdfRoute: (route: string) => Promise<{ ok: boolean; error?: string; path?: string }>;
+        savePdfRoute: (
+          route: string,
+        ) => Promise<{ ok: boolean; error?: string; path?: string }>;
       };
       storage: {
         get: (key: string) => string | null;
@@ -204,17 +335,25 @@ declare global {
           dir: string,
           fileName: string,
           content: string,
-          passphrase?: string
+          passphrase?: string,
         ) => Promise<{ ok: boolean; path?: string; error?: string }>;
         selectDirectory: () => Promise<string | null>;
         encryptContent: (
           content: string,
-          passphrase?: string
+          passphrase?: string,
         ) => Promise<{ ok: boolean; encrypted?: string; error?: string }>;
         decryptContent: (
           content: string,
-          passphrase?: string
-        ) => Promise<{ ok: boolean; plaintext?: string; error?: "passphrase_required" | "decrypt_failed" | "not_authorized" | "invalid_input" }>;
+          passphrase?: string,
+        ) => Promise<{
+          ok: boolean;
+          plaintext?: string;
+          error?:
+            | "passphrase_required"
+            | "decrypt_failed"
+            | "not_authorized"
+            | "invalid_input";
+        }>;
       };
       app: {
         onRunCloseBackup: (cb: () => void) => () => void;

@@ -39,7 +39,9 @@ export function formatEgyptianPlateNumber(raw: string): string {
     return formattedDigits;
   }
 
-  return text.trim();
+  // Unsupported characters, including Latin letters, must never reach the
+  // stored plate number. An English-only paste therefore clears immediately.
+  return "";
 }
 
 /**

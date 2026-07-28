@@ -23,6 +23,7 @@ export function mockDesktopAPI(overrides: Record<string, unknown> = {}) {
       getSession: vi.fn().mockResolvedValue({ ok: false, error: "not_authenticated" }),
       verifySecondFactor: vi.fn().mockResolvedValue({ ok: false, error: "invalid_code" }),
       beginAccountRecovery: vi.fn().mockResolvedValue({ ok: false, error: "invalid_recovery_code" }),
+      beginAccountRecoveryWithTotp: vi.fn().mockResolvedValue({ ok: false, error: "invalid_code" }),
       completeAccountRecovery: vi.fn().mockResolvedValue({ ok: false, error: "invalid_input" }),
       logout: vi.fn().mockResolvedValue({ ok: true }),
       hashPassword: vi.fn().mockResolvedValue("hashed"),

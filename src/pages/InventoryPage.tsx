@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -13,12 +13,14 @@ import {
   RotateCcw,
   Filter,
   ChevronDown,
+  Columns3,
+  ScanBarcode,
 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
-import { Input, Field, Textarea } from "../components/ui/Input";
+import { Input, Field, Select, Textarea } from "../components/ui/Input";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Dialog } from "../components/ui/Dialog";
@@ -33,11 +35,52 @@ import { formatStockMovementReference } from "../lib/stockMovement";
 import type { Product } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
-import { BarcodeScanInput } from "../features/products/BarcodeScanInput";
 import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
 import { VEHICLE_COUNTRIES } from "../data/vehicleCountries";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
+
+type InventoryColumnKey =
+  | "identity"
+  | "product"
+  | "category"
+  | "quantity"
+  | "minimumStock"
+  | "expiryDate"
+  | "quantityStatus"
+  | "expiryStatus"
+  | "actions";
+
+const INVENTORY_COLUMN_STORAGE_KEY = "inventory-table-visible-columns";
+const INVENTORY_COLUMN_OPTIONS: Array<{ key: InventoryColumnKey; label: string }> = [
+  { key: "identity", label: "رقم القطعة والموقع" },
+  { key: "product", label: "المنتج" },
+  { key: "category", label: "الفئة" },
+  { key: "quantity", label: "الكمية" },
+  { key: "minimumStock", label: "الحد الأدنى" },
+  { key: "expiryDate", label: "تاريخ الصلاحية" },
+  { key: "quantityStatus", label: "حالة الكمية" },
+  { key: "expiryStatus", label: "حالة الصلاحية" },
+  { key: "actions", label: "ضبط المخزون" },
+];
+
+function defaultInventoryColumns(): Record<InventoryColumnKey, boolean> {
+  return Object.fromEntries(
+    INVENTORY_COLUMN_OPTIONS.map(({ key }) => [key, true]),
+  ) as Record<InventoryColumnKey, boolean>;
+}
+
+function loadInventoryColumns(): Record<InventoryColumnKey, boolean> {
+  const defaults = defaultInventoryColumns();
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(INVENTORY_COLUMN_STORAGE_KEY) || "{}",
+    ) as Partial<Record<InventoryColumnKey, boolean>>;
+    return { ...defaults, ...saved };
+  } catch {
+    return defaults;
+  }
+}
 
 export function InventoryPage() {
   const { products, suppliers, adjustStock } = useCatalog();
@@ -48,6 +91,8 @@ export function InventoryPage() {
   const vehicleCatalog = useVehicleCatalog();
   const expiryTrackingEnabled = isEnabled("expiryTracking");
   const vehicleCatalogEnabled = isEnabled("vehicleCatalog");
+  const barcodeSystemEnabled = isEnabled("barcodeSystem");
+  const bulkProductToolsEnabled = isEnabled("bulkProductTools");
   const toast = useToast();
   const canAdjustStock = hasPermission(currentUser, "inventory", "adjust");
   const [q, setQ] = useState("");
@@ -55,6 +100,13 @@ export function InventoryPage() {
   const [supplier, setSupplier] = useState("");
   const [qtyFilter, setQtyFilter] = useState<"all" | "available" | "low" | "zero">("all");
   const [expiryFilter, setExpiryFilter] = useState<"all" | "valid" | "soon" | "expired">("all");
+  const [columnsDialogOpen, setColumnsDialogOpen] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<Record<InventoryColumnKey, boolean>>(loadInventoryColumns);
+
+  useEffect(() => {
+    if (!bulkProductToolsEnabled) setVisibleColumns(defaultInventoryColumns());
+  }, [bulkProductToolsEnabled]);
+  const inventorySearchRef = useRef<HTMLInputElement>(null);
 
   // Pagination & limit state for inventory list
   const [inventoryPageSize, setInventoryPageSize] = useState(10);
@@ -115,6 +167,27 @@ export function InventoryPage() {
   const hasAnyFilterActive = useMemo(() => {
     return Boolean(q.trim() || category || supplier || qtyFilter !== "all" || expiryFilter !== "all" || activeAdvancedCount > 0);
   }, [q, category, supplier, qtyFilter, expiryFilter, activeAdvancedCount]);
+
+  const availableColumnOptions = INVENTORY_COLUMN_OPTIONS.filter(({ key }) => {
+    if (key === "expiryDate" || key === "expiryStatus") return expiryTrackingEnabled;
+    if (key === "actions") return canAdjustStock;
+    return true;
+  });
+
+  function saveVisibleColumns(next: Record<InventoryColumnKey, boolean>) {
+    setVisibleColumns(next);
+    localStorage.setItem(INVENTORY_COLUMN_STORAGE_KEY, JSON.stringify(next));
+  }
+
+  function toggleInventoryColumn(key: InventoryColumnKey) {
+    saveVisibleColumns({ ...visibleColumns, [key]: !visibleColumns[key] });
+  }
+
+  function setAllInventoryColumns(visible: boolean) {
+    const next = { ...visibleColumns };
+    availableColumnOptions.forEach(({ key }) => { next[key] = visible; });
+    saveVisibleColumns(next);
+  }
 
   function resetAllFilters() {
     setQ("");
@@ -305,13 +378,6 @@ export function InventoryPage() {
         description="الكميات الحالية، التنبيهات، وضبط المخزون اليدوي"
       />
 
-      <Card>
-        <CardBody className="flex flex-col md:flex-row md:items-center gap-3">
-          <div className="min-w-48"><div className="text-sm font-semibold">اسكان المخزون السريع</div><div className="text-xs text-ink-muted">يمسح الباركود أو رقم القطعة أو OEM ويفتح حركة إضافة مباشرة</div></div>
-          <BarcodeScanInput onScan={handleInventoryScan} disabled={products.length === 0} className="flex-1" />
-        </CardBody>
-      </Card>
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardBody className="flex items-center gap-3">
@@ -356,77 +422,141 @@ export function InventoryPage() {
         <CardHeader
           title="قائمة المخزون"
           subtitle="كمية، وحدة، حد أدنى، حالة"
+          actions={bulkProductToolsEnabled ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setColumnsDialogOpen(true)}
+              title="اختيار أعمدة جدول المخزون الظاهرة"
+            >
+              <Columns3 className="h-4 w-4" />
+              تعديل الأعمدة
+            </Button>
+          ) : undefined}
         />
         <CardBody className="space-y-3">
-          <div className="flex flex-wrap gap-2 items-center justify-between">
-            <div className="flex flex-wrap gap-2 items-center flex-1">
-              <div className="relative w-52">
-                <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
+          <div className="flex flex-wrap items-end gap-2 xl:flex-nowrap">
+            <Field
+              label={barcodeSystemEnabled ? "بحث أو اسكان مخزون سريع" : "بحث"}
+              className="min-w-[260px] flex-1"
+            >
+              <div className="relative">
+                <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
                 <Input
+                  ref={inventorySearchRef}
+                  autoFocus={barcodeSystemEnabled}
+                  autoComplete="off"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="بحث عن منتج..."
-                  className="pe-9"
+                  onKeyDown={(event) => {
+                    if (barcodeSystemEnabled && event.key === "Enter" && q.trim()) {
+                      event.preventDefault();
+                      handleInventoryScan(q.trim());
+                    }
+                  }}
+                  placeholder={barcodeSystemEnabled ? "اسم، رقم قطعة، OEM أو امسح الباركود" : "اسم أو رقم قطعة أو OEM"}
+                  className={barcodeSystemEnabled ? "ps-9 pe-11" : "ps-9"}
                 />
+                {barcodeSystemEnabled && (
+                  <button
+                    type="button"
+                    className="absolute end-1 top-1/2 grid h-7 w-8 -translate-y-1/2 place-items-center rounded-md border border-cyan-300 bg-cyan-50/80 text-cyan-600 transition-colors hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-cyan-500/40 dark:bg-cyan-500/10 dark:text-cyan-300 dark:hover:bg-cyan-500/20"
+                    title="اسكان المخزون السريع"
+                    aria-label="اسكان المخزون السريع"
+                    disabled={products.length === 0}
+                    onClick={() => {
+                      if (q.trim()) {
+                        handleInventoryScan(q.trim());
+                      } else {
+                        inventorySearchRef.current?.focus();
+                        toast.info("اسكان المخزون السريع", "امسح الباركود أو اكتب رقم القطعة ثم اضغط Enter");
+                      }
+                    }}
+                  >
+                    <ScanBarcode className="h-4 w-4" />
+                  </button>
+                )}
               </div>
+            </Field>
+            <Field label="الفئة" className="min-w-[140px]">
               <SearchableSelect
                 value={category}
                 onChange={(val) => setCategory(val)}
                 options={categories.map((c) => ({ value: c, label: c, searchText: c }))}
                 placeholder="كل الفئات"
                 searchPlaceholder="ابحث عن فئة..."
-                className="w-44"
               />
+            </Field>
+            <Field label="المورد" className="min-w-[155px]">
               <SearchableSelect
                 value={supplier}
                 onChange={(val) => setSupplier(val)}
                 options={suppliers.map((s) => ({ value: s.id, label: s.name, searchText: s.name }))}
                 placeholder="كل الموردين"
                 searchPlaceholder="ابحث عن مورد..."
-                className="w-48"
               />
-              <Button
-                type="button"
-                variant={showAdvanced || activeAdvancedCount > 0 ? "secondary" : "outline"}
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center gap-1.5"
-              >
-                <SlidersHorizontal className="w-4 h-4" />
-                <span>فلاتر متقدمة</span>
-                {activeAdvancedCount > 0 && (
-                  <Badge tone="blue" className="ms-1 font-mono text-xs">
-                    {activeAdvancedCount}
-                  </Badge>
-                )}
-              </Button>
-              <div className="flex items-center gap-1.5 bg-surface-muted px-2.5 h-9 rounded-xl text-xs border border-line/60">
-                <span className="text-ink-muted whitespace-nowrap">العدد الظاهر:</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={5000}
-                  value={inventoryPageSize || ""}
-                  onChange={(e) => {
-                    const val = Math.max(1, parseInt(e.target.value) || 10);
-                    setInventoryPageSize(val);
-                    setInventoryVisibleCount(val);
-                  }}
-                  className="w-14 h-6 text-center rounded border border-line bg-surface font-semibold text-brand-700 dark:text-brand-300 outline-none focus:ring-1 focus:ring-brand-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  title="تحديد عدد النتائج المعروضة"
-                />
-              </div>
-            </div>
-
+            </Field>
+            <Field label="حالة الكمية" className="min-w-[125px]">
+              <Select value={qtyFilter} onChange={(event) => setQtyFilter(event.target.value as typeof qtyFilter)}>
+                <option value="all">كل الكميات</option>
+                <option value="available">متوفر</option>
+                <option value="low">منخفض</option>
+                <option value="zero">نفد</option>
+              </Select>
+            </Field>
+            {expiryTrackingEnabled && (
+              <Field label="حالة الصلاحية" className="min-w-[135px]">
+                <Select value={expiryFilter} onChange={(event) => setExpiryFilter(event.target.value as typeof expiryFilter)}>
+                  <option value="all">كل الصلاحيات</option>
+                  <option value="valid">صالح</option>
+                  <option value="soon">قارب ينتهي</option>
+                  <option value="expired">منتهي</option>
+                </Select>
+              </Field>
+            )}
+            <Field label="عدد العرض" className="w-24 shrink-0">
+              <Input
+                type="number"
+                min={1}
+                max={5000}
+                value={inventoryPageSize || ""}
+                onChange={(event) => {
+                  const value = Math.min(5000, Math.max(1, Math.floor(Number(event.target.value) || 10)));
+                  setInventoryPageSize(value);
+                  setInventoryVisibleCount(value);
+                }}
+                title="اكتب عدد النتائج المطلوب عرضها"
+                aria-label="عدد قطع المخزون المعروضة"
+                placeholder="10"
+              />
+            </Field>
+            <Button
+              type="button"
+              variant={showAdvanced || activeAdvancedCount > 0 ? "secondary" : "outline"}
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="relative h-9 shrink-0 gap-1.5 whitespace-nowrap self-end"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              <span>فلاتر متقدمة</span>
+              {activeAdvancedCount > 0 && (
+                <span className="grid h-4 w-4 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white">
+                  {activeAdvancedCount}
+                </span>
+              )}
+            </Button>
             {hasAnyFilterActive && (
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={resetAllFilters}
-                className="text-red-500 hover:text-red-600 dark:text-red-400 flex items-center gap-1"
+                className="h-9 w-9 shrink-0 self-end text-red-500 hover:text-red-600 dark:text-red-400"
+                title="مسح كل الفلاتر"
+                aria-label="مسح كل الفلاتر"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                مسح الفلاتر
+                <RotateCcw className="h-4 w-4" />
               </Button>
             )}
           </div>
@@ -534,54 +664,6 @@ export function InventoryPage() {
             </div>
           )}
 
-          <div className="flex flex-wrap gap-3 items-center pt-1 border-t border-line/40">
-            <div className="inline-flex items-center gap-1 bg-surface-muted p-1 rounded-lg">
-              <span className="px-2 text-xs text-ink-faint select-none">الكمية:</span>
-              {([
-                { key: "all", label: "الكل" },
-                { key: "available", label: "متوفر" },
-                { key: "low", label: "منخفض" },
-                { key: "zero", label: "نفد" },
-              ] as const).map((b) => (
-                <button
-                  key={b.key}
-                  onClick={() => setQtyFilter(b.key)}
-                  className={`px-3 h-8 text-xs rounded-md transition-colors ${
-                    qtyFilter === b.key
-                      ? "bg-surface text-brand-700 dark:text-brand-300 font-medium shadow-sm"
-                      : "text-ink-muted hover:text-ink"
-                  }`}
-                >
-                  {b.label}
-                </button>
-              ))}
-            </div>
-
-            {expiryTrackingEnabled && (
-              <div className="inline-flex items-center gap-1 bg-surface-muted p-1 rounded-lg">
-                <span className="px-2 text-xs text-ink-faint select-none">الصلاحية:</span>
-                {([
-                  { key: "all", label: "الكل" },
-                  { key: "valid", label: "صالح" },
-                  { key: "soon", label: "قارب ينتهي" },
-                  { key: "expired", label: "منتهي" },
-                ] as const).map((b) => (
-                  <button
-                    key={b.key}
-                    onClick={() => setExpiryFilter(b.key)}
-                    className={`px-3 h-8 text-xs rounded-md transition-colors ${
-                      expiryFilter === b.key
-                        ? "bg-surface text-brand-700 dark:text-brand-300 font-medium shadow-sm"
-                        : "text-ink-muted hover:text-ink"
-                    }`}
-                  >
-                    {b.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
           {filtered.length === 0 ? (
             <EmptyState
               icon={<Warehouse className="w-5 h-5" />}
@@ -597,15 +679,15 @@ export function InventoryPage() {
             <Table>
               <THead>
                 <TR>
-                  <TH>رقم القطعة / الموقع</TH>
-                  <TH>المنتج</TH>
-                  <TH>الفئة</TH>
-                  <TH className="text-end">الكمية</TH>
-                  <TH className="text-end">الحد الأدنى</TH>
-                  {expiryTrackingEnabled && <TH>الصلاحية</TH>}
-                  <TH>حالة الكمية</TH>
-                  {expiryTrackingEnabled && <TH>حالة الصلاحية</TH>}
-                  {canAdjustStock ? <TH className="text-end">ضبط المخزون</TH> : null}
+                  {visibleColumns.identity && <TH>رقم القطعة / الموقع</TH>}
+                  {visibleColumns.product && <TH>المنتج</TH>}
+                  {visibleColumns.category && <TH>الفئة</TH>}
+                  {visibleColumns.quantity && <TH className="text-end">الكمية</TH>}
+                  {visibleColumns.minimumStock && <TH className="text-end">الحد الأدنى</TH>}
+                  {expiryTrackingEnabled && visibleColumns.expiryDate && <TH>الصلاحية</TH>}
+                  {visibleColumns.quantityStatus && <TH>حالة الكمية</TH>}
+                  {expiryTrackingEnabled && visibleColumns.expiryStatus && <TH>حالة الصلاحية</TH>}
+                  {canAdjustStock && visibleColumns.actions ? <TH className="text-end">ضبط المخزون</TH> : null}
                 </TR>
               </THead>
               <TBody>
@@ -617,28 +699,28 @@ export function InventoryPage() {
                     p.hasExpiry && du !== null && du >= 0 && du <= 14;
                   return (
                     <TR key={p.id}>
-                      <TD><div className="font-mono text-xs" dir="ltr">{p.partNumber || p.code}</div><div className="text-[11px] text-ink-faint font-mono" dir="ltr">{p.rackLocation || "—"}</div></TD>
-                      <TD className="font-medium text-ink">{p.name}</TD>
-                      <TD className="text-ink-muted">{p.category}</TD>
-                      <TD className="text-end font-semibold">
+                      {visibleColumns.identity && <TD><div className="font-mono text-xs" dir="ltr">{p.partNumber || p.code}</div><div className="text-[11px] text-ink-faint font-mono" dir="ltr">{p.rackLocation || "—"}</div></TD>}
+                      {visibleColumns.product && <TD className="font-medium text-ink">{p.name}</TD>}
+                      {visibleColumns.category && <TD className="text-ink-muted">{p.category}</TD>}
+                      {visibleColumns.quantity && <TD className="text-end font-semibold">
                         {p.piecesPerUnit
                           ? `${p.quantity} ${p.unit}${p.looseQuantity ? ` + ${p.looseQuantity} ${p.retailUnit ?? "قطعة"}` : ""}`
                           : `${p.quantity} ${p.unit}`}
-                      </TD>
-                      <TD className="text-end text-ink-muted">{p.minStock}</TD>
-                      {expiryTrackingEnabled && (
+                      </TD>}
+                      {visibleColumns.minimumStock && <TD className="text-end text-ink-muted">{p.minStock}</TD>}
+                      {expiryTrackingEnabled && visibleColumns.expiryDate && (
                         <TD className="text-ink-muted text-xs">
                           {p.hasExpiry && p.expiryDate ? formatDate(p.expiryDate) : "—"}
                         </TD>
                       )}
-                      <TD>
+                      {visibleColumns.quantityStatus && <TD>
                         {p.quantity === 0
                           ? <Badge tone="red">نفد</Badge>
                           : low
                           ? <Badge tone="amber">منخفض</Badge>
                           : <Badge tone="green">متوفر</Badge>}
-                      </TD>
-                      {expiryTrackingEnabled && (
+                      </TD>}
+                      {expiryTrackingEnabled && visibleColumns.expiryStatus && (
                         <TD>
                           {!p.hasExpiry || !p.expiryDate
                             ? <span className="text-ink-faint text-xs">—</span>
@@ -649,7 +731,7 @@ export function InventoryPage() {
                             : <Badge tone="green">سليمة</Badge>}
                         </TD>
                       )}
-                      {canAdjustStock ? (
+                      {canAdjustStock && visibleColumns.actions ? (
                         <TD className="text-end">
                           <div className="inline-flex items-center gap-1">
                             <Button
@@ -900,6 +982,49 @@ export function InventoryPage() {
           )}
         </CardBody>
       </Card>
+
+      <Dialog
+        open={columnsDialogOpen}
+        onClose={() => setColumnsDialogOpen(false)}
+        title="تعديل أعمدة المخزون"
+        subtitle="اختر الأعمدة التي تريد إظهارها — سيتم حفظ اختيارك تلقائيًا"
+        width="md"
+        footer={<Button onClick={() => setColumnsDialogOpen(false)}>تم</Button>}
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => setAllInventoryColumns(true)}>
+              إظهار الكل
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setAllInventoryColumns(false)}>
+              إخفاء الكل
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => saveVisibleColumns(defaultInventoryColumns())}>
+              استعادة الافتراضي
+            </Button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {availableColumnOptions.map(({ key, label }) => (
+              <label
+                key={key}
+                className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
+                  visibleColumns[key]
+                    ? "border-brand-300 bg-brand-50/70 text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+                    : "border-line bg-surface text-ink-muted hover:bg-surface-muted"
+                }`}
+              >
+                <span className="text-sm font-semibold">{label}</span>
+                <input
+                  type="checkbox"
+                  checked={visibleColumns[key]}
+                  onChange={() => toggleInventoryColumn(key)}
+                  className="h-4 w-4 cursor-pointer rounded border-line accent-brand-600"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      </Dialog>
 
       <Dialog
         open={!!adjustTarget}

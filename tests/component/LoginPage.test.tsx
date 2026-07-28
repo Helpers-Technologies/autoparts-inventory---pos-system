@@ -182,14 +182,15 @@ describe("LoginPage — TC-COMP-LOGIN", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "نسيت اسم الدخول أو كلمة المرور؟ استخدم كودًا احتياطيًا",
+        name: "نسيت بيانات الدخول؟ استرد الحساب عبر 2FA أو كود احتياطي",
       })
     );
+    await user.click(screen.getByRole("tab", { name: "كود احتياطي" }));
     await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX-XXXX"), "ABCD-EFGH-JKLM-NPQR");
     await user.click(screen.getByRole("button", { name: "تحقق من الكود" }));
 
     expect(await screen.findByText("forgotten-owner")).toBeInTheDocument();
-    const modal = screen.getByRole("dialog", { name: "استرداد الحساب بكود احتياطي" });
+    const modal = screen.getByRole("dialog", { name: "استرداد الحساب عبر المصادقة الثنائية" });
     const passwordInputs = modal.querySelectorAll<HTMLInputElement>('input[type="password"]');
     await user.type(passwordInputs[0], "NewSecret1!");
     await user.type(passwordInputs[1], "NewSecret1!");
@@ -203,5 +204,48 @@ describe("LoginPage — TC-COMP-LOGIN", () => {
       )
     );
     await waitFor(() => expect(usernameInput()).toHaveValue("forgotten-owner"));
+  });
+
+  it("TC-COMP-LOGIN-008 — authenticator code can start account recovery while preserving 2FA", async () => {
+    const beginAccountRecoveryWithTotp = vi.fn().mockResolvedValue({
+      ok: true,
+      challengeId: "totp-recovery-1",
+      username: "owner-with-2fa",
+    });
+    const completeAccountRecovery = vi.fn().mockResolvedValue({
+      ok: true,
+      username: "owner-with-2fa",
+      mfaReset: false,
+    });
+    (window as unknown as { desktopAPI: unknown }).desktopAPI = {
+      auth: { beginAccountRecoveryWithTotp, completeAccountRecovery },
+    };
+    const { user } = setup();
+
+    await user.click(screen.getByRole("button", {
+      name: "نسيت بيانات الدخول؟ استرد الحساب عبر 2FA أو كود احتياطي",
+    }));
+    await user.type(screen.getByPlaceholderText("اسم الدخول"), "owner-with-2fa");
+    await user.type(screen.getByPlaceholderText("000000"), "123456");
+    await user.click(screen.getByRole("button", { name: "تحقق عبر 2FA" }));
+
+    await waitFor(() =>
+      expect(beginAccountRecoveryWithTotp).toHaveBeenCalledWith("owner-with-2fa", "123456")
+    );
+    expect(await screen.findByText("owner-with-2fa")).toBeInTheDocument();
+
+    const modal = screen.getByRole("dialog", { name: "استرداد الحساب عبر المصادقة الثنائية" });
+    const passwordInputs = modal.querySelectorAll<HTMLInputElement>('input[type="password"]');
+    await user.type(passwordInputs[0], "NewSecret1!");
+    await user.type(passwordInputs[1], "NewSecret1!");
+    await user.click(screen.getByRole("button", { name: "تعيين كلمة المرور واسترداد الحساب" }));
+
+    await waitFor(() =>
+      expect(completeAccountRecovery).toHaveBeenCalledWith(
+        "totp-recovery-1",
+        "NewSecret1!",
+        false
+      )
+    );
   });
 });

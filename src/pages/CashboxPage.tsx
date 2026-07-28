@@ -29,7 +29,7 @@ function monthValue(d: Date | string): string {
 }
 
 export function CashboxPage() {
-  const { suppliers, drivers } = useCatalog();
+  const { suppliers, drivers, offlineEmployees, offlineTransactions, addOfflineTransaction } = useCatalog();
   const { users } = useUsers();
   const { cashEntries, salesInvoices, purchaseInvoices, addCashEntry, currentCashBalance } = useInvoicing();
   const { supplierBalance } = useReporting();
@@ -47,9 +47,10 @@ export function CashboxPage() {
   const [desc, setDesc] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
 
-  const [payoutTarget, setPayoutTarget] = useState<"general" | "driver" | "employee">("general");
+  const [payoutTarget, setPayoutTarget] = useState<"general" | "driver" | "employee" | "offline">("general");
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedOfflineId, setSelectedOfflineId] = useState("");
 
   const [payoutCategory, setPayoutCategory] = useState<"salary" | "bonus" | "advance" | "penalty" | "calculated">("salary");
   const [payoutMonth, setPayoutMonth] = useState(() => monthValue(new Date()));
@@ -65,6 +66,7 @@ export function CashboxPage() {
     setPayoutTarget("general");
     setSelectedDriverId("");
     setSelectedUserId("");
+    setSelectedOfflineId("");
     setPayoutCategory("salary");
     setPayoutMonth(monthValue(new Date()));
     setBaseSalaryInput(0);
@@ -83,6 +85,26 @@ export function CashboxPage() {
     [users, selectedUserId]
   );
 
+  const selectedDriver = useMemo(
+    () => drivers.find((driver) => driver.id === selectedDriverId) || null,
+    [drivers, selectedDriverId],
+  );
+  const selectedOfflineEmployee = useMemo(
+    () => offlineEmployees.find((employee) => employee.id === selectedOfflineId) || null,
+    [offlineEmployees, selectedOfflineId],
+  );
+
+  const payrollReference = payoutTarget === "employee" && selectedUserId
+    ? `payroll:user:${selectedUserId}:${payoutMonth}`
+    : payoutTarget === "driver" && selectedDriverId
+      ? `payroll:driver:${selectedDriverId}:${payoutMonth}`
+      : payoutTarget === "offline" && selectedOfflineId
+        ? `payroll:offline:${selectedOfflineId}:${payoutMonth}`
+        : undefined;
+  const alreadyPaid = payrollReference
+    ? Math.abs(cashEntries.filter((entry) => entry.referenceId === payrollReference && entry.amount < 0).reduce((sum, entry) => sum + entry.amount, 0))
+    : 0;
+
   const employeeMonthlyStats = useMemo(() => {
     if (!selectedEmployee) return null;
     const totalSalesMonth = salesInvoices
@@ -96,33 +118,57 @@ export function CashboxPage() {
     const penalty = currentConfig.penalty ?? 0;
     const advance = currentConfig.advance ?? 0;
     const commission = Math.round(((totalSalesMonth * commissionPct) / 100) * 100) / 100;
-    const netPayable = Math.max(0, baseSalary + bonus + commission - penalty - advance);
+    const netPayable = Math.max(0, baseSalary + bonus + commission - penalty - advance - alreadyPaid);
 
     return { baseSalary, bonus, penalty, advance, commission, netPayable };
-  }, [selectedEmployee, salesInvoices, payoutMonth]);
+  }, [selectedEmployee, salesInvoices, payoutMonth, alreadyPaid]);
+
+  const driverMonthlyStats = useMemo(() => {
+    if (!selectedDriver) return null;
+    const config = selectedDriver.monthlyConfigs?.[payoutMonth] ?? {};
+    const baseSalary = selectedDriver.salary ?? 0;
+    const bonus = config.bonus ?? 0;
+    const penalty = config.penalty ?? 0;
+    const advance = config.advance ?? 0;
+    return { baseSalary, bonus, penalty, advance, commission: 0, netPayable: Math.max(0, baseSalary + bonus - penalty - advance - alreadyPaid) };
+  }, [selectedDriver, payoutMonth, alreadyPaid]);
+
+  const offlineMonthlyStats = useMemo(() => {
+    if (!selectedOfflineEmployee) return null;
+    const tx = offlineTransactions.filter((item) => item.employeeId === selectedOfflineEmployee.id && item.month === payoutMonth);
+    const sum = (type: "incentive" | "deduction" | "advance") => tx.filter((item) => item.type === type).reduce((total, item) => total + item.amount, 0);
+    const baseSalary = selectedOfflineEmployee.basicSalary;
+    const bonus = sum("incentive");
+    const penalty = sum("deduction");
+    const advance = sum("advance");
+    return { baseSalary, bonus, penalty, advance, commission: 0, netPayable: Math.max(0, baseSalary + bonus - penalty - advance - alreadyPaid) };
+  }, [selectedOfflineEmployee, offlineTransactions, payoutMonth, alreadyPaid]);
+
+  const selectedPayrollStats = payoutTarget === "employee" ? employeeMonthlyStats : payoutTarget === "driver" ? driverMonthlyStats : payoutTarget === "offline" ? offlineMonthlyStats : null;
 
   // For an employee, dues come straight from the system record for the chosen month.
   useEffect(() => {
-    if (payoutTarget === "employee" && employeeMonthlyStats) {
-      setBaseSalaryInput(employeeMonthlyStats.baseSalary);
-      setBonusInput(employeeMonthlyStats.bonus);
-      setPenaltyInput(employeeMonthlyStats.penalty);
-      setAdvanceInput(employeeMonthlyStats.advance);
-      setCommissionEarned(employeeMonthlyStats.commission);
+    if (selectedPayrollStats) {
+      setBaseSalaryInput(selectedPayrollStats.baseSalary);
+      setBonusInput(selectedPayrollStats.bonus);
+      setPenaltyInput(selectedPayrollStats.penalty);
+      setAdvanceInput(selectedPayrollStats.advance);
+      setCommissionEarned(selectedPayrollStats.commission);
+      setPayoutCategory("calculated");
     }
-  }, [payoutTarget, employeeMonthlyStats]);
+  }, [selectedPayrollStats]);
 
-  const calculatedNet = Math.max(0, baseSalaryInput + bonusInput + commissionEarned - penaltyInput - advanceInput);
+  const calculatedNet = selectedPayrollStats?.netPayable ?? Math.max(0, baseSalaryInput + bonusInput + commissionEarned - penaltyInput - advanceInput);
 
   // Compute the amount/description for the current selection whenever any relevant input changes.
   useEffect(() => {
-    if (!(entryType === "manual-remove" && (payoutTarget === "driver" || payoutTarget === "employee"))) return;
+    if (!(entryType === "manual-remove" && payoutTarget !== "general")) return;
 
     const targetLabel = payoutTarget === "driver" ? "السائق" : "الموظف";
     const name =
       payoutTarget === "driver"
-        ? drivers.find((d) => d.id === selectedDriverId)?.name || ""
-        : selectedEmployee?.name || "";
+        ? selectedDriver?.name || ""
+        : payoutTarget === "offline" ? selectedOfflineEmployee?.name || "" : selectedEmployee?.name || "";
 
     if (payoutCategory === "salary") {
       setAmount(baseSalaryInput);
@@ -167,6 +213,8 @@ export function CashboxPage() {
     calculatedNet,
     selectedDriverId,
     selectedEmployee,
+    selectedDriver,
+    selectedOfflineEmployee,
     drivers,
   ]);
 
@@ -189,12 +237,17 @@ export function CashboxPage() {
 
   const employeeOptions = useMemo(
     () =>
-      users.map((u) => ({
+      users.filter((u) => u.role !== "owner").map((u) => ({
         value: u.id,
         label: `${u.name} (${u.username}) ${u.monthlySalary ? `(المرتب: ${formatCurrency(u.monthlySalary, settings.currency)})` : ""}`,
         searchText: `${u.name} ${u.username}`,
       })),
     [users, settings.currency]
+  );
+
+  const offlineEmployeeOptions = useMemo(
+    () => offlineEmployees.filter((employee) => !employee.archived).map((employee) => ({ value: employee.id, label: `${employee.name} ${employee.jobTitle ? `(${employee.jobTitle})` : ""}`, searchText: `${employee.name} ${employee.jobTitle ?? ""} ${employee.phone ?? ""}` })),
+    [offlineEmployees],
   );
 
   const [openBalOpen, setOpenBalOpen] = useState(false);
@@ -241,6 +294,10 @@ export function CashboxPage() {
   );
 
   function submit() {
+    if (entryType === "manual-remove" && payoutTarget !== "general" && !payrollReference) {
+      toast.error("اختر الموظف أولًا");
+      return;
+    }
     if (amount <= 0) {
       toast.error("المبلغ يجب أن يكون أكبر من صفر");
       return;
@@ -267,9 +324,13 @@ export function CashboxPage() {
       type: entryType,
       amount: signed,
       description: desc.trim(),
+      referenceId: payrollReference,
       date: todayISO(),
       paymentMethod,
     });
+    if (payoutTarget === "offline" && selectedOfflineId) {
+      addOfflineTransaction({ employeeId: selectedOfflineId, type: "salary", amount, month: payoutMonth, date: todayISO(), notes: desc.trim() });
+    }
     toast.success(entryType === "manual-add" ? "تم إضافة نقدية" : "تم خصم نقدية");
     setOpen(false);
     setAmount(0);
@@ -315,6 +376,7 @@ export function CashboxPage() {
                     setPayoutTarget("general");
                     setSelectedDriverId("");
                     setSelectedUserId("");
+                    setSelectedOfflineId("");
                     setOpen(true);
                   }}
                 >
@@ -503,10 +565,11 @@ export function CashboxPage() {
               <Select
                 value={payoutTarget}
                 onChange={(e) => {
-                  const val = e.target.value as "general" | "driver" | "employee";
+                  const val = e.target.value as "general" | "driver" | "employee" | "offline";
                   setPayoutTarget(val);
                   setSelectedDriverId("");
                   setSelectedUserId("");
+                  setSelectedOfflineId("");
                   setPayoutMonth(monthValue(new Date()));
                   setBaseSalaryInput(0);
                   setBonusInput(0);
@@ -519,7 +582,8 @@ export function CashboxPage() {
               >
                 <option value="general">مصروفات عامة / نثرية</option>
                 {driversEnabled && <option value="driver">صرف مرتب / مستحقات سائق</option>}
-                <option value="employee">صرف مرتب / مستحقات موظف</option>
+                <option value="employee">صرف مستحقات مستخدم نظام</option>
+                <option value="offline">صرف مستحقات موظف بدون حساب</option>
               </Select>
             </Field>
           )}
@@ -528,15 +592,7 @@ export function CashboxPage() {
             <Field label="اختر السائق">
               <SearchableSelect
                 value={selectedDriverId}
-                onChange={(dId) => {
-                  setSelectedDriverId(dId);
-                  const drv = drivers.find((d) => d.id === dId);
-                  setBaseSalaryInput(drv?.salary || 0);
-                  setBonusInput(0);
-                  setPenaltyInput(0);
-                  setAdvanceInput(0);
-                  setCommissionEarned(0);
-                }}
+                onChange={setSelectedDriverId}
                 options={driverOptions}
                 placeholder="-- اختر السائق --"
                 searchPlaceholder="ابحث باسم السائق أو رقم الهاتف..."
@@ -556,7 +612,19 @@ export function CashboxPage() {
             </Field>
           )}
 
-          {entryType === "manual-remove" && payoutTarget === "employee" && selectedUserId && (
+          {entryType === "manual-remove" && payoutTarget === "offline" && (
+            <Field label="اختر الموظف">
+              <SearchableSelect
+                value={selectedOfflineId}
+                onChange={setSelectedOfflineId}
+                options={offlineEmployeeOptions}
+                placeholder="-- اختر الموظف بدون حساب --"
+                searchPlaceholder="ابحث باسم الموظف أو الوظيفة..."
+              />
+            </Field>
+          )}
+
+          {entryType === "manual-remove" && payoutTarget !== "general" && (selectedUserId || selectedDriverId || selectedOfflineId) && (
             <Field label="شهر الاستحقاق">
               <Input
                 type="month"
@@ -566,98 +634,20 @@ export function CashboxPage() {
             </Field>
           )}
 
-          {entryType === "manual-remove" && (payoutTarget === "driver" || payoutTarget === "employee") && (
+          {entryType === "manual-remove" && payoutTarget !== "general" && selectedPayrollStats && (
             <>
-              <Field label="نوع الاستحقاق / الحركة المالي">
-                <Select
-                  value={payoutCategory}
-                  onChange={(e) => setPayoutCategory(e.target.value as "salary" | "bonus" | "advance" | "penalty" | "calculated")}
-                >
-                  <option value="salary">صرف مرتب شهري عادي</option>
-                  <option value="bonus">صرف مكافأة / بونص (+)</option>
-                  <option value="advance">صرف سُلفة مالية (-)</option>
-                  <option value="penalty">تسجيل خصم / جَزاء (-)</option>
-                  <option value="calculated">حساب وصرف صافي المستحقات (تفصيلي)</option>
-                </Select>
-              </Field>
-
-              {payoutCategory === "calculated" && payoutTarget === "employee" && (
-                <div className="p-3 rounded-lg border border-line bg-surface-muted space-y-3">
-                  <div className="text-xs font-semibold text-ink">
-                    الأرقام مسحوبة تلقائياً من سجل الموظف لشهر {payoutMonth} (مرتب + عمولة + بونص - خصم - سُلفة):
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <StatRow label="المرتب الأساسي" value={baseSalaryInput} tone="neutral" settings={settings} />
-                    <StatRow label="العمولة المستحقة (+)" value={commissionEarned} tone="positive" settings={settings} />
-                    <StatRow label="المكافأة / البونص (+)" value={bonusInput} tone="positive" settings={settings} />
-                    <StatRow label="الخصم / الجزاء (-)" value={penaltyInput} tone="negative" settings={settings} />
-                    <StatRow label="السُلفة (-)" value={advanceInput} tone="negative" settings={settings} />
-                    <StatRow label="صافي المستحق الكلي" value={calculatedNet} tone="total" settings={settings} />
-                  </div>
-
-                  <Field label="طريقة الصرف">
-                    <Select value={payoutMode} onChange={(e) => setPayoutMode(e.target.value as "full" | "partial")}>
-                      <option value="full">صرف كامل المستحقات</option>
-                      <option value="partial">صرف جزء من المستحقات</option>
-                    </Select>
-                  </Field>
-
-                  {payoutMode === "partial" && (
-                    <Field label="المبلغ المطلوب صرفه الآن">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={calculatedNet}
-                        value={partialAmount || ""}
-                        onChange={(e) => setPartialAmount(Math.min(Number(e.target.value), calculatedNet))}
-                      />
-                    </Field>
-                  )}
+              <div className="p-3 rounded-lg border border-brand-300/60 bg-brand-50/50 dark:bg-brand-500/10 space-y-3">
+                <div className="text-xs font-semibold text-ink">المبلغ محسوب تلقائيًا من ملف الموظف لشهر {payoutMonth} ولا يمكن تعديله من الخزينة:</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <StatRow label="المرتب الأساسي" value={baseSalaryInput} tone="neutral" settings={settings} />
+                  <StatRow label="العمولة (+)" value={commissionEarned} tone="positive" settings={settings} />
+                  <StatRow label="البونص (+)" value={bonusInput} tone="positive" settings={settings} />
+                  <StatRow label="الخصم (-)" value={penaltyInput} tone="negative" settings={settings} />
+                  <StatRow label="السُلفة (-)" value={advanceInput} tone="negative" settings={settings} />
+                  <StatRow label="تم صرفه سابقًا" value={alreadyPaid} tone="negative" settings={settings} />
+                  <StatRow label="المتبقي للصرف" value={calculatedNet} tone="total" settings={settings} />
                 </div>
-              )}
-
-              {payoutCategory === "calculated" && payoutTarget === "driver" && (
-                <div className="p-3 rounded-lg border border-line bg-surface-muted space-y-3">
-                  <div className="text-xs font-semibold text-ink">حساب صافي المستحق (مرتب + بونص - خصم - سُلفة):</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="المرتب الأساسي">
-                      <Input type="number" min={0} value={baseSalaryInput || ""} onChange={(e) => setBaseSalaryInput(Number(e.target.value))} />
-                    </Field>
-                    <Field label="المكافأة / البونص (+)">
-                      <Input type="number" min={0} value={bonusInput || ""} onChange={(e) => setBonusInput(Number(e.target.value))} />
-                    </Field>
-                    <Field label="الخصم / الجزاء (-)">
-                      <Input type="number" min={0} value={penaltyInput || ""} onChange={(e) => setPenaltyInput(Number(e.target.value))} />
-                    </Field>
-                    <Field label="السُلفة (-)">
-                      <Input type="number" min={0} value={advanceInput || ""} onChange={(e) => setAdvanceInput(Number(e.target.value))} />
-                    </Field>
-                  </div>
-
-                  <Field label="طريقة الصرف">
-                    <Select value={payoutMode} onChange={(e) => setPayoutMode(e.target.value as "full" | "partial")}>
-                      <option value="full">صرف كامل المستحقات</option>
-                      <option value="partial">صرف جزء من المستحقات</option>
-                    </Select>
-                  </Field>
-
-                  {payoutMode === "partial" && (
-                    <Field label="المبلغ المطلوب صرفه الآن">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={calculatedNet}
-                        value={partialAmount || ""}
-                        onChange={(e) => setPartialAmount(Math.min(Number(e.target.value), calculatedNet))}
-                      />
-                    </Field>
-                  )}
-
-                  <div className="text-xs font-bold text-brand-600 dark:text-brand-400 text-end pt-1">
-                    صافي المبلغ المصروف: {formatCurrency(calculatedNet, settings.currency)}
-                  </div>
-                </div>
-              )}
+              </div>
             </>
           )}
 
@@ -668,6 +658,8 @@ export function CashboxPage() {
               step="0.01"
               value={amount || ""}
               onChange={(e) => setAmount(Number(e.target.value))}
+              readOnly={entryType === "manual-remove" && payoutTarget !== "general"}
+              className={entryType === "manual-remove" && payoutTarget !== "general" ? "cursor-not-allowed bg-surface-muted font-bold text-brand-600" : undefined}
             />
           </Field>
           <Field label="طريقة الدفع">

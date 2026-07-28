@@ -33,6 +33,22 @@ contextBridge.exposeInMainWorld("desktopAPI", {
     activate: (serial) => ipcRenderer.invoke("branch-license:activate", serial),
     createBranch: (input) => ipcRenderer.invoke("branch-license:create-branch", input),
   },
+  integrations: {
+    bosta: {
+      getConfig: () => ipcRenderer.invoke("integrations:bosta:get-config"),
+      saveConfig: (config) => ipcRenderer.invoke("integrations:bosta:save-config", config),
+      testConnection: () => ipcRenderer.invoke("integrations:bosta:test"),
+      createDelivery: (payload) => ipcRenderer.invoke("integrations:bosta:create-delivery", payload),
+      trackDelivery: (reference) => ipcRenderer.invoke("integrations:bosta:track-delivery", reference),
+      getCities: () => ipcRenderer.invoke("integrations:bosta:cities"),
+      getDistricts: (cityId) => ipcRenderer.invoke("integrations:bosta:districts", cityId),
+      estimatePrice: (payload) => ipcRenderer.invoke("integrations:bosta:estimate-price", payload),
+      getPricingPlan: (payload) => ipcRenderer.invoke("integrations:bosta:pricing-plan", payload),
+      testWebhook: (payload) => ipcRenderer.invoke("integrations:bosta:test-webhook", payload),
+      getWebhookEvents: () => ipcRenderer.invoke("integrations:bosta:webhook-events"),
+      acknowledgeWebhookEvents: (ids) => ipcRenderer.invoke("integrations:bosta:ack-webhook-events", ids),
+    },
+  },
   setup: {
     createOwner: (username, password) =>
       ipcRenderer.invoke("setup:create-owner", { username, password }),
@@ -47,6 +63,8 @@ contextBridge.exposeInMainWorld("desktopAPI", {
       ipcRenderer.invoke("auth:verify-second-factor", { challengeId, code }),
     beginAccountRecovery: (recoveryCode) =>
       ipcRenderer.invoke("auth:begin-account-recovery", { recoveryCode }),
+    beginAccountRecoveryWithTotp: (username, code) =>
+      ipcRenderer.invoke("auth:begin-account-recovery-with-totp", { username, code }),
     completeAccountRecovery: (challengeId, newPassword, resetMfa) =>
       ipcRenderer.invoke("auth:complete-account-recovery", {
         challengeId,

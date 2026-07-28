@@ -44,6 +44,8 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { ReturnsPage } from "./pages/ReturnsPage";
 import { DriversPage } from "./pages/DriversPage";
+import { DriverDetailPage } from "./pages/DriverDetailPage";
+import { DriverStatementPrintPage } from "./pages/DriverStatementPrintPage";
 import { EmployeeProfilePage } from "./pages/EmployeeProfilePage";
 import { HelpPage } from "./pages/HelpPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
@@ -62,6 +64,9 @@ import { BranchesPage } from "./pages/BranchesPage";
 import { PricingRulesPage } from "./pages/PricingRulesPage";
 import { MarketingPage } from "./pages/MarketingPage";
 import { ShiftsPage } from "./pages/ShiftsPage";
+import { EmployeesPage } from "./pages/EmployeesPage";
+import { ShippingManagementPage } from "./pages/ShippingManagementPage";
+import { IntegrationsPage } from "./pages/IntegrationsPage";
 
 export default function App() {
   const { auth, isDesktop, licenseStatus, ownerExists, ownerCheckPending } = useAuth();
@@ -102,6 +107,7 @@ export default function App() {
       <Route path="/purchases/:id/print" element={<PurchaseInvoicePrintPage />} />
       <Route path="/customers/:id/statement" element={<CustomerStatementPrintPage />} />
       <Route path="/suppliers/:id/statement" element={<SupplierStatementPrintPage />} />
+      <Route path="/drivers/:id/statement" element={<DriverStatementPrintPage />} />
       <Route path="/quotations/:id/print" element={<QuotationPrintPage />} />
       <Route path="/products/:id/barcode/print" element={<ProductBarcodePrintPage />} />
 
@@ -298,6 +304,14 @@ export default function App() {
         }
       />
       <Route
+        path="/shipping"
+        element={
+          <ProtectedShell permission="salesInvoices" feature="shippingManagement">
+            <ShippingManagementPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
         path="/sales/new"
         element={
           <ProtectedShell permission="salesInvoices" permissionAction="add" feature="salesInvoices">
@@ -402,6 +416,22 @@ export default function App() {
         }
       />
       <Route
+        path="/drivers/:id"
+        element={
+          <ProtectedShell permission="drivers" feature="drivers">
+            <DriverDetailPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
+        path="/employees"
+        element={
+          <ProtectedShell ownerOnly feature="employeePayroll">
+            <EmployeesPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
         path="/cashbox"
         element={
           <ProtectedShell permission="cashbox" feature="cashbox">
@@ -467,6 +497,14 @@ export default function App() {
         }
       />
       <Route
+        path="/integrations"
+        element={
+          <ProtectedShell ownerOnly feature="bostaIntegration">
+            <IntegrationsPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
         path="/users"
         element={
           <ProtectedShell ownerOnly>
@@ -485,7 +523,7 @@ export default function App() {
       <Route
         path="/employees/:id"
         element={
-          <ProtectedShell>
+          <ProtectedShell feature="employeePayroll">
             <EmployeeProfilePage />
           </ProtectedShell>
         }
@@ -493,7 +531,7 @@ export default function App() {
       <Route
         path="/users/:id"
         element={
-          <ProtectedShell>
+          <ProtectedShell feature="employeePayroll">
             <EmployeeProfilePage />
           </ProtectedShell>
         }

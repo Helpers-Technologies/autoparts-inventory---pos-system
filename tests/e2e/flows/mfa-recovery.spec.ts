@@ -13,7 +13,7 @@ const OWNER_USERNAME = "mfa_owner";
 const OWNER_PASSWORD = "Owner!Mfa26";
 const RECOVERED_PASSWORD = "Recovered!Mfa26";
 
-test("MFA enrollment, two-step login, and password recovery with a backup code", async () => {
+test("MFA enrollment, two-step login, and password recovery with Authenticator", async () => {
   const handle = await launchElectron();
   try {
     const { window } = handle;
@@ -25,13 +25,13 @@ test("MFA enrollment, two-step login, and password recovery with a backup code",
     if (await whatsNewButton.isVisible().catch(() => false)) await whatsNewButton.click();
 
     await window.evaluate(() => {
-      window.location.hash = "#/settings";
+      window.location.hash = "/settings";
     });
     await expect(window.getByRole("heading", { name: "الإعدادات" }).first()).toBeVisible();
 
     const securityCard = window.getByText("المصادقة الثنائية والأكواد الاحتياطية").first();
     await expect(securityCard).toBeVisible();
-    await window.getByRole("button", { name: "تفعيل المصادقة الثنائية" }).click();
+    await window.getByRole("button", { name: "تفعيل", exact: true }).click();
 
     const enrollmentDialog = window.getByRole("dialog");
     await enrollmentDialog.locator('input[type="password"]').fill(OWNER_PASSWORD);
@@ -70,17 +70,21 @@ test("MFA enrollment, two-step login, and password recovery with a backup code",
     await window.getByRole("button", { name: "تسجيل الخروج" }).click();
     await window
       .getByRole("button", {
-        name: "نسيت اسم الدخول أو كلمة المرور؟ استخدم كودًا احتياطيًا",
+        name: "نسيت بيانات الدخول؟ استرد الحساب عبر 2FA أو كود احتياطي",
       })
       .click();
-    const recoveryDialog = window.getByRole("dialog", { name: "استرداد الحساب بكود احتياطي" });
-    await recoveryDialog.getByPlaceholder("XXXX-XXXX-XXXX-XXXX").fill(recoveryCode);
-    await recoveryDialog.getByRole("button", { name: "تحقق من الكود" }).click();
+    const recoveryDialog = window.getByRole("dialog", { name: "استرداد الحساب عبر المصادقة الثنائية" });
+    await recoveryDialog.getByPlaceholder("اسم الدخول").fill(OWNER_USERNAME);
+    const waitForFreshRecoveryCounter = 30_000 - (Date.now() % 30_000) + 400;
+    await window.waitForTimeout(waitForFreshRecoveryCounter);
+    await recoveryDialog.getByPlaceholder("000000").fill(generateTotp(secret));
+    await recoveryDialog.getByRole("button", { name: "تحقق عبر 2FA" }).click();
     await expect(recoveryDialog.getByText(OWNER_USERNAME)).toBeVisible();
 
     const newPasswordInputs = recoveryDialog.locator('input[type="password"]');
     await newPasswordInputs.nth(0).fill(RECOVERED_PASSWORD);
     await newPasswordInputs.nth(1).fill(RECOVERED_PASSWORD);
+    await recoveryDialog.getByText("إلغاء إعداد 2FA القديم").click();
     await recoveryDialog
       .getByRole("button", { name: "تعيين كلمة المرور واسترداد الحساب" })
       .click();

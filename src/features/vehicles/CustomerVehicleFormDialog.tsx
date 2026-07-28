@@ -74,7 +74,7 @@ export function CustomerVehicleFormDialog({
           ? {
               customerId: editingVehicle.customerId,
               vin: editingVehicle.vin ?? "",
-              plateNumber: editingVehicle.plateNumber ?? "",
+              plateNumber: formatEgyptianPlateNumber(editingVehicle.plateNumber ?? ""),
               makeId: editingVehicle.makeId,
               modelId: editingVehicle.modelId ?? "",
               generationId: editingVehicle.generationId ?? "",
@@ -123,6 +123,11 @@ export function CustomerVehicleFormDialog({
     }
     if (draft.vin && !isValidVin(draft.vin)) {
       toast.error("رقم الشاسيه غير مكتمل", "رقم الشاسيه القياسي يجب أن يكون 17 حرفًا ورقمًا.");
+      return;
+    }
+    const plateValidation = validateEgyptianPlateNumber(draft.plateNumber);
+    if (!plateValidation.isValid) {
+      toast.error("رقم اللوحة غير صحيح", plateValidation.message);
       return;
     }
     const duplicate = pro.customerVehicles.some(
@@ -207,8 +212,14 @@ export function CustomerVehicleFormDialog({
           <Input
             value={draft.plateNumber}
             onChange={(event) => setDraft({ ...draft, plateNumber: formatEgyptianPlateNumber(event.target.value) })}
+            onKeyDown={(event) => {
+              if (/^[A-Za-z]$/.test(event.key)) event.preventDefault();
+            }}
             placeholder="أ ب ج 1 2 3 4"
             className="font-semibold tracking-wider text-center"
+            dir="rtl"
+            lang="ar"
+            autoComplete="off"
           />
         </Field>
         <Field

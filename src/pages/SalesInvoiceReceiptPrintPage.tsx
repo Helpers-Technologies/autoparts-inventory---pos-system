@@ -6,7 +6,6 @@ import { useReporting } from "../store/ReportingContext";
 import { ReceiptPrintLayout } from "../features/invoices/ReceiptPrintLayout";
 import { hasPermission } from "../lib/permissions";
 import { resolvePaymentLabel } from "../lib/format";
-import { salesInvoicePriceTypeLabel } from "../lib/salesPrice";
 
 export function SalesInvoiceReceiptPrintPage() {
   const { id } = useParams();
@@ -52,14 +51,17 @@ export function SalesInvoiceReceiptPrintPage() {
       remaining={inv.remaining}
       notes={inv.notes}
       paymentLabel={paymentLabel}
-      priceTypeLabel={salesInvoicePriceTypeLabel(inv)}
       customerBalance={totalBalance}
       customerName={inv.customerName}
       overpayment={inv.overpayment}
       cashierName={cashierName}
       vehicleLabel={inv.vehicleLabel}
       branchName={inv.branchName}
-      priceTierName={inv.priceTierName}
+      collectOnDelivery={inv.collectOnDelivery}
+      deliveryMethod={inv.deliveryMethod}
+      deliveryAddress={inv.deliveryAddress}
+      shippingProviderName={inv.shippingProviderName}
+      shippingFee={inv.shippingFee}
     />
   );
 }
@@ -69,7 +71,10 @@ function salesPaymentDisplay(invoice: {
   paymentMethod?: string;
   paymentMethodLabel?: string;
   amountReceived: number;
+  collectOnDelivery?: boolean;
 }) {
+  if (invoice.collectOnDelivery) return "دفع عند الاستلام";
+
   const methodLabel =
     invoice.paymentMethod === "other" && invoice.paymentMethodLabel
       ? invoice.paymentMethodLabel

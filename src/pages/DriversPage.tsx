@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Eye, Phone, Plus, Receipt, Settings2, Trash2, Truck } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody } from "../components/ui/Card";
@@ -25,6 +25,7 @@ export function DriversPage() {
   const { currentUser } = useAuth();
   const { settings } = useSettings();
   const toast = useToast();
+  const navigate = useNavigate();
   const canAddDriver = hasPermission(currentUser, "drivers", "add");
   const canEditDriver = hasPermission(currentUser, "drivers", "edit");
   const canDeleteDriver = hasPermission(currentUser, "drivers", "delete");
@@ -32,7 +33,6 @@ export function DriversPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Driver | null>(null);
   const [delId, setDelId] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<Driver | null>(null);
 
   function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -114,7 +114,7 @@ export function DriversPage() {
                     <TR
                       key={d.id}
                       className="cursor-pointer hover:bg-surface-muted"
-                      onClick={() => setViewing(d)}
+                      onClick={() => navigate(`/drivers/${d.id}`)}
                     >
                       <TD className="font-medium">{d.name}</TD>
                       <TD>{d.phone || "—"}</TD>
@@ -129,7 +129,7 @@ export function DriversPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setViewing(d);
+                              navigate(`/drivers/${d.id}`);
                             }}
                             className="p-1.5 text-ink-faint hover:text-brand-600 transition-colors"
                             title="عرض التفاصيل"
@@ -215,20 +215,6 @@ export function DriversPage() {
         </form>
       </Dialog>
 
-      <DriverDetailsDrawer
-        driver={viewing}
-        invoices={salesInvoices}
-        currency={settings.currency}
-        canEdit={canEditDriver}
-        onClose={() => setViewing(null)}
-        onEdit={(driver) => {
-          if (!canEditDriver) return;
-          setViewing(null);
-          setEditing(driver);
-          setOpen(true);
-        }}
-      />
-
       <ConfirmDialog
         open={!!delId}
         onClose={() => setDelId(null)}
@@ -251,7 +237,7 @@ export function DriversPage() {
   );
 }
 
-function DriverDetailsDrawer({
+export function DriverDetailsDrawer({
   driver,
   invoices,
   currency,

@@ -14,11 +14,14 @@ let LICENSE_PUBLIC_KEY;
 try {
   ({ LICENSE_PUBLIC_KEY } = require("./license-public-key.cjs"));
 } catch (e) {
-  if (e && (e.code === "MODULE_NOT_FOUND" || e.code === "ERR_MODULE_NOT_FOUND")) {
+  if (
+    e &&
+    (e.code === "MODULE_NOT_FOUND" || e.code === "ERR_MODULE_NOT_FOUND")
+  ) {
     console.error(
       "[electron] Missing `electron/license-public-key.cjs`.\n" +
         "Copy `electron/license-public-key.example.cjs` to `electron/license-public-key.cjs` " +
-        "and replace the PEM with your deployment Ed25519 public key (team-only; do not commit)."
+        "and replace the PEM with your deployment Ed25519 public key (team-only; do not commit).",
     );
   }
   throw e;
@@ -30,22 +33,28 @@ let LICENSE_HEARTBEAT_URL = null;
 try {
   ({ LICENSE_HEARTBEAT_URL } = require("./license-heartbeat-url.cjs"));
 } catch (e) {
-  if (!e || (e.code !== "MODULE_NOT_FOUND" && e.code !== "ERR_MODULE_NOT_FOUND")) throw e;
+  if (
+    !e ||
+    (e.code !== "MODULE_NOT_FOUND" && e.code !== "ERR_MODULE_NOT_FOUND")
+  )
+    throw e;
 }
 
 if (!electronRuntime.app) {
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  const electronPath = typeof electronRuntime === "string" ? electronRuntime : process.execPath;
+  const electronPath =
+    typeof electronRuntime === "string" ? electronRuntime : process.execPath;
   const result = childProcess.spawnSync(
     electronPath,
     [path.join(__dirname, ".."), ...process.argv.slice(2)],
-    { env, stdio: "inherit" }
+    { env, stdio: "inherit" },
   );
   process.exit(result.status ?? 0);
 }
 
-const { app, BrowserWindow, dialog, ipcMain, shell, session } = electronRuntime;
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, session } =
+  electronRuntime;
 const internalPrintWebContents = new Set();
 
 const APP_ID = "com.helperstechnologies.autoparts";
@@ -97,7 +106,10 @@ const HW_E2E = process.env.HW_E2E === "1" && !app.isPackaged;
   if (!/^[a-f0-9]{64}$/.test(expected)) return;
   let actual;
   try {
-    actual = crypto.createHash("sha256").update(fs.readFileSync(asarPath)).digest("hex");
+    actual = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(asarPath))
+      .digest("hex");
   } catch {
     return; // couldn't read it — fail open rather than block launch on a transient FS error
   }
@@ -105,7 +117,7 @@ const HW_E2E = process.env.HW_E2E === "1" && !app.isPackaged;
     dialog.showErrorBox(
       "فشل التحقق من سلامة التطبيق",
       "ملفات التطبيق الأساسية تم تعديلها أو تلفها. أعد تثبيت البرنامج من مصدر رسمي.\n\n" +
-        "App integrity check failed — app.asar does not match its expected hash. Reinstall from an official source."
+        "App integrity check failed — app.asar does not match its expected hash. Reinstall from an official source.",
     );
     app.exit(1);
     process.exit(1);
@@ -144,6 +156,11 @@ const BRANCH_ACTIVATIONS_KEY = "__branch_license_activations";
 const BRANCH_LEGACY_SLOTS_KEY = "__branch_license_legacy_slots";
 const BRANCHES_STORAGE_KEY = `${STORE_PREFIX}branches`;
 const AUTH_STATE_KEY = `${STORE_PREFIX}auth`;
+const BOSTA_CONFIG_KEY = "__integration_bosta_config";
+const BOSTA_API_KEY = "__integration_bosta_api_key";
+const BOSTA_WEBHOOK_HEADER_VALUE = "__integration_bosta_webhook_header_value";
+const BOSTA_WEBHOOK_POLL_TOKEN = "__integration_bosta_webhook_poll_token";
+const BOSTA_API_BASE = "https://app.bosta.co/api/v2";
 
 // ── SECURITY: Login brute-force protection ──────────────────────────────
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -153,7 +170,12 @@ const loginAttempts = new Map(); // key: username → { count, lockedUntil }
 // can't clear the in-memory counter by relaunching the app. Each consecutive
 // lockout (without a successful login in between) steps up the duration.
 const LOGIN_LOCKS_KEY = "__login_locks"; // { [key]: { lockedUntil, level } }
-const LOGIN_LOCKOUT_STEPS_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
+const LOGIN_LOCKOUT_STEPS_MS = [
+  60 * 1000,
+  5 * 60 * 1000,
+  15 * 60 * 1000,
+  60 * 60 * 1000,
+];
 const LOGIN_LOCK_RETENTION_MS = 24 * 60 * 60 * 1000; // prune stale keys after 24h
 const SUPPORT_MAX_ATTEMPTS = 5;
 const SUPPORT_LOCKOUT_MS = 10 * 60 * 1000;
@@ -161,7 +183,12 @@ const supportAttempts = new Map(); // key: sender id → { count, lockedUntil }
 const MFA_MAX_ATTEMPTS = 5;
 const MFA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const MFA_RECOVERY_LOCKOUT_MS = 10 * 60 * 1000;
-const MFA_POLICY_MODES = new Set(["disabled", "optional", "required_owner", "required_all"]);
+const MFA_POLICY_MODES = new Set([
+  "disabled",
+  "optional",
+  "required_owner",
+  "required_all",
+]);
 const mfaChallenges = new Map(); // challenge id → password-verified login/enrollment state
 const recoveryAttempts = new Map(); // sender id → recovery-code throttle
 
@@ -172,7 +199,10 @@ const printDocumentNames = new Map();
 const rendererSessions = new Map(); // key: webContents id → { userId, role }
 
 function isSmokeTestRun() {
-  return process.argv.includes("--smoke-test") || process.env.HELPERS_SMOKE_TEST === "1";
+  return (
+    process.argv.includes("--smoke-test") ||
+    process.env.HELPERS_SMOKE_TEST === "1"
+  );
 }
 
 function exitForSmokeTest() {
@@ -189,10 +219,28 @@ function exitForSmokeTest() {
 const permissionTemplate = {
   products: { view: true, add: true, edit: true, delete: true },
   inventory: { view: true, adjust: true },
-  purchaseInvoices: { view: true, add: true, edit: true, pay: true, delete: true },
-  salesInvoices: { view: true, add: true, receive: true, cancel: true, delete: true },
+  purchaseInvoices: {
+    view: true,
+    add: true,
+    edit: true,
+    pay: true,
+    delete: true,
+  },
+  salesInvoices: {
+    view: true,
+    add: true,
+    receive: true,
+    cancel: true,
+    delete: true,
+  },
   customers: { view: true, add: true, edit: true, delete: true },
-  suppliers: { view: true, add: true, edit: true, delete: true, commissions: true },
+  suppliers: {
+    view: true,
+    add: true,
+    edit: true,
+    delete: true,
+    commissions: true,
+  },
   drivers: { view: true, add: true, edit: true, delete: true },
   returns: { view: true, add: true },
   alerts: { view: true },
@@ -205,15 +253,19 @@ if (process.platform === "win32") {
 }
 
 function getAppIconPath() {
+  const iconFileName = process.platform === "win32" ? "icon.ico" : "icon.png";
   const iconCandidates = app.isPackaged
     ? [
-        path.join(process.resourcesPath, "build", "icon.ico"),
-        path.join(process.resourcesPath, "app.asar", "build", "icon.ico"),
-        path.join(process.resourcesPath, "app", "build", "icon.ico"),
+        path.join(process.resourcesPath, "build", iconFileName),
+        path.join(process.resourcesPath, "app.asar", "build", iconFileName),
+        path.join(process.resourcesPath, "app", "build", iconFileName),
       ]
-    : [path.join(__dirname, "..", "build", "icon.ico")];
+    : [path.join(__dirname, "..", "build", iconFileName)];
 
-  return iconCandidates.find((candidate) => fs.existsSync(candidate)) || iconCandidates[0];
+  return (
+    iconCandidates.find((candidate) => fs.existsSync(candidate)) ||
+    iconCandidates[0]
+  );
 }
 
 const licenseSchema = z.object({
@@ -262,7 +314,9 @@ function sha256(value) {
 }
 
 function normalizeUsername(username) {
-  return String(username || "").trim().slice(0, MAX_USERNAME_LENGTH);
+  return String(username || "")
+    .trim()
+    .slice(0, MAX_USERNAME_LENGTH);
 }
 
 function normalizePassword(password) {
@@ -271,7 +325,10 @@ function normalizePassword(password) {
 
 function isPasswordLengthAllowed(password, minLength = 0) {
   const cleanPassword = normalizePassword(password);
-  return cleanPassword.length >= minLength && cleanPassword.length <= MAX_PASSWORD_LENGTH;
+  return (
+    cleanPassword.length >= minLength &&
+    cleanPassword.length <= MAX_PASSWORD_LENGTH
+  );
 }
 
 function parseDateMs(value) {
@@ -324,11 +381,20 @@ function sessionCanViewModule(event, module) {
   return Boolean(perms && perms[module] && perms[module].view);
 }
 
+function sessionCanMutateModule(event, module, action = "add") {
+  const user = getSessionUser(event);
+  if (!user) return false;
+  if (user.role === "owner") return true;
+  return Boolean(user.permissions?.[module]?.[action]);
+}
+
 // Maps a print route to the permission module that gates it. Quotations and
 // sales are both gated by salesInvoices (matches the renderer guards).
 function printModuleForRoute(route) {
   const cleanRoute = normalizePrintRoute(route); // throws on unsupported routes
-  return cleanRoute.startsWith("/purchases/") ? "purchaseInvoices" : "salesInvoices";
+  return cleanRoute.startsWith("/purchases/")
+    ? "purchaseInvoices"
+    : "salesInvoices";
 }
 
 function canonicalStringify(value) {
@@ -351,7 +417,7 @@ function getMachineMaterial() {
     return sha256(
       [os.hostname(), os.platform(), os.arch(), os.cpus()?.[0]?.model || "cpu"]
         .filter(Boolean)
-        .join("|")
+        .join("|"),
     );
   }
 }
@@ -361,8 +427,13 @@ function getSmbiosUuid() {
   try {
     const out = childProcess.execFileSync(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID"],
-      { encoding: "utf8", timeout: 5000, windowsHide: true }
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID",
+      ],
+      { encoding: "utf8", timeout: 5000, windowsHide: true },
     );
     return out.trim();
   } catch {
@@ -381,7 +452,7 @@ function getPrimaryDiskSerial() {
         "-Command",
         "(Get-CimInstance -ClassName Win32_DiskDrive | Sort-Object Index | Select-Object -First 1).SerialNumber",
       ],
-      { encoding: "utf8", timeout: 5000, windowsHide: true }
+      { encoding: "utf8", timeout: 5000, windowsHide: true },
     );
     return out.trim();
   } catch {
@@ -394,7 +465,8 @@ function getPrimaryMacAddress() {
     const macs = [];
     for (const list of Object.values(os.networkInterfaces())) {
       for (const info of list || []) {
-        if (info.mac && info.mac !== "00:00:00:00:00:00" && !info.internal) macs.push(info.mac.toLowerCase());
+        if (info.mac && info.mac !== "00:00:00:00:00:00" && !info.internal)
+          macs.push(info.mac.toLowerCase());
       }
     }
     macs.sort(); // deterministic regardless of adapter enumeration order
@@ -424,13 +496,20 @@ function getPrimaryMacAddress() {
 let _licenseFingerprintCache = null;
 function getLicenseFingerprintMaterial() {
   if (_licenseFingerprintCache) return _licenseFingerprintCache;
-  const parts = [getMachineMaterial(), getSmbiosUuid(), getPrimaryDiskSerial(), getPrimaryMacAddress()];
+  const parts = [
+    getMachineMaterial(),
+    getSmbiosUuid(),
+    getPrimaryDiskSerial(),
+    getPrimaryMacAddress(),
+  ];
   _licenseFingerprintCache = parts.filter(Boolean).join("|");
   return _licenseFingerprintCache;
 }
 
 function getMachineCode() {
-  const digest = sha256(`${APP_SALT}:machine:${getLicenseFingerprintMaterial()}`).toUpperCase();
+  const digest = sha256(
+    `${APP_SALT}:machine:${getLicenseFingerprintMaterial()}`,
+  ).toUpperCase();
   const groups = digest.slice(0, 32).match(/.{1,4}/g) || [];
   return `APW-${groups.join("-")}`;
 }
@@ -457,7 +536,10 @@ function getBackupKey() {
   // Bind to the machine so v1 (silent/automatic) backups are not trivially
   // decryptable on a different device. Previously this was just
   // sha256(APP_SALT:backup) — identical on every installation.
-  return Buffer.from(sha256(`${APP_SALT}:backup:${getMachineMaterial()}`), "hex");
+  return Buffer.from(
+    sha256(`${APP_SALT}:backup:${getMachineMaterial()}`),
+    "hex",
+  );
 }
 
 function normalizeBackupPassphrase(passphrase) {
@@ -498,9 +580,10 @@ function decryptBackup(encryptedStr, passphrase) {
 function openDatabase() {
   if (db) return db;
 
-  const dbPath = HW_E2E && process.env.HW_E2E_DB_PATH
-    ? process.env.HW_E2E_DB_PATH
-    : path.join(app.getPath("userData"), "autoparts-inventory.secure.sqlite");
+  const dbPath =
+    HW_E2E && process.env.HW_E2E_DB_PATH
+      ? process.env.HW_E2E_DB_PATH
+      : path.join(app.getPath("userData"), "autoparts-inventory.secure.sqlite");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const existed = fs.existsSync(dbPath);
 
@@ -515,7 +598,7 @@ function openDatabase() {
   }
   db.pragma("journal_mode = WAL");
   db.prepare(
-    "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
+    "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)",
   ).run();
   db.prepare(
     `CREATE TABLE IF NOT EXISTS user_mfa (
@@ -525,7 +608,7 @@ function openDatabase() {
       enrolled_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_used_counter INTEGER
-    )`
+    )`,
   ).run();
   db.prepare(
     `CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
@@ -534,17 +617,17 @@ function openDatabase() {
       created_at TEXT NOT NULL,
       consumed_at TEXT,
       PRIMARY KEY (user_id, code_digest)
-    )`
+    )`,
   ).run();
   db.prepare(
-    "CREATE INDEX IF NOT EXISTS idx_mfa_recovery_digest ON mfa_recovery_codes(code_digest, consumed_at)"
+    "CREATE INDEX IF NOT EXISTS idx_mfa_recovery_digest ON mfa_recovery_codes(code_digest, consumed_at)",
   ).run();
   db.prepare(
     `CREATE TABLE IF NOT EXISTS auth_security_policy (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       mode TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    )`
+    )`,
   ).run();
   db.prepare(
     `CREATE TABLE IF NOT EXISTS mfa_attempt_locks (
@@ -552,16 +635,16 @@ function openDatabase() {
       failed_attempts INTEGER NOT NULL DEFAULT 0,
       locked_until INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
-    )`
+    )`,
   ).run();
   db.prepare(
     `CREATE TABLE IF NOT EXISTS consumed_support_codes (
       support_id TEXT PRIMARY KEY,
       consumed_at TEXT NOT NULL
-    )`
+    )`,
   ).run();
   db.prepare(
-    "INSERT OR IGNORE INTO auth_security_policy (id, mode, updated_at) VALUES (1, 'optional', ?)"
+    "INSERT OR IGNORE INTO auth_security_policy (id, mode, updated_at) VALUES (1, 'optional', ?)",
   ).run(new Date().toISOString());
   db.prepare("DELETE FROM kv_store WHERE key = ?").run(AUTH_STATE_KEY);
 
@@ -570,9 +653,16 @@ function openDatabase() {
   // of the renderer freezing after hours of use.
   // Clear any prior timer first so repeated open/close cycles don't leak timers.
   if (walCheckpointInterval) clearInterval(walCheckpointInterval);
-  walCheckpointInterval = setInterval(() => {
-    try { db?.pragma("wal_checkpoint(PASSIVE)"); } catch { /* ignore */ }
-  }, 10 * 60 * 1000); // every 10 minutes
+  walCheckpointInterval = setInterval(
+    () => {
+      try {
+        db?.pragma("wal_checkpoint(PASSIVE)");
+      } catch {
+        /* ignore */
+      }
+    },
+    10 * 60 * 1000,
+  ); // every 10 minutes
 
   return db;
 }
@@ -605,21 +695,29 @@ let _stmtRemove = null;
 let _stmtClearPrefix = null;
 
 function getStmtGet() {
-  if (!_stmtGet) _stmtGet = openDatabase().prepare("SELECT value FROM kv_store WHERE key = ?");
+  if (!_stmtGet)
+    _stmtGet = openDatabase().prepare(
+      "SELECT value FROM kv_store WHERE key = ?",
+    );
   return _stmtGet;
 }
 function getStmtSet() {
-  if (!_stmtSet) _stmtSet = openDatabase().prepare(
-    "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
-  );
+  if (!_stmtSet)
+    _stmtSet = openDatabase().prepare(
+      "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    );
   return _stmtSet;
 }
 function getStmtRemove() {
-  if (!_stmtRemove) _stmtRemove = openDatabase().prepare("DELETE FROM kv_store WHERE key = ?");
+  if (!_stmtRemove)
+    _stmtRemove = openDatabase().prepare("DELETE FROM kv_store WHERE key = ?");
   return _stmtRemove;
 }
 function getStmtClearPrefix() {
-  if (!_stmtClearPrefix) _stmtClearPrefix = openDatabase().prepare("DELETE FROM kv_store WHERE key LIKE ?");
+  if (!_stmtClearPrefix)
+    _stmtClearPrefix = openDatabase().prepare(
+      "DELETE FROM kv_store WHERE key LIKE ?",
+    );
   return _stmtClearPrefix;
 }
 
@@ -657,6 +755,448 @@ function writeJsonKey(key, value) {
   return storageSet(key, JSON.stringify(value));
 }
 
+function storeIntegrationSecret(key, value) {
+  const clean = String(value || "").trim();
+  if (!clean) return false;
+  if (safeStorage?.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(clean).toString("base64");
+    return storageSet(key, `safe:${encrypted}`);
+  }
+  // Development/Linux fallback when no OS credential backend is available.
+  // The key is still machine-bound and the plaintext is never exposed through
+  // renderer storage or backups.
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(
+    "aes-256-gcm",
+    getMfaEncryptionKey(),
+    iv,
+  );
+  const body = Buffer.concat([cipher.update(clean, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return storageSet(
+    key,
+    `machine:${Buffer.concat([iv, tag, body]).toString("base64")}`,
+  );
+}
+
+function readIntegrationSecret(key) {
+  const raw = storageGet(key);
+  if (!raw) return "";
+  try {
+    if (raw.startsWith("safe:")) {
+      if (!safeStorage?.isEncryptionAvailable()) return "";
+      return safeStorage.decryptString(Buffer.from(raw.slice(5), "base64"));
+    }
+    if (raw.startsWith("machine:")) {
+      const packed = Buffer.from(raw.slice(8), "base64");
+      const iv = packed.subarray(0, 12);
+      const tag = packed.subarray(12, 28);
+      const body = packed.subarray(28);
+      const decipher = crypto.createDecipheriv(
+        "aes-256-gcm",
+        getMfaEncryptionKey(),
+        iv,
+      );
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(body), decipher.final()]).toString(
+        "utf8",
+      );
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function cleanBostaConfig() {
+  const stored = readJsonKey(BOSTA_CONFIG_KEY, {});
+  const key = readIntegrationSecret(BOSTA_API_KEY);
+  const webhookHeaderValue = readIntegrationSecret(BOSTA_WEBHOOK_HEADER_VALUE);
+  const webhookPollToken = readIntegrationSecret(BOSTA_WEBHOOK_POLL_TOKEN);
+  return {
+    enabled: Boolean(stored.enabled),
+    autoTrackingEnabled: stored.autoTrackingEnabled !== false,
+    autoTrackingIntervalMinutes: [2, 5, 10, 15, 30].includes(
+      Number(stored.autoTrackingIntervalMinutes),
+    )
+      ? Number(stored.autoTrackingIntervalMinutes)
+      : 5,
+    businessLocationId:
+      String(stored.businessLocationId || "").trim() || undefined,
+    webhookUrl: String(stored.webhookUrl || "").trim() || undefined,
+    webhookHeaderName:
+      String(stored.webhookHeaderName || "").trim() || undefined,
+    webhookHeaderConfigured: Boolean(
+      stored.webhookHeaderName && webhookHeaderValue,
+    ),
+    webhookHeaderHint: webhookHeaderValue
+      ? `••••${webhookHeaderValue.slice(-4)}`
+      : undefined,
+    webhookRelayReady: Boolean(
+      stored.webhookUrl && stored.webhookHeaderName && webhookHeaderValue && webhookPollToken,
+    ),
+    webhookPollTokenConfigured: Boolean(webhookPollToken),
+    webhookPollTokenHint: webhookPollToken
+      ? `••••${webhookPollToken.slice(-4)}`
+      : undefined,
+    defaultPackageType: [
+      "SMALL",
+      "MEDIUM",
+      "LARGE",
+      "Light Bulky",
+      "Heavy Bulky",
+    ].includes(stored.defaultPackageType)
+      ? stored.defaultPackageType
+      : "SMALL",
+    allowOpenPackage: Boolean(stored.allowOpenPackage),
+    configured: Boolean(key),
+    apiKeyHint: key ? `••••${key.slice(-4)}` : undefined,
+    lastTestedAt: stored.lastTestedAt,
+    lastTestOk: stored.lastTestOk,
+  };
+}
+
+async function bostaRequest(pathname, options = {}) {
+  const apiKey = readIntegrationSecret(BOSTA_API_KEY);
+  if (!apiKey) return { ok: false, status: 401, error: "api_key_missing" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await fetch(`${BOSTA_API_BASE}${pathname}`, {
+      method: options.method || "GET",
+      headers: {
+        Authorization: apiKey,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text ? { message: text.slice(0, 500) } : null;
+    }
+    if (!response.ok) {
+      const message = String(
+        data?.message ||
+          data?.error ||
+          data?.errorMessage ||
+          "bosta_request_failed",
+      ).slice(0, 500);
+      return { ok: false, status: response.status, error: message, data };
+    }
+    return { ok: true, status: response.status, data };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      error: error?.name === "AbortError" ? "request_timeout" : "network_error",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function bostaWebhookRelayUrl(webhookUrl, operation) {
+  try {
+    const parsed = new URL(String(webhookUrl || ""));
+    if (parsed.protocol !== "https:") return "";
+    parsed.search = "";
+    parsed.hash = "";
+    const webhookSuffix = "/v1/bosta/webhook";
+    if (!parsed.pathname.endsWith(webhookSuffix)) return "";
+    const basePath = parsed.pathname.slice(0, -webhookSuffix.length);
+    parsed.pathname = `${basePath}${
+      operation === "health"
+        ? "/health"
+        : operation === "ack"
+          ? "/v1/bosta/events/ack"
+          : "/v1/bosta/events"
+    }`;
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
+function bostaWebhookNetworkError(error) {
+  const code = String(error?.cause?.code || error?.code || "").toUpperCase();
+  if (["ENOTFOUND", "EAI_AGAIN", "EAI_FAIL"].includes(code)) {
+    return "webhook_dns_unavailable";
+  }
+  if (
+    code.startsWith("CERT_") ||
+    code.startsWith("ERR_TLS_") ||
+    [
+      "DEPTH_ZERO_SELF_SIGNED_CERT",
+      "SELF_SIGNED_CERT_IN_CHAIN",
+      "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    ].includes(code)
+  ) {
+    return "webhook_tls_invalid";
+  }
+  return "webhook_relay_unavailable";
+}
+
+async function testBostaWebhookRelay(input = {}) {
+  const config = cleanBostaConfig();
+  const webhookUrl = String(input?.webhookUrl || config.webhookUrl || "").trim();
+  const pollToken = String(
+    input?.webhookPollToken || readIntegrationSecret(BOSTA_WEBHOOK_POLL_TOKEN),
+  ).trim();
+  const healthUrl = bostaWebhookRelayUrl(webhookUrl, "health");
+  const eventsUrl = bostaWebhookRelayUrl(webhookUrl, "events");
+  if (!healthUrl || !eventsUrl) {
+    return { ok: false, error: "invalid_webhook_relay_url", stage: "url" };
+  }
+  if (pollToken.length < 24 || pollToken.length > 2048) {
+    return { ok: false, error: "invalid_webhook_poll_token", stage: "token" };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const healthResponse = await fetch(healthUrl, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    const healthData = await healthResponse.json().catch(() => null);
+    if (!healthResponse.ok || healthData?.ok !== true) {
+      const serviceError = String(healthData?.error || "");
+      return {
+        ok: false,
+        error: ["service_not_configured", "database_unavailable"].includes(
+          serviceError,
+        )
+          ? `webhook_${serviceError}`
+          : healthResponse.status === 404
+            ? "webhook_service_not_found"
+            : "webhook_health_failed",
+        stage: "health",
+        status: healthResponse.status,
+      };
+    }
+
+    const eventsResponse = await fetch(eventsUrl, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${pollToken}`,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+    const eventsData = await eventsResponse.json().catch(() => null);
+    if (!eventsResponse.ok || eventsData?.ok !== true) {
+      return {
+        ok: false,
+        error:
+          eventsResponse.status === 401
+            ? "webhook_relay_unauthorized"
+            : eventsResponse.status === 404
+              ? "webhook_service_not_found"
+              : "webhook_relay_unavailable",
+        stage: "authorization",
+        status: eventsResponse.status,
+      };
+    }
+
+    return {
+      ok: true,
+      stage: "complete",
+      service: String(healthData.service || "autoparts-bosta-webhook"),
+      pendingEvents: Array.isArray(eventsData.events)
+        ? eventsData.events.length
+        : 0,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error?.name === "AbortError"
+          ? "request_timeout"
+          : bostaWebhookNetworkError(error),
+      stage: "network",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function bostaWebhookRelayRequest(operation, ids) {
+  const config = cleanBostaConfig();
+  const url = bostaWebhookRelayUrl(config.webhookUrl, operation);
+  const token = readIntegrationSecret(BOSTA_WEBHOOK_POLL_TOKEN);
+  if (!url || !token) return { ok: false, error: "webhook_relay_not_configured" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(url, {
+      method: operation === "ack" ? "POST" : "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: operation === "ack" ? JSON.stringify({ ids }) : undefined,
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        ok: false,
+        error:
+          response.status === 401
+            ? "webhook_relay_unauthorized"
+            : "webhook_relay_unavailable",
+      };
+    }
+    return { ok: true, data };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error?.name === "AbortError"
+          ? "request_timeout"
+          : "webhook_relay_unavailable",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function bostaPickupLocations(data) {
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.data?.list)
+      ? data.data.list
+      : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.pickupLocations)
+          ? data.pickupLocations
+          : [];
+  return list
+    .map((item) => ({
+      id: String(item?._id || item?.id || ""),
+      name: String(
+        item?.name ||
+          item?.locationName ||
+          item?.address?.firstLine ||
+          "موقع استلام",
+      ),
+    }))
+    .filter((item) => item.id);
+}
+
+function cleanBostaDeliveryPayload(payload) {
+  const receiverName = String(payload?.receiver?.fullName || "")
+    .trim()
+    .slice(0, 160);
+  const nameParts = receiverName.split(/\s+/).filter(Boolean);
+  const firstName = nameParts.shift() || "عميل";
+  const lastName = nameParts.join(" ") || firstName;
+  const phone = String(payload?.receiver?.phone || "")
+    .replace(/[^0-9+]/g, "")
+    .slice(0, 20);
+  const email = String(payload?.receiver?.email || "")
+    .trim()
+    .toLowerCase()
+    .slice(0, 160);
+  const address = payload?.dropOffAddress || {};
+  const city = String(address.bosta?.cityName || address.city || "")
+    .trim()
+    .slice(0, 120);
+  const firstLine = String(address.addressLine || "")
+    .trim()
+    .slice(0, 400);
+  if (!phone || !city || firstLine.length < 6)
+    throw new Error("invalid_delivery_address");
+  const dropOffAddress = {
+    city,
+    firstLine,
+    isWorkAddress: false,
+  };
+  const optional = {
+    cityId: address.bosta?.cityId,
+    zoneId: address.bosta?.zoneId,
+    districtId: address.bosta?.districtId,
+    districtName: address.bosta?.districtName || address.district,
+    secondLine: address.landmark,
+    buildingNumber: address.buildingNumber,
+    floor: address.floor,
+    apartment: address.apartment,
+  };
+  for (const [key, value] of Object.entries(optional)) {
+    const clean = String(value || "").trim();
+    if (clean) dropOffAddress[key] = clean.slice(0, 160);
+  }
+  // Prefer Bosta IDs when the address was mapped from coverage data. For
+  // legacy/manual addresses we still send the documented city text and let
+  // Bosta validate coverage instead of blocking order creation locally.
+  const specs = payload?.specs || {};
+  const selectedSize = [
+    "SMALL",
+    "MEDIUM",
+    "LARGE",
+    "Light Bulky",
+    "Heavy Bulky",
+  ].includes(specs.packageType)
+    ? specs.packageType
+    : "SMALL";
+  const packageType = ["Light Bulky", "Heavy Bulky"].includes(selectedSize)
+    ? selectedSize
+    : "Parcel";
+  const result = {
+    type: 10,
+    businessReference: String(payload?.businessReference || "")
+      .trim()
+      .slice(0, 120),
+    receiver: {
+      firstName,
+      lastName,
+      phone,
+      ...(email ? { email } : {}),
+    },
+    dropOffAddress,
+    cod: Math.max(0, Number(payload?.cod) || 0),
+    specs: {
+      packageType,
+      size: selectedSize,
+      packageDetails: {
+        itemsCount: Math.max(1, Math.round(Number(specs.itemsCount) || 1)),
+        description: String(specs.description || "قطع غيار سيارات")
+          .trim()
+          .slice(0, 300),
+      },
+    },
+    allowToOpenPackage: Boolean(payload?.allowOpenPackage),
+  };
+  const goodsValue = Math.max(0, Number(payload?.goodsValue) || 0);
+  if (goodsValue > 0) result.goodsInfo = { amount: goodsValue };
+  const businessLocationId = String(payload?.businessLocationId || "").trim();
+  const notes = String(payload?.notes || "").trim();
+  if (businessLocationId)
+    result.businessLocationId = businessLocationId.slice(0, 160);
+  if (notes) result.notes = notes.slice(0, 500);
+  const integrationConfig = cleanBostaConfig();
+  if (integrationConfig.webhookUrl) {
+    result.webhookUrl = integrationConfig.webhookUrl;
+    const webhookHeaderValue = readIntegrationSecret(
+      BOSTA_WEBHOOK_HEADER_VALUE,
+    );
+    if (integrationConfig.webhookHeaderName && webhookHeaderValue) {
+      result.webhookCustomHeaders = {
+        [integrationConfig.webhookHeaderName]: webhookHeaderValue,
+      };
+    }
+  }
+  return result;
+}
+
 function getUsers() {
   const users = readJsonKey(`${STORE_PREFIX}users`, []);
   if (!Array.isArray(users)) return [];
@@ -671,30 +1211,50 @@ function setUsers(users) {
 }
 
 function getMfaEncryptionKey() {
-  return Buffer.from(sha256(`${APP_SALT}:mfa-secret:${getMachineMaterial()}`), "hex");
+  return Buffer.from(
+    sha256(`${APP_SALT}:mfa-secret:${getMachineMaterial()}`),
+    "hex",
+  );
 }
 
 function getMfaRecoveryPepper() {
-  return Buffer.from(sha256(`${APP_SALT}:mfa-recovery:${getMachineMaterial()}`), "hex");
+  return Buffer.from(
+    sha256(`${APP_SALT}:mfa-recovery:${getMachineMaterial()}`),
+    "hex",
+  );
 }
 
 function encryptMfaSecret(secret) {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", getMfaEncryptionKey(), iv);
-  const ciphertext = Buffer.concat([cipher.update(String(secret), "utf8"), cipher.final()]);
+  const cipher = crypto.createCipheriv(
+    "aes-256-gcm",
+    getMfaEncryptionKey(),
+    iv,
+  );
+  const ciphertext = Buffer.concat([
+    cipher.update(String(secret), "utf8"),
+    cipher.final(),
+  ]);
   const tag = cipher.getAuthTag();
-  return ["v1", iv.toString("base64url"), tag.toString("base64url"), ciphertext.toString("base64url")].join(".");
+  return [
+    "v1",
+    iv.toString("base64url"),
+    tag.toString("base64url"),
+    ciphertext.toString("base64url"),
+  ].join(".");
 }
 
 function decryptMfaSecret(envelope) {
-  const [version, ivPart, tagPart, ciphertextPart] = String(envelope || "").split(".");
+  const [version, ivPart, tagPart, ciphertextPart] = String(
+    envelope || "",
+  ).split(".");
   if (version !== "v1" || !ivPart || !tagPart || !ciphertextPart) {
     throw new Error("invalid_mfa_secret");
   }
   const decipher = crypto.createDecipheriv(
     "aes-256-gcm",
     getMfaEncryptionKey(),
-    Buffer.from(ivPart, "base64url")
+    Buffer.from(ivPart, "base64url"),
   );
   decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
   return Buffer.concat([
@@ -704,7 +1264,9 @@ function decryptMfaSecret(envelope) {
 }
 
 function getMfaPolicyMode() {
-  const row = openDatabase().prepare("SELECT mode FROM auth_security_policy WHERE id = 1").get();
+  const row = openDatabase()
+    .prepare("SELECT mode FROM auth_security_policy WHERE id = 1")
+    .get();
   return MFA_POLICY_MODES.has(row?.mode) ? row.mode : "optional";
 }
 
@@ -714,12 +1276,23 @@ function getMfaPolicy() {
 
 // MFA is a paid add-on. This check lives in the main process so changing the
 // renderer/UI cannot enable it without a signed license feature entitlement.
-function isMfaFeatureLicensed() {
+function isFeatureLicensed(featureKey) {
   if (HW_E2E) return true;
   const status = getLicenseStatus();
   const features = status?.license?.features;
-  return status?.state === "active" && Array.isArray(features) &&
-    (features.includes("twoFactorAuth") || features.includes("*"));
+  return (
+    status?.state === "active" &&
+    Array.isArray(features) &&
+    (features.includes(featureKey) || features.includes("*"))
+  );
+}
+
+function isMfaFeatureLicensed() {
+  return isFeatureLicensed("twoFactorAuth");
+}
+
+function isBostaFeatureLicensed() {
+  return isFeatureLicensed("bostaIntegration");
 }
 
 function getEffectiveMfaPolicyMode() {
@@ -729,20 +1302,23 @@ function getEffectiveMfaPolicyMode() {
 function getMfaRecord(userId) {
   return openDatabase()
     .prepare(
-      "SELECT user_id, secret_encrypted, enabled, enrolled_at, updated_at, last_used_counter FROM user_mfa WHERE user_id = ?"
+      "SELECT user_id, secret_encrypted, enabled, enrolled_at, updated_at, last_used_counter FROM user_mfa WHERE user_id = ?",
     )
     .get(String(userId || ""));
 }
 
 function isMfaRequiredForUser(user, mode = getEffectiveMfaPolicyMode()) {
   if (!user || mode === "disabled" || mode === "optional") return false;
-  return mode === "required_all" || (mode === "required_owner" && user.role === "owner");
+  return (
+    mode === "required_all" ||
+    (mode === "required_owner" && user.role === "owner")
+  );
 }
 
 function countRecoveryCodes(userId) {
   const row = openDatabase()
     .prepare(
-      "SELECT COUNT(*) AS count FROM mfa_recovery_codes WHERE user_id = ? AND consumed_at IS NULL"
+      "SELECT COUNT(*) AS count FROM mfa_recovery_codes WHERE user_id = ? AND consumed_at IS NULL",
     )
     .get(String(userId || ""));
   return Number(row?.count || 0);
@@ -750,7 +1326,9 @@ function countRecoveryCodes(userId) {
 
 function checkMfaVerificationLock(userId) {
   const row = openDatabase()
-    .prepare("SELECT failed_attempts, locked_until FROM mfa_attempt_locks WHERE user_id = ?")
+    .prepare(
+      "SELECT failed_attempts, locked_until FROM mfa_attempt_locks WHERE user_id = ?",
+    )
     .get(String(userId || ""));
   if (!row) return null;
   const now = Date.now();
@@ -763,7 +1341,9 @@ function checkMfaVerificationLock(userId) {
     };
   }
   if (Number(row.locked_until) > 0) {
-    openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(userId);
+    openDatabase()
+      .prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?")
+      .run(userId);
   }
   return null;
 }
@@ -776,7 +1356,8 @@ function recordFailedMfaVerification(userId) {
     .prepare("SELECT failed_attempts FROM mfa_attempt_locks WHERE user_id = ?")
     .get(userId);
   const failedAttempts = Number(row?.failed_attempts || 0) + 1;
-  const lockedUntil = failedAttempts >= MFA_MAX_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : 0;
+  const lockedUntil =
+    failedAttempts >= MFA_MAX_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : 0;
   openDatabase()
     .prepare(
       `INSERT INTO mfa_attempt_locks (user_id, failed_attempts, locked_until, updated_at)
@@ -784,9 +1365,14 @@ function recordFailedMfaVerification(userId) {
        ON CONFLICT(user_id) DO UPDATE SET
          failed_attempts = excluded.failed_attempts,
          locked_until = excluded.locked_until,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at`,
     )
-    .run(userId, lockedUntil ? 0 : failedAttempts, lockedUntil, new Date(now).toISOString());
+    .run(
+      userId,
+      lockedUntil ? 0 : failedAttempts,
+      lockedUntil,
+      new Date(now).toISOString(),
+    );
   if (lockedUntil) {
     return {
       ok: false,
@@ -803,7 +1389,9 @@ function recordFailedMfaVerification(userId) {
 }
 
 function clearMfaVerificationAttempts(userId) {
-  openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(userId);
+  openDatabase()
+    .prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?")
+    .run(userId);
 }
 
 function getMfaStatusForUser(user) {
@@ -820,7 +1408,9 @@ function getMfaStatusForUser(user) {
 
 function getMfaIssuer() {
   const settings = readJsonKey(`${STORE_PREFIX}settings`, {});
-  const candidate = String(settings?.companyNameAr || settings?.companyName || "AutoParts Inventory")
+  const candidate = String(
+    settings?.companyNameAr || settings?.companyName || "AutoParts Inventory",
+  )
     .replace(/:/g, "-")
     .trim()
     .slice(0, 80);
@@ -829,7 +1419,8 @@ function getMfaIssuer() {
 
 function pruneMfaChallenges(now = Date.now()) {
   for (const [challengeId, challenge] of mfaChallenges.entries()) {
-    if (!challenge || challenge.expiresAt <= now) mfaChallenges.delete(challengeId);
+    if (!challenge || challenge.expiresAt <= now)
+      mfaChallenges.delete(challengeId);
   }
 }
 
@@ -862,8 +1453,10 @@ function getMfaChallenge(event, challengeId, allowedTypes) {
     mfaChallenges.delete(cleanId);
     return { error: "challenge_expired" };
   }
-  if (challenge.senderId !== event.sender.id) return { error: "invalid_challenge" };
-  if (allowedTypes && !allowedTypes.includes(challenge.type)) return { error: "invalid_challenge" };
+  if (challenge.senderId !== event.sender.id)
+    return { error: "invalid_challenge" };
+  if (allowedTypes && !allowedTypes.includes(challenge.type))
+    return { error: "invalid_challenge" };
   return { challenge };
 }
 
@@ -871,7 +1464,12 @@ function recordFailedMfaChallenge(challenge) {
   challenge.attempts += 1;
   if (challenge.attempts >= MFA_MAX_ATTEMPTS) {
     mfaChallenges.delete(challenge.id);
-    return { ok: false, error: "rate_limited", remainSeconds: 60, attemptsRemaining: 0 };
+    return {
+      ok: false,
+      error: "rate_limited",
+      remainSeconds: 60,
+      attemptsRemaining: 0,
+    };
   }
   return {
     ok: false,
@@ -902,9 +1500,15 @@ function deleteMfaForUser(userId) {
   const cleanUserId = String(userId || "").trim();
   if (!cleanUserId) return;
   const tx = openDatabase().transaction(() => {
-    openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(cleanUserId);
-    openDatabase().prepare("DELETE FROM user_mfa WHERE user_id = ?").run(cleanUserId);
-    openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(cleanUserId);
+    openDatabase()
+      .prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?")
+      .run(cleanUserId);
+    openDatabase()
+      .prepare("DELETE FROM user_mfa WHERE user_id = ?")
+      .run(cleanUserId);
+    openDatabase()
+      .prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?")
+      .run(cleanUserId);
   });
   tx();
   revokeUserChallenges(cleanUserId);
@@ -914,11 +1518,12 @@ function cleanupMfaForMissingUsers() {
   const validUserIds = new Set(getUsers().map((user) => user.id));
   const rows = openDatabase()
     .prepare(
-      "SELECT user_id FROM user_mfa UNION SELECT user_id FROM mfa_recovery_codes UNION SELECT user_id FROM mfa_attempt_locks"
+      "SELECT user_id FROM user_mfa UNION SELECT user_id FROM mfa_recovery_codes UNION SELECT user_id FROM mfa_attempt_locks",
     )
     .all();
   for (const row of rows) {
-    if (row?.user_id && !validUserIds.has(row.user_id)) deleteMfaForUser(row.user_id);
+    if (row?.user_id && !validUserIds.has(row.user_id))
+      deleteMfaForUser(row.user_id);
   }
 }
 
@@ -927,11 +1532,14 @@ function replaceRecoveryCodes(userId) {
   const now = new Date().toISOString();
   const pepper = getMfaRecoveryPepper();
   const insert = openDatabase().prepare(
-    "INSERT INTO mfa_recovery_codes (user_id, code_digest, created_at, consumed_at) VALUES (?, ?, ?, NULL)"
+    "INSERT INTO mfa_recovery_codes (user_id, code_digest, created_at, consumed_at) VALUES (?, ?, ?, NULL)",
   );
   const tx = openDatabase().transaction(() => {
-    openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(userId);
-    for (const code of codes) insert.run(userId, recoveryCodeDigest(code, pepper), now);
+    openDatabase()
+      .prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?")
+      .run(userId);
+    for (const code of codes)
+      insert.run(userId, recoveryCodeDigest(code, pepper), now);
   });
   tx();
   return codes;
@@ -950,15 +1558,18 @@ function storeMfaEnrollment(userId, secret, lastUsedCounter) {
       enabled = 1,
       enrolled_at = excluded.enrolled_at,
       updated_at = excluded.updated_at,
-      last_used_counter = excluded.last_used_counter`
+      last_used_counter = excluded.last_used_counter`,
   );
   const insertCode = openDatabase().prepare(
-    "INSERT INTO mfa_recovery_codes (user_id, code_digest, created_at, consumed_at) VALUES (?, ?, ?, NULL)"
+    "INSERT INTO mfa_recovery_codes (user_id, code_digest, created_at, consumed_at) VALUES (?, ?, ?, NULL)",
   );
   const tx = openDatabase().transaction(() => {
     upsertMfa.run(userId, encryptMfaSecret(secret), now, now, lastUsedCounter);
-    openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(userId);
-    for (const code of codes) insertCode.run(userId, recoveryCodeDigest(code, pepper), now);
+    openDatabase()
+      .prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?")
+      .run(userId);
+    for (const code of codes)
+      insertCode.run(userId, recoveryCodeDigest(code, pepper), now);
   });
   tx();
   return codes;
@@ -980,7 +1591,7 @@ function consumeRecoveryCodeForUser(userId, code) {
     .prepare(
       `UPDATE mfa_recovery_codes
        SET consumed_at = ?
-       WHERE user_id = ? AND code_digest = ? AND consumed_at IS NULL`
+       WHERE user_id = ? AND code_digest = ? AND consumed_at IS NULL`,
     )
     .run(new Date().toISOString(), userId, digest);
   return result.changes === 1;
@@ -993,13 +1604,14 @@ function findAndConsumeRecoveryCode(code) {
   const tx = openDatabase().transaction(() => {
     const row = openDatabase()
       .prepare(
-        "SELECT user_id FROM mfa_recovery_codes WHERE code_digest = ? AND consumed_at IS NULL"
+        "SELECT user_id FROM mfa_recovery_codes WHERE code_digest = ? AND consumed_at IS NULL",
       )
       .get(digest);
-    if (!row?.user_id || !getUsers().some((user) => user.id === row.user_id)) return null;
+    if (!row?.user_id || !getUsers().some((user) => user.id === row.user_id))
+      return null;
     const update = openDatabase()
       .prepare(
-        "UPDATE mfa_recovery_codes SET consumed_at = ? WHERE code_digest = ? AND consumed_at IS NULL"
+        "UPDATE mfa_recovery_codes SET consumed_at = ? WHERE code_digest = ? AND consumed_at IS NULL",
       )
       .run(new Date().toISOString(), digest);
     return update.changes === 1 ? row.user_id : null;
@@ -1012,7 +1624,9 @@ function verifyMfaProofForUser(user, code) {
   if (!record?.enabled) return { ok: false, error: "not_enabled" };
   const limited = checkMfaVerificationLock(user.id);
   if (limited) return limited;
-  const cleanCode = String(code || "").replace(/\s+/g, "").trim();
+  const cleanCode = String(code || "")
+    .replace(/\s+/g, "")
+    .trim();
 
   if (/^\d{6}$/.test(cleanCode)) {
     try {
@@ -1025,12 +1639,19 @@ function verifyMfaProofForUser(user, code) {
            SET last_used_counter = ?, updated_at = ?
            WHERE user_id = ?
              AND enabled = 1
-             AND (last_used_counter IS NULL OR last_used_counter < ?)`
+             AND (last_used_counter IS NULL OR last_used_counter < ?)`,
         )
-        .run(accepted.counter, new Date().toISOString(), user.id, accepted.counter);
+        .run(
+          accepted.counter,
+          new Date().toISOString(),
+          user.id,
+          accepted.counter,
+        );
       if (updated.changes !== 1) {
         const failed = recordFailedMfaVerification(user.id);
-        return failed.error === "rate_limited" ? failed : { ...failed, error: "code_reused" };
+        return failed.error === "rate_limited"
+          ? failed
+          : { ...failed, error: "code_reused" };
       }
       clearMfaVerificationAttempts(user.id);
       return { ok: true, method: "totp" };
@@ -1055,7 +1676,10 @@ function createEnrollmentChallenge(event, user, type) {
     manualKey: secret,
     otpauthUri: buildOtpAuthUri({
       secret,
-      accountName: String(user.username || user.name || user.id).replace(/:/g, "-"),
+      accountName: String(user.username || user.name || user.id).replace(
+        /:/g,
+        "-",
+      ),
       issuer: getMfaIssuer(),
     }),
   };
@@ -1064,7 +1688,10 @@ function createEnrollmentChallenge(event, user, type) {
 function buildMfaLoginResult(event, user) {
   const mode = getEffectiveMfaPolicyMode();
   const record = getMfaRecord(user.id);
-  if (mode !== "disabled" && (record?.enabled || isMfaRequiredForUser(user, mode))) {
+  if (
+    mode !== "disabled" &&
+    (record?.enabled || isMfaRequiredForUser(user, mode))
+  ) {
     const limited = checkMfaVerificationLock(user.id);
     if (limited) return limited;
   }
@@ -1091,13 +1718,16 @@ function buildMfaLoginResult(event, user) {
 }
 
 function updateMfaPolicy(mode) {
-  if (!isMfaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+  if (!isMfaFeatureLicensed())
+    return { ok: false, error: "feature_not_licensed" };
   const cleanMode = String(mode || "").trim();
-  if (!MFA_POLICY_MODES.has(cleanMode)) return { ok: false, error: "invalid_policy" };
+  if (!MFA_POLICY_MODES.has(cleanMode))
+    return { ok: false, error: "invalid_policy" };
   const users = getUsers();
   const missingUsers = users.filter((user) => {
     if (cleanMode === "required_owner" && user.role !== "owner") return false;
-    if (cleanMode !== "required_owner" && cleanMode !== "required_all") return false;
+    if (cleanMode !== "required_owner" && cleanMode !== "required_all")
+      return false;
     return !getMfaRecord(user.id)?.enabled;
   });
   // Existing users must enrol before a mandatory policy is switched on. If a
@@ -1106,11 +1736,17 @@ function updateMfaPolicy(mode) {
     return {
       ok: false,
       error: "users_not_enrolled",
-      missingUsers: missingUsers.map((user) => ({ id: user.id, name: user.name, username: user.username })),
+      missingUsers: missingUsers.map((user) => ({
+        id: user.id,
+        name: user.name,
+        username: user.username,
+      })),
     };
   }
   openDatabase()
-    .prepare("UPDATE auth_security_policy SET mode = ?, updated_at = ? WHERE id = 1")
+    .prepare(
+      "UPDATE auth_security_policy SET mode = ?, updated_at = ? WHERE id = 1",
+    )
     .run(cleanMode, new Date().toISOString());
   return { ok: true, policy: { mode: cleanMode } };
 }
@@ -1120,7 +1756,9 @@ function getPublicKey() {
 }
 
 function parseSignedPayload(token, prefix, schema) {
-  const normalized = String(token || "").replace(/\s+/g, "").trim();
+  const normalized = String(token || "")
+    .replace(/\s+/g, "")
+    .trim();
   if (normalized.length > MAX_TOKEN_LENGTH) {
     throw new Error("Token too large");
   }
@@ -1129,7 +1767,7 @@ function parseSignedPayload(token, prefix, schema) {
   }
 
   const decoded = JSON.parse(
-    Buffer.from(normalized.slice(prefix.length), "base64url").toString("utf8")
+    Buffer.from(normalized.slice(prefix.length), "base64url").toString("utf8"),
   );
   const parsed = schema.parse(decoded);
   const { signature, ...unsignedPayload } = parsed;
@@ -1137,7 +1775,7 @@ function parseSignedPayload(token, prefix, schema) {
     null,
     Buffer.from(canonicalStringify(unsignedPayload)),
     getPublicKey(),
-    Buffer.from(signature, "base64url")
+    Buffer.from(signature, "base64url"),
   );
 
   if (!verified) {
@@ -1199,7 +1837,9 @@ function evaluateLicense(serial, persistSeen) {
     : null;
   if (
     license.subscriptionType === "limited" &&
-    (!license.subscriptionExpiresAt || subscriptionExpiresMs === null || now.getTime() > subscriptionExpiresMs)
+    (!license.subscriptionExpiresAt ||
+      subscriptionExpiresMs === null ||
+      now.getTime() > subscriptionExpiresMs)
   ) {
     return buildLicenseStatus("expired", { license });
   }
@@ -1212,21 +1852,31 @@ function evaluateLicense(serial, persistSeen) {
 }
 
 function getLicenseStatus() {
-  if (HW_E2E) return buildLicenseStatus("active", { license: { subscriptionType: "lifetime", subscriptionStartDate: new Date().toISOString(), subscriptionExpiresAt: null, features: ["*"] } });
+  if (HW_E2E)
+    return buildLicenseStatus("active", {
+      license: {
+        subscriptionType: "lifetime",
+        subscriptionStartDate: new Date().toISOString(),
+        subscriptionExpiresAt: null,
+        features: ["*"],
+      },
+    });
   return evaluateLicense(storageGet(LICENSE_TOKEN_KEY), true);
 }
 
 function getStoredBranchesForLicense() {
   const stored = readJsonKey(BRANCHES_STORAGE_KEY, []);
   if (Array.isArray(stored) && stored.length > 0) return stored;
-  return [{
-    id: "branch_main",
-    code: "MAIN",
-    name: "الفرع الرئيسي",
-    isMain: true,
-    active: true,
-    createdAt: "2026-01-01T00:00:00.000Z",
-  }];
+  return [
+    {
+      id: "branch_main",
+      code: "MAIN",
+      name: "الفرع الرئيسي",
+      isMain: true,
+      active: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ];
 }
 
 function getBranchActivations() {
@@ -1241,7 +1891,8 @@ function getBranchActivations() {
 function getLegacyBranchSlots() {
   const raw = storageGet(BRANCH_LEGACY_SLOTS_KEY);
   const stored = Number(raw);
-  if (raw !== null && Number.isSafeInteger(stored) && stored >= 0) return stored;
+  if (raw !== null && Number.isSafeInteger(stored) && stored >= 0)
+    return stored;
   const legacySlots = Math.max(0, getStoredBranchesForLicense().length - 1);
   storageSet(BRANCH_LEGACY_SLOTS_KEY, String(legacySlots));
   return legacySlots;
@@ -1253,12 +1904,17 @@ function getBranchLicenseStatusInternal() {
   const activations = getBranchActivations();
   const activatedSlots = activations.length;
   const branchLimit = 1 + legacySlots + activatedSlots;
-  const unusedActivations = activations.filter((item) => !item.consumedAt).length;
+  const unusedActivations = activations.filter(
+    (item) => !item.consumedAt,
+  ).length;
   return {
     machineCode: getMachineCode(),
     branchCount: branches.length,
     branchLimit,
-    availableSlots: Math.max(0, Math.min(unusedActivations, branchLimit - branches.length)),
+    availableSlots: Math.max(
+      0,
+      Math.min(unusedActivations, branchLimit - branches.length),
+    ),
     activatedSlots,
     legacySlots,
   };
@@ -1266,28 +1922,50 @@ function getBranchLicenseStatusInternal() {
 
 function activateBranchSlot(serial) {
   if (getLicenseStatus().state !== "active") {
-    return { ok: false, error: "license_inactive", status: getBranchLicenseStatusInternal() };
+    return {
+      ok: false,
+      error: "license_inactive",
+      status: getBranchLicenseStatusInternal(),
+    };
   }
 
   let activation;
   try {
     activation = parseSignedPayload(serial, "APBRN.", branchActivationSchema);
   } catch {
-    return { ok: false, error: "invalid_code", status: getBranchLicenseStatusInternal() };
+    return {
+      ok: false,
+      error: "invalid_code",
+      status: getBranchLicenseStatusInternal(),
+    };
   }
 
   if (activation.machineHash !== getMachineHash()) {
-    return { ok: false, error: "machine_mismatch", status: getBranchLicenseStatusInternal() };
+    return {
+      ok: false,
+      error: "machine_mismatch",
+      status: getBranchLicenseStatusInternal(),
+    };
   }
 
   const activations = getBranchActivations();
-  if (activations.some((item) => item.activationId === activation.activationId)) {
-    return { ok: false, error: "code_already_used", status: getBranchLicenseStatusInternal() };
+  if (
+    activations.some((item) => item.activationId === activation.activationId)
+  ) {
+    return {
+      ok: false,
+      error: "code_already_used",
+      status: getBranchLicenseStatusInternal(),
+    };
   }
 
   const currentStatus = getBranchLicenseStatusInternal();
   if (currentStatus.availableSlots > 0) {
-    return { ok: false, error: "slot_already_available", status: currentStatus };
+    return {
+      ok: false,
+      error: "slot_already_available",
+      status: currentStatus,
+    };
   }
 
   activations.push({
@@ -1300,7 +1978,9 @@ function activateBranchSlot(serial) {
 }
 
 function nextBranchCode(branches) {
-  const used = new Set(branches.map((branch) => String(branch?.code || "").toUpperCase()));
+  const used = new Set(
+    branches.map((branch) => String(branch?.code || "").toUpperCase()),
+  );
   let number = 2;
   while (used.has(`BR-${String(number).padStart(2, "0")}`)) number += 1;
   return `BR-${String(number).padStart(2, "0")}`;
@@ -1308,12 +1988,20 @@ function nextBranchCode(branches) {
 
 function createLicensedBranch(input) {
   if (getLicenseStatus().state !== "active") {
-    return { ok: false, error: "license_inactive", status: getBranchLicenseStatusInternal() };
+    return {
+      ok: false,
+      error: "license_inactive",
+      status: getBranchLicenseStatusInternal(),
+    };
   }
 
   const parsed = branchCreateSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, error: "invalid_branch", status: getBranchLicenseStatusInternal() };
+    return {
+      ok: false,
+      error: "invalid_branch",
+      status: getBranchLicenseStatusInternal(),
+    };
   }
 
   return openDatabase().transaction(() => {
@@ -1326,7 +2014,11 @@ function createLicensedBranch(input) {
     const activations = getBranchActivations();
     const activationIndex = activations.findIndex((item) => !item.consumedAt);
     if (activationIndex < 0) {
-      return { ok: false, error: "activation_required", status: getBranchLicenseStatusInternal() };
+      return {
+        ok: false,
+        error: "activation_required",
+        status: getBranchLicenseStatusInternal(),
+      };
     }
     const now = new Date().toISOString();
     const branch = {
@@ -1352,12 +2044,20 @@ function createLicensedBranch(input) {
 
 function validateBranchStorageValue(value) {
   const branches = JSON.parse(String(value));
-  if (!Array.isArray(branches) || branches.length < 1) throw new Error("invalid_branches_payload");
+  if (!Array.isArray(branches) || branches.length < 1)
+    throw new Error("invalid_branches_payload");
   if (branches.length > getBranchLicenseStatusInternal().branchLimit) {
     throw new Error("branch_activation_required");
   }
-  const storedIds = new Set(getStoredBranchesForLicense().map((branch) => branch?.id));
-  if (branches.some((branch) => !branch || typeof branch.id !== "string" || !storedIds.has(branch.id))) {
+  const storedIds = new Set(
+    getStoredBranchesForLicense().map((branch) => branch?.id),
+  );
+  if (
+    branches.some(
+      (branch) =>
+        !branch || typeof branch.id !== "string" || !storedIds.has(branch.id),
+    )
+  ) {
     throw new Error("branch_creation_must_use_license_api");
   }
   return JSON.stringify(branches);
@@ -1385,12 +2085,15 @@ async function checkLicenseOnline() {
     const machineHash = getMachineHash();
 
     const url = `${HEARTBEAT_BASE_URL}/${machineHash}.json`;
-    const response = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
     const data = response.ok ? await response.json() : null;
 
     if (data && data.status === "blocked") {
       storageSet("__license_server_status", "blocked");
-      
+
       BrowserWindow.getAllWindows().forEach((win) => {
         if (!win.isDestroyed()) {
           win.webContents.send("license:revoked");
@@ -1411,7 +2114,6 @@ async function checkLicenseOnline() {
     // Silent fail if offline or error
   }
 }
-
 
 async function hashPassword(password) {
   const cleanPassword = normalizePassword(password);
@@ -1543,7 +2245,13 @@ async function login(username, password) {
   const ok = await verifyPassword(user?.passwordHash || dummyHash, password);
 
   if (!user || !ok) {
-    const result = recordFailedAttempt(loginAttempts, attemptKey, Date.now(), LOGIN_MAX_ATTEMPTS, LOGIN_LOCKOUT_MS);
+    const result = recordFailedAttempt(
+      loginAttempts,
+      attemptKey,
+      Date.now(),
+      LOGIN_MAX_ATTEMPTS,
+      LOGIN_LOCKOUT_MS,
+    );
     // When the in-memory limiter trips a lockout, mirror it to a persisted,
     // escalating lock so a restart cannot reset the protection.
     if (result.error === "rate_limited") {
@@ -1588,9 +2296,16 @@ async function changePassword({ userId, currentPassword, newPassword }) {
   return { ok: true, user };
 }
 
-async function updateOwnProfile({ userId, name, currentPassword, newPassword }) {
+async function updateOwnProfile({
+  userId,
+  name,
+  currentPassword,
+  newPassword,
+}) {
   const cleanUserId = String(userId || "").trim();
-  const cleanName = String(name || "").trim().slice(0, MAX_USERNAME_LENGTH);
+  const cleanName = String(name || "")
+    .trim()
+    .slice(0, MAX_USERNAME_LENGTH);
   const wantsPasswordChange = Boolean(newPassword);
   if (!cleanUserId || !cleanName) {
     return { ok: false, error: "invalid_input" };
@@ -1621,17 +2336,29 @@ async function updateOwnProfile({ userId, name, currentPassword, newPassword }) 
 async function beginOwnMfaEnrollment(event, password) {
   const user = getSessionUser(event);
   if (!user) return { ok: false, error: "not_authorized" };
-  if (!isMfaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
-  if (getMfaPolicyMode() === "disabled") return { ok: false, error: "feature_disabled" };
-  if (getMfaRecord(user.id)?.enabled) return { ok: false, error: "already_enabled" };
-  if (!isPasswordLengthAllowed(password) || !(await verifyPassword(user.passwordHash, password))) {
+  if (!isMfaFeatureLicensed())
+    return { ok: false, error: "feature_not_licensed" };
+  if (getMfaPolicyMode() === "disabled")
+    return { ok: false, error: "feature_disabled" };
+  if (getMfaRecord(user.id)?.enabled)
+    return { ok: false, error: "already_enabled" };
+  if (
+    !isPasswordLengthAllowed(password) ||
+    !(await verifyPassword(user.passwordHash, password))
+  ) {
     return { ok: false, error: "invalid_password" };
   }
-  return { ok: true, ...createEnrollmentChallenge(event, user, "self_enrollment") };
+  return {
+    ok: true,
+    ...createEnrollmentChallenge(event, user, "self_enrollment"),
+  };
 }
 
 function confirmMfaEnrollment(event, challengeId, code) {
-  const resolved = getMfaChallenge(event, challengeId, ["self_enrollment", "login_enrollment"]);
+  const resolved = getMfaChallenge(event, challengeId, [
+    "self_enrollment",
+    "login_enrollment",
+  ]);
   if (!resolved.challenge) return { ok: false, error: resolved.error };
   const challenge = resolved.challenge;
   if (!isMfaFeatureLicensed()) {
@@ -1643,7 +2370,10 @@ function confirmMfaEnrollment(event, challengeId, code) {
     mfaChallenges.delete(challenge.id);
     return { ok: false, error: "user_missing" };
   }
-  if (challenge.type === "self_enrollment" && getSession(event)?.userId !== user.id) {
+  if (
+    challenge.type === "self_enrollment" &&
+    getSession(event)?.userId !== user.id
+  ) {
     mfaChallenges.delete(challenge.id);
     return { ok: false, error: "not_authorized" };
   }
@@ -1652,7 +2382,9 @@ function confirmMfaEnrollment(event, challengeId, code) {
 
   let accepted = null;
   try {
-    accepted = verifyTotp(String(code || "").trim(), challenge.secret, { window: 1 });
+    accepted = verifyTotp(String(code || "").trim(), challenge.secret, {
+      window: 1,
+    });
   } catch {
     accepted = null;
   }
@@ -1662,7 +2394,11 @@ function confirmMfaEnrollment(event, challengeId, code) {
     return failed.error === "rate_limited" ? failed : challengeFailure;
   }
 
-  const recoveryCodes = storeMfaEnrollment(user.id, challenge.secret, accepted.counter);
+  const recoveryCodes = storeMfaEnrollment(
+    user.id,
+    challenge.secret,
+    accepted.counter,
+  );
   clearMfaVerificationAttempts(user.id);
   mfaChallenges.delete(challenge.id);
   if (challenge.type === "login_enrollment") setSession(event, user);
@@ -1670,7 +2406,10 @@ function confirmMfaEnrollment(event, challengeId, code) {
     ok: true,
     recoveryCodes,
     recoveryCodesRemaining: recoveryCodes.length,
-    user: challenge.type === "login_enrollment" ? safeUserForRenderer(user) : undefined,
+    user:
+      challenge.type === "login_enrollment"
+        ? safeUserForRenderer(user)
+        : undefined,
     loginCompleted: challenge.type === "login_enrollment",
   };
 }
@@ -1678,9 +2417,14 @@ function confirmMfaEnrollment(event, challengeId, code) {
 async function disableOwnMfa(event, password, verificationCode) {
   const user = getSessionUser(event);
   if (!user) return { ok: false, error: "not_authorized" };
-  if (!getMfaRecord(user.id)?.enabled) return { ok: false, error: "not_enabled" };
-  if (isMfaRequiredForUser(user)) return { ok: false, error: "required_by_policy" };
-  if (!isPasswordLengthAllowed(password) || !(await verifyPassword(user.passwordHash, password))) {
+  if (!getMfaRecord(user.id)?.enabled)
+    return { ok: false, error: "not_enabled" };
+  if (isMfaRequiredForUser(user))
+    return { ok: false, error: "required_by_policy" };
+  if (
+    !isPasswordLengthAllowed(password) ||
+    !(await verifyPassword(user.passwordHash, password))
+  ) {
     return { ok: false, error: "invalid_password" };
   }
   const proof = verifyMfaProofForUser(user, verificationCode);
@@ -1692,14 +2436,22 @@ async function disableOwnMfa(event, password, verificationCode) {
 async function regenerateOwnRecoveryCodes(event, password, verificationCode) {
   const user = getSessionUser(event);
   if (!user) return { ok: false, error: "not_authorized" };
-  if (!getMfaRecord(user.id)?.enabled) return { ok: false, error: "not_enabled" };
-  if (!isPasswordLengthAllowed(password) || !(await verifyPassword(user.passwordHash, password))) {
+  if (!getMfaRecord(user.id)?.enabled)
+    return { ok: false, error: "not_enabled" };
+  if (
+    !isPasswordLengthAllowed(password) ||
+    !(await verifyPassword(user.passwordHash, password))
+  ) {
     return { ok: false, error: "invalid_password" };
   }
   const proof = verifyMfaProofForUser(user, verificationCode);
   if (!proof.ok) return proof;
   const recoveryCodes = replaceRecoveryCodes(user.id);
-  return { ok: true, recoveryCodes, recoveryCodesRemaining: recoveryCodes.length };
+  return {
+    ok: true,
+    recoveryCodes,
+    recoveryCodesRemaining: recoveryCodes.length,
+  };
 }
 
 function verifyLoginSecondFactor(event, challengeId, code) {
@@ -1744,7 +2496,7 @@ function recordFailedAccountRecovery(event) {
     key,
     Date.now(),
     MFA_MAX_ATTEMPTS,
-    MFA_RECOVERY_LOCKOUT_MS
+    MFA_RECOVERY_LOCKOUT_MS,
   );
   return limited || { ok: false, error: "invalid_recovery_code" };
 }
@@ -1765,10 +2517,57 @@ function beginAccountRecovery(event, recoveryCode) {
   };
 }
 
-async function completeAccountRecovery(event, challengeId, newPassword, resetMfa = true) {
+function beginAccountRecoveryWithTotp(event, username, code) {
+  const limited = getAccountRecoveryRateLimit(event);
+  if (limited) return limited;
+
+  const cleanUsername = normalizeUsername(username);
+  const cleanCode = String(code || "")
+    .replace(/\s+/g, "")
+    .trim();
+  const user = getUsers().find(
+    (item) =>
+      String(item.username || "").toLowerCase() === cleanUsername.toLowerCase(),
+  );
+
+  // A TOTP is not globally unique, so the account name is required. Keep the
+  // failure response generic to avoid exposing whether a username has 2FA.
+  if (!user || !/^\d{6}$/.test(cleanCode) || !getMfaRecord(user.id)?.enabled) {
+    return recordFailedAccountRecovery(event);
+  }
+
+  const proof = verifyMfaProofForUser(user, cleanCode);
+  if (!proof.ok) {
+    const senderLimit = recordFailedAccountRecovery(event);
+    if (senderLimit.error === "rate_limited") return senderLimit;
+    return {
+      ok: false,
+      error: proof.error === "code_reused" ? "code_reused" : proof.error,
+      remainSeconds: proof.remainSeconds,
+      attemptsRemaining: proof.attemptsRemaining,
+    };
+  }
+
+  clearAttempts(recoveryAttempts, String(event.sender.id));
+  const challenge = createMfaChallenge(event, user, "account_recovery");
+  return {
+    ok: true,
+    challengeId: challenge.id,
+    expiresAt: new Date(challenge.expiresAt).toISOString(),
+    username: user.username,
+  };
+}
+
+async function completeAccountRecovery(
+  event,
+  challengeId,
+  newPassword,
+  resetMfa = true,
+) {
   const resolved = getMfaChallenge(event, challengeId, ["account_recovery"]);
   if (!resolved.challenge) return { ok: false, error: resolved.error };
-  if (!isPasswordLengthAllowed(newPassword, 6)) return { ok: false, error: "invalid_input" };
+  if (!isPasswordLengthAllowed(newPassword, 6))
+    return { ok: false, error: "invalid_input" };
   const challenge = resolved.challenge;
   const users = getUsers();
   const user = users.find((item) => item.id === challenge.userId);
@@ -1782,9 +2581,15 @@ async function completeAccountRecovery(event, challengeId, newPassword, resetMfa
   const tx = openDatabase().transaction(() => {
     setUsers(users);
     if (resetMfa) {
-      openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(user.id);
-      openDatabase().prepare("DELETE FROM user_mfa WHERE user_id = ?").run(user.id);
-      openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(user.id);
+      openDatabase()
+        .prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?")
+        .run(user.id);
+      openDatabase()
+        .prepare("DELETE FROM user_mfa WHERE user_id = ?")
+        .run(user.id);
+      openDatabase()
+        .prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?")
+        .run(user.id);
     }
   });
   tx();
@@ -1802,13 +2607,25 @@ async function completeAccountRecovery(event, challengeId, newPassword, resetMfa
   };
 }
 
-async function resetUserMfaByOwner(event, targetUserId, ownerPassword, verificationCode) {
+async function resetUserMfaByOwner(
+  event,
+  targetUserId,
+  ownerPassword,
+  verificationCode,
+) {
   const owner = getSessionUser(event);
-  if (!owner || owner.role !== "owner") return { ok: false, error: "not_authorized" };
-  const target = getUsers().find((user) => user.id === String(targetUserId || ""));
+  if (!owner || owner.role !== "owner")
+    return { ok: false, error: "not_authorized" };
+  const target = getUsers().find(
+    (user) => user.id === String(targetUserId || ""),
+  );
   if (!target) return { ok: false, error: "user_missing" };
-  if (target.role === "owner") return { ok: false, error: "cannot_reset_owner" };
-  if (!isPasswordLengthAllowed(ownerPassword) || !(await verifyPassword(owner.passwordHash, ownerPassword))) {
+  if (target.role === "owner")
+    return { ok: false, error: "cannot_reset_owner" };
+  if (
+    !isPasswordLengthAllowed(ownerPassword) ||
+    !(await verifyPassword(owner.passwordHash, ownerPassword))
+  ) {
     return { ok: false, error: "invalid_password" };
   }
   if (getMfaRecord(owner.id)?.enabled) {
@@ -1825,7 +2642,13 @@ function getSupportRateLimitResult(key) {
 }
 
 function registerFailedSupportAttempt(key) {
-  return recordFailedSupportAttempt(supportAttempts, key, Date.now(), SUPPORT_MAX_ATTEMPTS, SUPPORT_LOCKOUT_MS);
+  return recordFailedSupportAttempt(
+    supportAttempts,
+    key,
+    Date.now(),
+    SUPPORT_MAX_ATTEMPTS,
+    SUPPORT_LOCKOUT_MS,
+  );
 }
 
 async function resetOwnerPassword({ supportCode, username, password }) {
@@ -1858,7 +2681,9 @@ async function resetOwnerPassword({ supportCode, username, password }) {
   }
   if (
     users.some(
-      (user) => user.id !== owner.id && user.username.toLowerCase() === cleanUsername.toLowerCase()
+      (user) =>
+        user.id !== owner.id &&
+        user.username.toLowerCase() === cleanUsername.toLowerCase(),
     )
   ) {
     return { ok: false, error: "username_taken" };
@@ -1871,12 +2696,20 @@ async function resetOwnerPassword({ supportCode, username, password }) {
   try {
     const tx = openDatabase().transaction(() => {
       openDatabase()
-        .prepare("INSERT INTO consumed_support_codes (support_id, consumed_at) VALUES (?, ?)")
+        .prepare(
+          "INSERT INTO consumed_support_codes (support_id, consumed_at) VALUES (?, ?)",
+        )
         .run(support.supportId, new Date().toISOString());
       setUsers(users);
-      openDatabase().prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?").run(owner.id);
-      openDatabase().prepare("DELETE FROM user_mfa WHERE user_id = ?").run(owner.id);
-      openDatabase().prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?").run(owner.id);
+      openDatabase()
+        .prepare("DELETE FROM mfa_recovery_codes WHERE user_id = ?")
+        .run(owner.id);
+      openDatabase()
+        .prepare("DELETE FROM user_mfa WHERE user_id = ?")
+        .run(owner.id);
+      openDatabase()
+        .prepare("DELETE FROM mfa_attempt_locks WHERE user_id = ?")
+        .run(owner.id);
     });
     tx();
   } catch {
@@ -1945,7 +2778,10 @@ function createWindow() {
     };
     ipcMain.once("app:close-backup-done", finish);
     try {
-      if (win.webContents.isDestroyed()) { finish(); return; }
+      if (win.webContents.isDestroyed()) {
+        finish();
+        return;
+      }
       win.webContents.send("app:run-close-backup");
     } catch {
       finish();
@@ -1963,16 +2799,29 @@ function createWindow() {
       event.preventDefault();
       return;
     }
-    if (isDev && devRendererOrigin && parsed.origin === devRendererOrigin) return;
+    if (isDev && devRendererOrigin && parsed.origin === devRendererOrigin)
+      return;
     if (!isDev && parsed.protocol === "file:") return;
     event.preventDefault();
   });
 
-  const allowedExternalHosts = new Set(["wa.me", "helpers-tech.com", "www.helpers-tech.com"]);
+  const allowedExternalHosts = new Set([
+    "wa.me",
+    "helpers-tech.com",
+    "www.helpers-tech.com",
+    "bosta.co",
+    "www.bosta.co",
+    "app.bosta.co",
+    "business.bosta.co",
+    "docs.bosta.co",
+  ]);
   win.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const parsed = new URL(url);
-      if (parsed.protocol === "https:" && allowedExternalHosts.has(parsed.hostname.toLowerCase())) {
+      if (
+        parsed.protocol === "https:" &&
+        allowedExternalHosts.has(parsed.hostname.toLowerCase())
+      ) {
         shell.openExternal(parsed.toString());
       }
     } catch {
@@ -2057,12 +2906,14 @@ function formatCurrency(value, currency) {
 }
 
 function sanitizeFileName(value) {
-  return String(value || "invoice")
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
-    .replace(/\s+/g, " ")
-    .replace(/-+/g, "-")
-    .trim()
-    .slice(0, 140) || "invoice";
+  return (
+    String(value || "invoice")
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+      .replace(/\s+/g, " ")
+      .replace(/-+/g, "-")
+      .trim()
+      .slice(0, 140) || "invoice"
+  );
 }
 
 // Automatic backups had no retention policy and accumulated in the backup
@@ -2107,8 +2958,14 @@ function ensurePdfExtension(filePath) {
 
 function getInvoicePrintMeta(route) {
   const { kind, invoice } = getInvoiceForPrint(route);
-  const title = kind === "sales" ? "فاتورة مبيعات" : kind === "quotation" ? "عرض سعر" : "فاتورة مشتريات";
-  const docNumber = invoice.invoiceNumber || invoice.quotationNumber || invoice.id || "doc";
+  const title =
+    kind === "sales"
+      ? "فاتورة مبيعات"
+      : kind === "quotation"
+        ? "عرض سعر"
+        : "فاتورة مشتريات";
+  const docNumber =
+    invoice.invoiceNumber || invoice.quotationNumber || invoice.id || "doc";
   const partyName =
     kind === "purchase"
       ? invoice.supplierName
@@ -2168,7 +3025,9 @@ function getRendererRouteUrl(route) {
   if (process.env.ELECTRON_RENDERER_URL) {
     return `${process.env.ELECTRON_RENDERER_URL}#${cleanRoute}`;
   }
-  const indexUrl = pathToFileURL(path.join(__dirname, "..", "dist", "index.html")).toString();
+  const indexUrl = pathToFileURL(
+    path.join(__dirname, "..", "dist", "index.html"),
+  ).toString();
   return `${indexUrl}#${cleanRoute}`;
 }
 
@@ -2198,7 +3057,11 @@ async function waitForInvoicePrintLayout(webContents) {
       `);
       return;
     }
-    if (["invoice_not_found", "not_authorized", "activation_required"].includes(state)) {
+    if (
+      ["invoice_not_found", "not_authorized", "activation_required"].includes(
+        state,
+      )
+    ) {
       throw new Error(state);
     }
     await new Promise((resolve) => setTimeout(resolve, 120));
@@ -2222,52 +3085,71 @@ function getPrintSettings() {
 function isPaidPrintFeatureEnabled(key, settings) {
   const status = getLicenseStatus();
   const licenseFeatures = status?.license?.features;
-  if (!Array.isArray(licenseFeatures) || !licenseFeatures.includes(key)) return false;
+  if (!Array.isArray(licenseFeatures) || !licenseFeatures.includes(key))
+    return false;
   const override = settings?.features?.[key];
   return override === undefined ? true : Boolean(override);
 }
 
 function getInvoiceForPrint(route) {
   const cleanRoute = normalizePrintRoute(route);
-  const match = cleanRoute.match(/^\/(sales|purchases|quotations)\/([^/]+)\/print$/);
+  const match = cleanRoute.match(
+    /^\/(sales|purchases|quotations)\/([^/]+)\/print$/,
+  );
   if (!match) {
     throw new Error("Unsupported print route");
   }
 
   const section = match[1];
   const id = decodeURIComponent(match[2]);
-  if (section === "quotations" && !isPaidPrintFeatureEnabled("quotations", getPrintSettings())) {
+  if (
+    section === "quotations" &&
+    !isPaidPrintFeatureEnabled("quotations", getPrintSettings())
+  ) {
     throw new Error("quotation_feature_not_enabled");
   }
   if (section === "sales") {
     const invoices = readJsonKey(`${STORE_PREFIX}salesInvoices`, []);
-    const invoice = Array.isArray(invoices) ? invoices.find((item) => item.id === id) : null;
+    const invoice = Array.isArray(invoices)
+      ? invoices.find((item) => item.id === id)
+      : null;
     if (!invoice) throw new Error("sales_invoice_not_found");
     return { kind: "sales", invoice };
   }
   if (section === "quotations") {
     const quotations = readJsonKey(`${STORE_PREFIX}quotations`, []);
-    const invoice = Array.isArray(quotations) ? quotations.find((item) => item.id === id) : null;
+    const invoice = Array.isArray(quotations)
+      ? quotations.find((item) => item.id === id)
+      : null;
     if (!invoice) throw new Error("quotation_not_found");
     return { kind: "quotation", invoice };
   }
 
   const invoices = readJsonKey(`${STORE_PREFIX}purchaseInvoices`, []);
-  const invoice = Array.isArray(invoices) ? invoices.find((item) => item.id === id) : null;
+  const invoice = Array.isArray(invoices)
+    ? invoices.find((item) => item.id === id)
+    : null;
   if (!invoice) throw new Error("purchase_invoice_not_found");
   return { kind: "purchase", invoice };
 }
 
 function buildQuotationPrintHtml(quot, settings) {
-  const companyName = settings.arabicLabels ? settings.companyNameAr : settings.companyName;
+  const companyName = settings.arabicLabels
+    ? settings.companyNameAr
+    : settings.companyName;
   const logoImage = sanitizeImageSrc(settings.logoImage);
   const logo = logoImage
     ? `<img src="${escapeHtml(logoImage)}" alt="Logo" />`
     : escapeHtml(settings.logoText || "AP");
   const discount = Number(quot.discount) || 0;
-  const subtotal = (quot.lines || []).reduce((a, l) => a + (l.subtotal || 0), 0);
+  const subtotal = (quot.lines || []).reduce(
+    (a, l) => a + (l.subtotal || 0),
+    0,
+  );
 
-  const rows = (quot.lines || []).map((l, idx) => `
+  const rows = (quot.lines || [])
+    .map(
+      (l, idx) => `
     <tr>
       <td class="center">${idx + 1}</td>
       <td>${escapeHtml(l.productName)}</td>
@@ -2275,7 +3157,9 @@ function buildQuotationPrintHtml(quot, settings) {
       <td class="center mono">${escapeHtml(String(l.quantity))}</td>
       <td class="center mono">${escapeHtml(formatCurrency(l.price, settings.currency))}</td>
       <td class="center mono bold">${escapeHtml(formatCurrency(l.subtotal, settings.currency))}</td>
-    </tr>`).join("");
+    </tr>`,
+    )
+    .join("");
 
   return `<!doctype html>
 <html lang="ar" dir="rtl">
@@ -2374,11 +3258,15 @@ function buildQuotationPrintHtml(quot, settings) {
 
     <div class="totals">
       <div class="totals-box">
-        ${discount > 0 ? `
+        ${
+          discount > 0
+            ? `
         <div class="total-row"><span>الإجمالي قبل الخصم</span><span class="mono">${escapeHtml(formatCurrency(subtotal, settings.currency))}</span></div>
         <div class="total-row discount-row"><span>خصم</span><span class="mono">- ${escapeHtml(formatCurrency(discount, settings.currency))}</span></div>
         <div class="total-row final"><span>الإجمالي</span><span class="mono">${escapeHtml(formatCurrency(quot.total, settings.currency))}</span></div>
-        ` : `<div class="total-row final"><span>الإجمالي</span><span class="mono">${escapeHtml(formatCurrency(quot.total, settings.currency))}</span></div>`}
+        `
+            : `<div class="total-row final"><span>الإجمالي</span><span class="mono">${escapeHtml(formatCurrency(quot.total, settings.currency))}</span></div>`
+        }
       </div>
     </div>
 
@@ -2393,7 +3281,10 @@ function buildQuotationPrintHtml(quot, settings) {
 function buildInvoicePrintHtml(route) {
   const { kind, invoice } = getInvoiceForPrint(route);
   const settings = getPrintSettings();
-  const expiryTrackingEnabled = isPaidPrintFeatureEnabled("expiryTracking", settings);
+  const expiryTrackingEnabled = isPaidPrintFeatureEnabled(
+    "expiryTracking",
+    settings,
+  );
   if (kind === "quotation") return buildQuotationPrintHtml(invoice, settings);
   const isSales = kind === "sales";
   const title = isSales ? "فاتورة مبيعات" : "فاتورة مشتريات";
@@ -2412,12 +3303,18 @@ function buildInvoicePrintHtml(route) {
     if (Array.isArray(allSales)) {
       const raw = allSales
         .filter((s) => s.customerId === invoice.customerId && !s.cancelled)
-        .reduce((a, s) => a + (Number(s.remaining) || 0) - (Number(s.overpayment) || 0), 0);
+        .reduce(
+          (a, s) =>
+            a + (Number(s.remaining) || 0) - (Number(s.overpayment) || 0),
+          0,
+        );
       customerBalanceTotal = Math.round(raw * 100) / 100;
     }
   }
 
-  const returnsKey = isSales ? `${STORE_PREFIX}salesReturns` : `${STORE_PREFIX}purchaseReturns`;
+  const returnsKey = isSales
+    ? `${STORE_PREFIX}salesReturns`
+    : `${STORE_PREFIX}purchaseReturns`;
   const allReturns = readJsonKey(returnsKey, []);
   const invoiceReturns = Array.isArray(allReturns)
     ? allReturns.filter((r) => r.originalInvoiceId === invoice.id)
@@ -2425,14 +3322,25 @@ function buildInvoicePrintHtml(route) {
   const allReturnLines = invoiceReturns.flatMap((r) => r.lines || []);
   const returnsTotal = invoiceReturns.reduce((a, r) => a + (r.total || 0), 0);
 
-  const paymentMethodLabels = { cash: "كاش", bank: "تحويل بنكي", vodafone: "فودافون كاش", instapay: "انستاباي", other: "أخرى", credit: "رصيد دائن" };
+  const paymentMethodLabels = {
+    cash: "كاش",
+    bank: "تحويل بنكي",
+    vodafone: "فودافون كاش",
+    instapay: "انستاباي",
+    other: "أخرى",
+    credit: "رصيد دائن",
+  };
   const getPaymentLabel = (entry) => {
     if (entry.paymentMethod === "credit") return "رصيد";
-    if (entry.paymentMethod === "other" && entry.notes === "رصيد دائن مستخدم") return "رصيد";
+    if (entry.paymentMethod === "other" && entry.notes === "رصيد دائن مستخدم")
+      return "رصيد";
     return paymentMethodLabels[entry.paymentMethod] || entry.paymentMethod;
   };
-  const paymentLog = Array.isArray(invoice.paymentLog) ? invoice.paymentLog : [];
+  const paymentLog = Array.isArray(invoice.paymentLog)
+    ? invoice.paymentLog
+    : [];
   const discount = Number(invoice.discount) || 0;
+  const shippingFee = isSales ? Number(invoice.shippingFee) || 0 : 0;
   const paymentLabel = isSales
     ? invoice.paymentType === "cash"
       ? "نقدي"
@@ -2442,7 +3350,9 @@ function buildInvoicePrintHtml(route) {
       : invoice.status === "partial"
         ? "جزئي"
         : "آجل";
-  const companyName = settings.arabicLabels ? settings.companyNameAr : settings.companyName;
+  const companyName = settings.arabicLabels
+    ? settings.companyNameAr
+    : settings.companyName;
   const logoImage = sanitizeImageSrc(settings.logoImage);
   const logo = logoImage
     ? `<img src="${escapeHtml(logoImage)}" alt="Logo" />`
@@ -2461,7 +3371,7 @@ function buildInvoicePrintHtml(route) {
           <td class="center mono">${escapeHtml(line.quantity)}</td>
           <td class="center mono">${escapeHtml(formatCurrency(line.price, settings.currency))}</td>
           <td class="center mono bold">${escapeHtml(formatCurrency(line.subtotal, settings.currency))}</td>
-        </tr>`
+        </tr>`,
     )
     .join("");
 
@@ -2475,7 +3385,7 @@ function buildInvoicePrintHtml(route) {
           <td class="center mono">${escapeHtml(String(line.quantity))}</td>
           <td class="center mono">${escapeHtml(formatCurrency(line.price, settings.currency))}</td>
           <td class="center mono bold">${escapeHtml(formatCurrency(line.subtotal, settings.currency))}</td>
-        </tr>`
+        </tr>`,
     )
     .join("");
 
@@ -2751,6 +3661,16 @@ function buildInvoicePrintHtml(route) {
       </div>
     </div>
 
+    ${
+      isSales && invoice.deliveryMethod && invoice.deliveryMethod !== "pickup"
+        ? `
+    <div class="info-strip" style="grid-template-columns:1fr 2fr">
+      <div class="info-cell"><div class="info-label">طريقة التوصيل</div><div class="info-value">${escapeHtml(invoice.deliveryMethod === "branch_driver" ? `سائق الفرع${invoice.driverName ? ` — ${invoice.driverName}` : ""}` : `شركة شحن${invoice.shippingProviderName ? ` — ${invoice.shippingProviderName}` : ""}`)}</div></div>
+      <div class="info-cell"><div class="info-label">عنوان التوصيل</div><div class="info-value">${invoice.deliveryAddress ? escapeHtml(`${invoice.deliveryAddress.governorate}، ${invoice.deliveryAddress.city}${invoice.deliveryAddress.district ? `، ${invoice.deliveryAddress.district}` : ""} — ${invoice.deliveryAddress.addressLine}`) : "—"}</div></div>
+    </div>`
+        : ""
+    }
+
     <!-- ══ Body ══ -->
     <div class="body">
 
@@ -2773,7 +3693,9 @@ function buildInvoicePrintHtml(route) {
       </table>
 
       <!-- مرتجعات -->
-      ${allReturnLines.length > 0 ? `
+      ${
+        allReturnLines.length > 0
+          ? `
       <div class="section-heading" style="color:#b91c1c">المرتجعات</div>
       <table>
         <thead class="ret-head">
@@ -2789,41 +3711,66 @@ function buildInvoicePrintHtml(route) {
         <tbody>${returnRows}</tbody>
       </table>
       <div class="returns-total-line">إجمالي المرتجع: ${escapeHtml(formatCurrency(returnsTotal, settings.currency))}</div>
-      ` : ""}
+      `
+          : ""
+      }
 
       <!-- الإجماليات -->
       <div class="totals-wrap">
         <div class="totals-box">
-          ${discount > 0 ? `
-          <div class="total-row"><span>إجمالي البنود</span><span class="mono">${escapeHtml(formatCurrency(invoice.total + discount, settings.currency))}</span></div>
+          ${
+            discount > 0
+              ? `
+          <div class="total-row"><span>إجمالي البنود</span><span class="mono">${escapeHtml(formatCurrency(invoice.total - shippingFee + discount, settings.currency))}</span></div>
           <div class="total-row discount-row"><span>خصم</span><span class="mono">- ${escapeHtml(formatCurrency(discount, settings.currency))}</span></div>
-          <div class="total-row bold-row"><span>مستحق (بعد الخصم)</span><span class="mono bold">${escapeHtml(formatCurrency(invoice.total, settings.currency))}</span></div>
-          ` : `<div class="total-row bold-row"><span>إجمالي البنود</span><span class="mono bold">${escapeHtml(formatCurrency(invoice.total, settings.currency))}</span></div>`}
-          ${returnsTotal > 0 ? `
+          ${shippingFee > 0 ? `<div class="total-row"><span>رسوم التوصيل</span><span class="mono">+ ${escapeHtml(formatCurrency(shippingFee, settings.currency))}</span></div>` : ""}
+          <div class="total-row bold-row"><span>إجمالي الفاتورة</span><span class="mono bold">${escapeHtml(formatCurrency(invoice.total, settings.currency))}</span></div>
+          `
+              : `<div class="total-row"><span>إجمالي البنود</span><span class="mono">${escapeHtml(formatCurrency(invoice.total - shippingFee, settings.currency))}</span></div>${shippingFee > 0 ? `<div class="total-row"><span>رسوم التوصيل</span><span class="mono">+ ${escapeHtml(formatCurrency(shippingFee, settings.currency))}</span></div>` : ""}<div class="total-row bold-row"><span>إجمالي الفاتورة</span><span class="mono bold">${escapeHtml(formatCurrency(invoice.total, settings.currency))}</span></div>`
+          }
+          ${
+            returnsTotal > 0
+              ? `
           <div class="total-row return-deduction"><span>خصم المرتجع</span><span class="mono">- ${escapeHtml(formatCurrency(returnsTotal, settings.currency))}</span></div>
           <div class="total-row bold-row"><span>صافي بعد المرتجع</span><span class="mono bold">${escapeHtml(formatCurrency(Math.max(0, invoice.total - returnsTotal), settings.currency))}</span></div>
-          ` : ""}
-          ${paymentLog.length > 0
-            ? paymentLog.map((e, i) => `<div class="total-row"><span>دفعة ${i + 1} — ${formatDate(e.date)} — ${escapeHtml(getPaymentLabel(e))}</span><span class="mono paid-highlight">${escapeHtml(formatCurrency(e.amount, settings.currency))}</span></div>`).join("")
-            : `<div class="total-row"><span>${isSales ? "تم استلام" : "تم سداد"}</span><span class="mono paid-highlight">${escapeHtml(formatCurrency(amountPaid, settings.currency))}</span></div>`
+          `
+              : ""
+          }
+          ${
+            paymentLog.length > 0
+              ? paymentLog
+                  .map(
+                    (e, i) =>
+                      `<div class="total-row"><span>دفعة ${i + 1} — ${formatDate(e.date)} — ${escapeHtml(getPaymentLabel(e))}</span><span class="mono paid-highlight">${escapeHtml(formatCurrency(e.amount, settings.currency))}</span></div>`,
+                  )
+                  .join("")
+              : `<div class="total-row"><span>${isSales ? "تم استلام" : "تم سداد"}</span><span class="mono paid-highlight">${escapeHtml(formatCurrency(amountPaid, settings.currency))}</span></div>`
           }
           ${isSales && overpayment > 0 ? `<div class="total-row credit-row"><span>رصيد للعميل من هذه الفاتورة</span><span class="mono">له ${escapeHtml(formatCurrency(overpayment, settings.currency))}</span></div>` : ""}
           ${paymentLog.length > 0 || overpayment > 0 ? `<div class="total-row bold-row"><span>${isSales ? "إجمالي المسدّد" : "إجمالي ما تم سداده"}</span><span class="mono paid-highlight">${escapeHtml(formatCurrency(totalCollected, settings.currency))}</span></div>` : ""}
-          ${isSales && customerBalanceTotal !== null && partyName ? `<div class="total-row ${
-            customerBalanceTotal < 0 ? "credit-row" : customerBalanceTotal > 0 ? "deduction-row" : ""
-          }"><span>${
-            customerBalanceTotal < 0
-              ? `رصيد حساب للعميل (${escapeHtml(partyName)})`
-              : customerBalanceTotal > 0
-                ? `رصيد حساب على العميل (${escapeHtml(partyName)})`
-                : `رصيد حساب العميل (${escapeHtml(partyName)})`
-          }</span><span class="mono">${
-            customerBalanceTotal < 0
-              ? `له ${escapeHtml(formatCurrency(-customerBalanceTotal, settings.currency))}`
-              : customerBalanceTotal > 0
-                ? `عليه ${escapeHtml(formatCurrency(customerBalanceTotal, settings.currency))}`
-                : "الحساب مسوّى"
-          }</span></div>` : ""}
+          ${
+            isSales && customerBalanceTotal !== null && partyName
+              ? `<div class="total-row ${
+                  customerBalanceTotal < 0
+                    ? "credit-row"
+                    : customerBalanceTotal > 0
+                      ? "deduction-row"
+                      : ""
+                }"><span>${
+                  customerBalanceTotal < 0
+                    ? `رصيد حساب للعميل (${escapeHtml(partyName)})`
+                    : customerBalanceTotal > 0
+                      ? `رصيد حساب على العميل (${escapeHtml(partyName)})`
+                      : `رصيد حساب العميل (${escapeHtml(partyName)})`
+                }</span><span class="mono">${
+                  customerBalanceTotal < 0
+                    ? `له ${escapeHtml(formatCurrency(-customerBalanceTotal, settings.currency))}`
+                    : customerBalanceTotal > 0
+                      ? `عليه ${escapeHtml(formatCurrency(customerBalanceTotal, settings.currency))}`
+                      : "الحساب مسوّى"
+                }</span></div>`
+              : ""
+          }
           <div class="total-row final"><span>${isSales ? "المتبقي على العميل" : "المتبقي للمورد"}</span><span class="mono">${escapeHtml(formatCurrency(invoice.remaining, settings.currency))}</span></div>
         </div>
       </div>
@@ -2892,19 +3839,27 @@ function printRoute(route) {
         finish({ ok: true });
       });
 
-      printWindow.webContents.once("did-fail-load", (_event, _code, description) => {
-        if (printWindow && !printWindow.isDestroyed()) {
-          printWindow.close();
-        }
-        finish({ ok: false, error: description || "did_fail_load" });
-      });
+      printWindow.webContents.once(
+        "did-fail-load",
+        (_event, _code, description) => {
+          if (printWindow && !printWindow.isDestroyed()) {
+            printWindow.close();
+          }
+          finish({ ok: false, error: description || "did_fail_load" });
+        },
+      );
 
-      printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      printWindow.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
+      );
     } catch (error) {
       if (printWindow && !printWindow.isDestroyed()) {
         printWindow.close();
       }
-      finish({ ok: false, error: error instanceof Error ? error.message : "print_failed" });
+      finish({
+        ok: false,
+        error: error instanceof Error ? error.message : "print_failed",
+      });
     }
   });
 }
@@ -2922,7 +3877,11 @@ function registerIpc() {
   }
 
   function canReadRendererStorage(event) {
-    return !ownerExistsInStore() || Boolean(getSession(event)) || internalPrintWebContents.has(event.sender.id);
+    return (
+      !ownerExistsInStore() ||
+      Boolean(getSession(event)) ||
+      internalPrintWebContents.has(event.sender.id)
+    );
   }
 
   function canMutateRendererStorage(event, key) {
@@ -2940,43 +3899,50 @@ function registerIpc() {
     if (!Array.isArray(incoming)) throw new Error("invalid_users_payload");
     const existing = getUsers();
     const existingById = new Map(existing.map((user) => [user.id, user]));
-    const existingByUsername = new Map(existing.map((user) => [String(user.username).toLowerCase(), user]));
+    const existingByUsername = new Map(
+      existing.map((user) => [String(user.username).toLowerCase(), user]),
+    );
     const normalized = incoming.map((user) => {
-        const cleanUsername = normalizeUsername(user?.username);
-        if (!cleanUsername) {
-          throw new Error("invalid_username");
-        }
-        const existingUser =
-          existingById.get(user?.id) || existingByUsername.get(cleanUsername.toLowerCase());
-        const incomingHash = user?.passwordHash;
-        const passwordHash =
-          incomingHash === REDACTED_PASSWORD_HASH
-            ? existingUser?.passwordHash
-            : incomingHash;
-        if (!isArgonPasswordHash(passwordHash)) {
-          throw new Error("invalid_password_hash");
-        }
-        const userId = existingUser?.id || String(user?.id || "").trim();
-        if (!userId || userId.length > 120) throw new Error("invalid_user_id");
-        return {
-          ...user,
-          id: userId,
-          name: String(user?.name || cleanUsername).trim(),
-          username: cleanUsername,
-          passwordHash,
-          // Account identity and privilege are main-process invariants. Existing
-          // users cannot be re-keyed (which would detach MFA) or promoted by a
-          // forged renderer storage write. Only first-run setup creates an owner.
-          role: existingUser?.role || "employee",
-          createdAt: existingUser?.createdAt || user?.createdAt || new Date().toISOString(),
-        };
-      });
+      const cleanUsername = normalizeUsername(user?.username);
+      if (!cleanUsername) {
+        throw new Error("invalid_username");
+      }
+      const existingUser =
+        existingById.get(user?.id) ||
+        existingByUsername.get(cleanUsername.toLowerCase());
+      const incomingHash = user?.passwordHash;
+      const passwordHash =
+        incomingHash === REDACTED_PASSWORD_HASH
+          ? existingUser?.passwordHash
+          : incomingHash;
+      if (!isArgonPasswordHash(passwordHash)) {
+        throw new Error("invalid_password_hash");
+      }
+      const userId = existingUser?.id || String(user?.id || "").trim();
+      if (!userId || userId.length > 120) throw new Error("invalid_user_id");
+      return {
+        ...user,
+        id: userId,
+        name: String(user?.name || cleanUsername).trim(),
+        username: cleanUsername,
+        passwordHash,
+        // Account identity and privilege are main-process invariants. Existing
+        // users cannot be re-keyed (which would detach MFA) or promoted by a
+        // forged renderer storage write. Only first-run setup creates an owner.
+        role: existingUser?.role || "employee",
+        createdAt:
+          existingUser?.createdAt ||
+          user?.createdAt ||
+          new Date().toISOString(),
+      };
+    });
 
     const ids = new Set();
     const usernames = new Set();
     for (const user of normalized) {
       const usernameKey = user.username.toLowerCase();
-      if (ids.has(user.id) || usernames.has(usernameKey)) throw new Error("duplicate_user_identity");
+      if (ids.has(user.id) || usernames.has(usernameKey))
+        throw new Error("duplicate_user_identity");
       ids.add(user.id);
       usernames.add(usernameKey);
     }
@@ -2987,8 +3953,10 @@ function registerIpc() {
   }
 
   function normalizeRendererStorageValue(key, value) {
-    if (String(key) === `${STORE_PREFIX}users`) return mergeRendererUsersValue(value);
-    if (String(key) === BRANCHES_STORAGE_KEY) return validateBranchStorageValue(value);
+    if (String(key) === `${STORE_PREFIX}users`)
+      return mergeRendererUsersValue(value);
+    if (String(key) === BRANCHES_STORAGE_KEY)
+      return validateBranchStorageValue(value);
     return String(value);
   }
 
@@ -3012,7 +3980,10 @@ function registerIpc() {
       return false;
     }
     try {
-      const saved = storageSet(String(key), normalizeRendererStorageValue(key, value));
+      const saved = storageSet(
+        String(key),
+        normalizeRendererStorageValue(key, value),
+      );
       if (String(key) === `${STORE_PREFIX}users`) cleanupMfaForMissingUsers();
       return saved;
     } catch {
@@ -3061,12 +4032,16 @@ function registerIpc() {
       let writeErrors = 0;
       const tx = openDatabase().transaction(() => {
         for (const [key, value] of Object.entries(entries)) {
-          if (!isRendererStorageKey(key) || !canMutateRendererStorage(event, key)) continue;
+          if (
+            !isRendererStorageKey(key) ||
+            !canMutateRendererStorage(event, key)
+          )
+            continue;
           try {
             getStmtSet().run(
               String(key),
               normalizeRendererStorageValue(key, value),
-              new Date().toISOString()
+              new Date().toISOString(),
             );
             if (String(key) === `${STORE_PREFIX}users`) usersWereUpdated = true;
           } catch {
@@ -3088,16 +4063,19 @@ function registerIpc() {
     }
     // SECURITY: Export only renderer-owned app data and redact credential hashes.
     const rows = openDatabase()
-      .prepare("SELECT key, value, updated_at FROM kv_store WHERE key LIKE ? ORDER BY key")
+      .prepare(
+        "SELECT key, value, updated_at FROM kv_store WHERE key LIKE ? ORDER BY key",
+      )
       .all(`${STORE_PREFIX}%`)
       .filter((row) => isRendererStorageKey(row.key))
       .map(redactStorageRowForExport);
     return { version: 1, timestamp: new Date().toISOString(), rows };
   });
   ipcMain.handle("storage:import", (event, payload) => {
-    if (!hasOwnerSession(event) || !payload || !Array.isArray(payload.rows)) return { ok: false };
+    if (!hasOwnerSession(event) || !payload || !Array.isArray(payload.rows))
+      return { ok: false };
     const insert = openDatabase().prepare(
-      "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+      "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
     );
     const tx = openDatabase().transaction((rows) => {
       for (const row of rows) {
@@ -3106,7 +4084,7 @@ function registerIpc() {
           insert.run(
             row.key,
             normalizeRendererStorageValue(row.key, row.value),
-            row.updated_at || new Date().toISOString()
+            row.updated_at || new Date().toISOString(),
           );
         }
       }
@@ -3133,18 +4111,286 @@ function registerIpc() {
   });
   ipcMain.handle("branch-license:activate", (event, serial) => {
     if (!hasOwnerSession(event)) {
-      return { ok: false, error: "not_authorized", status: getBranchLicenseStatusInternal() };
+      return {
+        ok: false,
+        error: "not_authorized",
+        status: getBranchLicenseStatusInternal(),
+      };
     }
     return activateBranchSlot(serial);
   });
   ipcMain.handle("branch-license:create-branch", (event, input) => {
     if (!hasOwnerSession(event)) {
-      return { ok: false, error: "not_authorized", status: getBranchLicenseStatusInternal() };
+      return {
+        ok: false,
+        error: "not_authorized",
+        status: getBranchLicenseStatusInternal(),
+      };
     }
     return createLicensedBranch(input);
   });
 
-  ipcMain.handle("setup:has-owner", () => getUsers().some((user) => user.role === "owner"));
+  // ── External integrations: Bosta ────────────────────────────────────
+  // Secrets live only in the main process and are never returned to the
+  // renderer, included in renderer-owned storage, or exported in backups.
+  ipcMain.handle("integrations:bosta:get-config", (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+    return { ok: true, config: cleanBostaConfig() };
+  });
+  ipcMain.handle("integrations:bosta:save-config", (event, payload) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+    const packageType = String(payload?.defaultPackageType || "SMALL");
+    if (
+      !["SMALL", "MEDIUM", "LARGE", "Light Bulky", "Heavy Bulky"].includes(
+        packageType,
+      )
+    ) {
+      return { ok: false, error: "invalid_package_type" };
+    }
+    const apiKey = String(payload?.apiKey || "").trim();
+    if (apiKey && (apiKey.length < 12 || apiKey.length > 8192)) {
+      return { ok: false, error: "invalid_api_key" };
+    }
+    if (apiKey) storeIntegrationSecret(BOSTA_API_KEY, apiKey);
+    if (payload?.enabled && !readIntegrationSecret(BOSTA_API_KEY)) {
+      return { ok: false, error: "api_key_missing" };
+    }
+    const current = readJsonKey(BOSTA_CONFIG_KEY, {});
+    const webhookUrl = String(payload?.webhookUrl || "").trim();
+    if (webhookUrl) {
+      try {
+        const parsed = new URL(webhookUrl);
+        if (
+          parsed.protocol !== "https:" ||
+          parsed.username ||
+          parsed.password ||
+          webhookUrl.length > 2048
+        ) {
+          return { ok: false, error: "invalid_webhook_url" };
+        }
+      } catch {
+        return { ok: false, error: "invalid_webhook_url" };
+      }
+    }
+    const webhookHeaderName = String(payload?.webhookHeaderName || "").trim();
+    const webhookHeaderValue = String(payload?.webhookHeaderValue || "").trim();
+    const webhookPollToken = String(payload?.webhookPollToken || "").trim();
+    if (webhookHeaderName && !/^[A-Za-z0-9-]{1,80}$/.test(webhookHeaderName)) {
+      return { ok: false, error: "invalid_webhook_header" };
+    }
+    if (webhookHeaderValue && webhookHeaderValue.length > 2048) {
+      return { ok: false, error: "invalid_webhook_header" };
+    }
+    if (webhookHeaderValue)
+      storeIntegrationSecret(BOSTA_WEBHOOK_HEADER_VALUE, webhookHeaderValue);
+    if (webhookPollToken) {
+      if (webhookPollToken.length < 24 || webhookPollToken.length > 2048) {
+        return { ok: false, error: "invalid_webhook_poll_token" };
+      }
+      storeIntegrationSecret(BOSTA_WEBHOOK_POLL_TOKEN, webhookPollToken);
+    }
+    const effectiveHeaderValue =
+      webhookHeaderValue || readIntegrationSecret(BOSTA_WEBHOOK_HEADER_VALUE);
+    const effectivePollToken =
+      webhookPollToken || readIntegrationSecret(BOSTA_WEBHOOK_POLL_TOKEN);
+    if (
+      webhookUrl &&
+      Boolean(webhookHeaderName) !== Boolean(effectiveHeaderValue)
+    ) {
+      return { ok: false, error: "webhook_header_pair_required" };
+    }
+    if (
+      webhookUrl &&
+      effectivePollToken &&
+      !bostaWebhookRelayUrl(webhookUrl, "events")
+    ) {
+      return { ok: false, error: "invalid_webhook_relay_url" };
+    }
+    writeJsonKey(BOSTA_CONFIG_KEY, {
+      ...current,
+      enabled: Boolean(payload?.enabled),
+      autoTrackingEnabled: payload?.autoTrackingEnabled !== false,
+      autoTrackingIntervalMinutes: [2, 5, 10, 15, 30].includes(
+        Number(payload?.autoTrackingIntervalMinutes),
+      )
+        ? Number(payload.autoTrackingIntervalMinutes)
+        : 5,
+      businessLocationId: String(payload?.businessLocationId || "")
+        .trim()
+        .slice(0, 160),
+      webhookUrl,
+      webhookHeaderName,
+      defaultPackageType: packageType,
+      allowOpenPackage: Boolean(payload?.allowOpenPackage),
+    });
+    return { ok: true, config: cleanBostaConfig() };
+  });
+  ipcMain.handle("integrations:bosta:test", async (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+    const result = await bostaRequest("/pickup-locations");
+    const current = readJsonKey(BOSTA_CONFIG_KEY, {});
+    writeJsonKey(BOSTA_CONFIG_KEY, {
+      ...current,
+      lastTestedAt: new Date().toISOString(),
+      lastTestOk: result.ok,
+    });
+    return result.ok
+      ? { ok: true, pickupLocations: bostaPickupLocations(result.data) }
+      : { ok: false, error: result.error };
+  });
+  ipcMain.handle("integrations:bosta:webhook-events", async (event) => {
+    if (!sessionCanViewModule(event, "salesInvoices"))
+      return { ok: false, error: "not_authorized" };
+    if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+    return bostaWebhookRelayRequest("events");
+  });
+  ipcMain.handle("integrations:bosta:test-webhook", async (event, payload) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+    return testBostaWebhookRelay(payload);
+  });
+  ipcMain.handle("integrations:bosta:ack-webhook-events", async (event, ids) => {
+    if (!sessionCanViewModule(event, "salesInvoices"))
+      return { ok: false, error: "not_authorized" };
+    if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+    const cleanIds = Array.isArray(ids)
+      ? ids
+          .map((id) => String(id || "").trim())
+          .filter((id) => /^[a-f0-9]{64}$/.test(id))
+          .slice(0, 100)
+      : [];
+    if (!cleanIds.length) return { ok: false, error: "invalid_payload" };
+    return bostaWebhookRelayRequest("ack", cleanIds);
+  });
+  ipcMain.handle(
+    "integrations:bosta:create-delivery",
+    async (event, payload) => {
+      if (!sessionCanMutateModule(event, "salesInvoices", "add")) {
+        return { ok: false, error: "not_authorized" };
+      }
+      if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+      if (!cleanBostaConfig().enabled)
+        return { ok: false, error: "integration_disabled" };
+      let clean;
+      try {
+        clean = cleanBostaDeliveryPayload(payload);
+      } catch (error) {
+        return { ok: false, error: error?.message || "invalid_payload" };
+      }
+      const result = await bostaRequest("/deliveries?apiVersion=1", {
+        method: "POST",
+        body: clean,
+      });
+      return result.ok
+        ? { ok: true, data: result.data }
+        : { ok: false, error: result.error, data: result.data };
+    },
+  );
+  ipcMain.handle(
+    "integrations:bosta:track-delivery",
+    async (event, reference) => {
+      if (!sessionCanViewModule(event, "salesInvoices"))
+        return { ok: false, error: "not_authorized" };
+      if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+      const clean = String(reference || "").trim();
+      if (!/^[A-Za-z0-9_-]{3,120}$/.test(clean))
+        return { ok: false, error: "invalid_tracking_reference" };
+      let result = await bostaRequest(
+        `/deliveries/business/${encodeURIComponent(clean)}`,
+      );
+      if (!result.ok && result.status === 404) {
+        result = await bostaRequest(`/deliveries/${encodeURIComponent(clean)}`);
+      }
+      return result.ok
+        ? { ok: true, data: result.data }
+        : { ok: false, error: result.error };
+    },
+  );
+  ipcMain.handle("integrations:bosta:cities", async (event) => {
+    if (!getSession(event)) return { ok: false, error: "not_authorized" };
+    if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+    const result = await bostaRequest(
+      "/cities?countryId=60e4482c7cb7d4bc4849c4d5",
+    );
+    return result.ok
+      ? { ok: true, data: result.data }
+      : { ok: false, error: result.error };
+  });
+  ipcMain.handle("integrations:bosta:districts", async (event, cityId) => {
+    if (!getSession(event)) return { ok: false, error: "not_authorized" };
+    if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+    const clean = String(cityId || "").trim();
+    if (!/^[A-Za-z0-9_-]{3,120}$/.test(clean))
+      return { ok: false, error: "invalid_city" };
+    const result = await bostaRequest(
+      `/cities/${encodeURIComponent(clean)}/districts`,
+    );
+    return result.ok
+      ? { ok: true, data: result.data }
+      : { ok: false, error: result.error };
+  });
+  ipcMain.handle(
+    "integrations:bosta:estimate-price",
+    async (event, payload) => {
+      if (!sessionCanViewModule(event, "salesInvoices"))
+        return { ok: false, error: "not_authorized" };
+      if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+      const dropOffCity = String(payload?.dropOffCity || "")
+        .trim()
+        .slice(0, 120);
+      if (!dropOffCity) return { ok: false, error: "city_required" };
+      const size = ["Normal", "Light Bulky", "Heavy Bulky"].includes(
+        payload?.size,
+      )
+        ? payload.size
+        : "Normal";
+      const params = new URLSearchParams({
+        dropOffCity,
+        type: "SEND",
+        size,
+        cod: String(Math.max(0, Number(payload?.cod) || 0)),
+      });
+      const result = await bostaRequest(
+        `/pricing/shipment/calculator?${params.toString()}`,
+      );
+      return result.ok
+        ? { ok: true, data: result.data }
+        : { ok: false, error: result.error };
+    },
+  );
+
+  ipcMain.handle(
+    "integrations:bosta:pricing-plan",
+    async (event, payload) => {
+      if (!sessionCanViewModule(event, "salesInvoices"))
+        return { ok: false, error: "not_authorized" };
+      if (!isBostaFeatureLicensed()) return { ok: false, error: "feature_not_licensed" };
+      const tierIdSelector = ["c__CT4DU9I", "yiqKg_aGM1"].includes(
+        payload?.tierIdSelector,
+      )
+        ? payload.tierIdSelector
+        : "c__CT4DU9I";
+      const pickupSectorId = Math.trunc(Number(payload?.pickupSectorId));
+      if (pickupSectorId < 1 || pickupSectorId > 7)
+        return { ok: false, error: "invalid_pickup_sector" };
+      const params = new URLSearchParams({
+        tierIdSelector,
+        pickupSectorId: String(pickupSectorId),
+        vatIncluded: payload?.vatIncluded ? "true" : "false",
+      });
+      const result = await bostaRequest(`/pricing/calculator?${params.toString()}`);
+      return result.ok
+        ? { ok: true, data: result.data }
+        : { ok: false, error: result.error };
+    },
+  );
+
+  ipcMain.handle("setup:has-owner", () =>
+    getUsers().some((user) => user.role === "owner"),
+  );
   ipcMain.handle("setup:create-owner", async (event, payload) => {
     const result = await createOwner(payload?.username, payload?.password);
     if (result.ok && result.user) {
@@ -3185,18 +4431,21 @@ function registerIpc() {
       : { ok: false, error: "not_authenticated" };
   });
   ipcMain.handle("auth:verify-second-factor", (event, payload) =>
-    verifyLoginSecondFactor(event, payload?.challengeId, payload?.code)
+    verifyLoginSecondFactor(event, payload?.challengeId, payload?.code),
   );
   ipcMain.handle("auth:begin-account-recovery", (event, payload) =>
-    beginAccountRecovery(event, payload?.recoveryCode)
+    beginAccountRecovery(event, payload?.recoveryCode),
+  );
+  ipcMain.handle("auth:begin-account-recovery-with-totp", (event, payload) =>
+    beginAccountRecoveryWithTotp(event, payload?.username, payload?.code),
   );
   ipcMain.handle("auth:complete-account-recovery", (event, payload) =>
     completeAccountRecovery(
       event,
       payload?.challengeId,
       payload?.newPassword,
-      payload?.resetMfa !== false
-    )
+      payload?.resetMfa !== false,
+    ),
   );
   ipcMain.handle("auth:logout", (event) => {
     clearSession(event);
@@ -3207,7 +4456,10 @@ function registerIpc() {
   ipcMain.handle("auth:change-password", async (event, payload) => {
     const sessionInfo = getSession(event);
     const targetUserId = String(payload?.userId || "").trim();
-    if (!sessionInfo || (sessionInfo.userId !== targetUserId && sessionInfo.role !== "owner")) {
+    if (
+      !sessionInfo ||
+      (sessionInfo.userId !== targetUserId && sessionInfo.role !== "owner")
+    ) {
       return { ok: false, error: "not_authorized" };
     }
     const result = await changePassword(payload);
@@ -3219,7 +4471,10 @@ function registerIpc() {
   ipcMain.handle("auth:update-profile", async (event, payload) => {
     const sessionInfo = getSession(event);
     const targetUserId = String(payload?.userId || "").trim();
-    if (!sessionInfo || (sessionInfo.userId !== targetUserId && sessionInfo.role !== "owner")) {
+    if (
+      !sessionInfo ||
+      (sessionInfo.userId !== targetUserId && sessionInfo.role !== "owner")
+    ) {
       return { ok: false, error: "not_authorized" };
     }
     const result = await updateOwnProfile(payload);
@@ -3235,26 +4490,30 @@ function registerIpc() {
       : { ok: false, error: "not_authorized" };
   });
   ipcMain.handle("mfa:begin-enrollment", (event, payload) =>
-    beginOwnMfaEnrollment(event, payload?.password)
+    beginOwnMfaEnrollment(event, payload?.password),
   );
   ipcMain.handle("mfa:confirm-enrollment", (event, payload) =>
-    confirmMfaEnrollment(event, payload?.challengeId, payload?.code)
+    confirmMfaEnrollment(event, payload?.challengeId, payload?.code),
   );
   ipcMain.handle("mfa:disable-own", (event, payload) =>
-    disableOwnMfa(event, payload?.password, payload?.verificationCode)
+    disableOwnMfa(event, payload?.password, payload?.verificationCode),
   );
   ipcMain.handle("mfa:regenerate-recovery-codes", (event, payload) =>
-    regenerateOwnRecoveryCodes(event, payload?.password, payload?.verificationCode)
+    regenerateOwnRecoveryCodes(
+      event,
+      payload?.password,
+      payload?.verificationCode,
+    ),
   );
   ipcMain.handle("mfa:get-policy", (event) =>
     hasOwnerSession(event)
       ? { ok: true, policy: getMfaPolicy() }
-      : { ok: false, error: "not_authorized" }
+      : { ok: false, error: "not_authorized" },
   );
   ipcMain.handle("mfa:update-policy", (event, payload) =>
     hasOwnerSession(event)
       ? updateMfaPolicy(payload?.mode)
-      : { ok: false, error: "not_authorized" }
+      : { ok: false, error: "not_authorized" },
   );
   ipcMain.handle("mfa:list-user-statuses", (event) => {
     if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
@@ -3274,8 +4533,8 @@ function registerIpc() {
       event,
       payload?.userId,
       payload?.ownerPassword,
-      payload?.verificationCode
-    )
+      payload?.verificationCode,
+    ),
   );
   ipcMain.handle("support:reset-owner-password", async (event, payload) => {
     const key = String(event.sender.id);
@@ -3287,7 +4546,10 @@ function registerIpc() {
       supportAttempts.delete(key);
       return { ...result, user: safeUserForRenderer(result.user) };
     }
-    if (result.error === "invalid_support_code" || result.error === "machine_mismatch") {
+    if (
+      result.error === "invalid_support_code" ||
+      result.error === "machine_mismatch"
+    ) {
       const nextRateLimit = registerFailedSupportAttempt(key);
       if (nextRateLimit) return nextRateLimit;
     }
@@ -3301,7 +4563,8 @@ function registerIpc() {
     } catch {
       return { ok: false, error: "invalid_route" };
     }
-    if (!sessionCanViewModule(event, module)) return { ok: false, error: "not_authorized" };
+    if (!sessionCanViewModule(event, module))
+      return { ok: false, error: "not_authorized" };
     return printRoute(route);
   });
   ipcMain.handle("print:current-window", async (event) => {
@@ -3317,14 +4580,19 @@ function registerIpc() {
         });
       });
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "print_failed" };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "print_failed",
+      };
     }
   });
   ipcMain.handle("print:save-current-pdf", async (event) => {
     const ownerWindow = BrowserWindow.fromWebContents(event.sender);
     const baseName =
       printDocumentNames.get(event.sender.id) ||
-      sanitizeFileName(ownerWindow?.getTitle() || event.sender.getTitle() || "invoice");
+      sanitizeFileName(
+        ownerWindow?.getTitle() || event.sender.getTitle() || "invoice",
+      );
     const settings = getPrintSettings();
     const baseDir = getPdfDefaultDirectory(settings);
     const defaultPath = path.join(baseDir, `${baseName}.pdf`);
@@ -3349,7 +4617,8 @@ function registerIpc() {
     } catch {
       return { ok: false, error: "invalid_route" };
     }
-    if (!sessionCanViewModule(event, printModule)) return { ok: false, error: "not_authorized" };
+    if (!sessionCanViewModule(event, printModule))
+      return { ok: false, error: "not_authorized" };
     let pdfWin = null;
     try {
       const ownerWindow = BrowserWindow.fromWebContents(event.sender);
@@ -3395,7 +4664,9 @@ function registerIpc() {
 
       await new Promise((resolve, reject) => {
         pdfWin.webContents.once("did-finish-load", resolve);
-        pdfWin.webContents.once("did-fail-load", (_e, _c, desc) => reject(new Error(desc)));
+        pdfWin.webContents.once("did-fail-load", (_e, _c, desc) =>
+          reject(new Error(desc)),
+        );
         pdfWin.loadURL(getRendererRouteUrl(route));
       });
       await waitForInvoicePrintLayout(pdfWin.webContents);
@@ -3412,7 +4683,10 @@ function registerIpc() {
         internalPrintWebContents.delete(pdfWin.webContents.id);
         pdfWin.close();
       }
-      return { ok: false, error: err instanceof Error ? err.message : "pdf_failed" };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "pdf_failed",
+      };
     }
   });
   ipcMain.handle("print:close-current-window", (event) => {
@@ -3463,9 +4737,15 @@ function registerIpc() {
       if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
         return { ok: false, error: "path_not_found" };
       }
-      const base = sanitizeFileName(payload.fileName.replace(/\.(json|hwbak)$/i, "")) || "helpers-backup";
+      const base =
+        sanitizeFileName(payload.fileName.replace(/\.(json|hwbak)$/i, "")) ||
+        "helpers-backup";
       const target = path.join(dir, `${base}.hwbak`);
-      fs.writeFileSync(target, encryptBackup(payload.content, payload.passphrase), "utf8");
+      fs.writeFileSync(
+        target,
+        encryptBackup(payload.content, payload.passphrase),
+        "utf8",
+      );
       pruneOldBackups(dir);
       return { ok: true, path: target };
     } catch {
@@ -3475,7 +4755,8 @@ function registerIpc() {
 
   ipcMain.handle("backup:encrypt-content", (event, content, passphrase) => {
     if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
-    if (typeof content !== "string") return { ok: false, error: "invalid_input" };
+    if (typeof content !== "string")
+      return { ok: false, error: "invalid_input" };
     try {
       return { ok: true, encrypted: encryptBackup(content, passphrase) };
     } catch {
@@ -3485,7 +4766,8 @@ function registerIpc() {
 
   ipcMain.handle("backup:decrypt-content", (event, content, passphrase) => {
     if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
-    if (typeof content !== "string") return { ok: false, error: "invalid_input" };
+    if (typeof content !== "string")
+      return { ok: false, error: "invalid_input" };
     try {
       return { ok: true, plaintext: decryptBackup(content, passphrase) };
     } catch (err) {
@@ -3504,8 +4786,8 @@ app.whenReady().then(() => {
   const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const cspDirectives = isDev
-      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline';"
-      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';";
+      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://app.bosta.co;"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://app.bosta.co; object-src 'none'; base-uri 'self'; form-action 'self';";
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -3515,10 +4797,12 @@ app.whenReady().then(() => {
   });
 
   // ── SECURITY: Block dangerous permission requests ─────────────────
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const allowed = ["clipboard-read", "clipboard-sanitized-write"];
-    callback(allowed.includes(permission));
-  });
+  session.defaultSession.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+      const allowed = ["clipboard-read", "clipboard-sanitized-write"];
+      callback(allowed.includes(permission));
+    },
+  );
 
   registerIpc();
   openDatabase();
@@ -3547,6 +4831,14 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
-  try { db?.pragma("wal_checkpoint(TRUNCATE)"); } catch { /* ignore */ }
-  try { closeDatabase(); } catch { /* ignore */ }
+  try {
+    db?.pragma("wal_checkpoint(TRUNCATE)");
+  } catch {
+    /* ignore */
+  }
+  try {
+    closeDatabase();
+  } catch {
+    /* ignore */
+  }
 });

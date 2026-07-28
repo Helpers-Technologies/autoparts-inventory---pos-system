@@ -22,6 +22,7 @@ import type { Product, Supplier, WarrantyClaim } from "../../src/types";
 const mockAdjustStock = vi.fn();
 const mockUpdateWarrantyClaim = vi.fn();
 const mockAddWarrantyClaim = vi.fn();
+const mockAddCashEntry = vi.fn();
 
 const PRODUCT: Product = {
   id: "prod1",
@@ -55,9 +56,10 @@ const OPEN_CLAIM: WarrantyClaim = {
   openedAt: "2026-07-01T00:00:00.000Z",
   updatedAt: "2026-07-01T00:00:00.000Z",
 };
+let mockWarrantyClaims: WarrantyClaim[] = [OPEN_CLAIM];
 
 vi.mock("../../src/store/InvoicingContext", () => ({
-  useInvoicing: () => ({ salesInvoices: [] }),
+  useInvoicing: () => ({ salesInvoices: [], addCashEntry: mockAddCashEntry }),
 }));
 
 vi.mock("../../src/store/CatalogContext", () => ({
@@ -77,7 +79,7 @@ vi.mock("../../src/store/SettingsContext", () => ({
 
 vi.mock("../../src/store/AutoPartsProContext", () => ({
   useAutoPartsPro: () => ({
-    warrantyClaims: [OPEN_CLAIM],
+    warrantyClaims: mockWarrantyClaims,
     addWarrantyClaim: mockAddWarrantyClaim,
     updateWarrantyClaim: mockUpdateWarrantyClaim,
   }),
@@ -87,9 +89,12 @@ vi.mock("../../src/store/AutoPartsProContext", () => ({
 
 describe("WarrantyCenterPage — TC-COMP-WARRANTY", () => {
   beforeEach(() => {
+    mockWarrantyClaims = [OPEN_CLAIM];
     mockAdjustStock.mockClear();
     mockUpdateWarrantyClaim.mockClear();
     mockAddWarrantyClaim.mockClear();
+    mockAddCashEntry.mockReset();
+    mockAddCashEntry.mockReturnValue({ id: "cash_comp_1" });
   });
 
   afterEach(() => {
@@ -115,5 +120,66 @@ describe("WarrantyCenterPage — TC-COMP-WARRANTY", () => {
       stockDeducted: true,
       replacementCost: expect.any(Number),
     });
+  });
+
+  it("pays a cash compensation once without deducting replacement stock", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<WarrantyCenterPage />);
+
+    await user.click(screen.getByRole("button", { name: /طلبات الضمان/ }));
+    await user.click(screen.getByRole("button", { name: /تعويض نقدي/ }));
+    await user.type(screen.getByRole("spinbutton", { name: "مبلغ التعويض" }), "75");
+    await user.click(screen.getByRole("button", { name: /تأكيد التعويض/ }));
+
+    expect(mockAdjustStock).not.toHaveBeenCalled();
+    expect(mockAddCashEntry).toHaveBeenCalledTimes(1);
+    expect(mockAddCashEntry).toHaveBeenCalledWith(expect.objectContaining({
+      type: "adjustment",
+      amount: -75,
+      referenceId: "claim1",
+      paymentMethod: "cash",
+    }));
+    expect(mockUpdateWarrantyClaim).toHaveBeenCalledWith("claim1", expect.objectContaining({
+      status: "compensated",
+      compensationAmount: 75,
+      compensationCashEntryId: "cash_comp_1",
+    }));
+  });
+
+  it("keeps a compensated claim finalized and disables further decisions", async () => {
+    mockWarrantyClaims = [{
+      ...OPEN_CLAIM,
+      status: "compensated",
+      compensationAmount: 75,
+      compensationCashEntryId: "cash_comp_existing",
+    }];
+    const user = userEvent.setup();
+    renderWithProviders(<WarrantyCenterPage />);
+
+    await user.click(screen.getByRole("button", { name: /طلبات الضمان/ }));
+
+    expect(screen.getByText("تم التعويض نقديًا", { selector: "span" })).toBeInTheDocument();
+    const claimStatusSelect = screen.getAllByRole("combobox").find((element) => (element as HTMLSelectElement).value === "compensated");
+    expect(claimStatusSelect).toBeDisabled();
+    expect(screen.getByRole("button", { name: /استبدال/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /تعويض نقدي/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /رفض/ })).toBeDisabled();
+  });
+
+  it("shows the latest 10 claims first and loads more on demand", async () => {
+    mockWarrantyClaims = Array.from({ length: 12 }, (_, index) => ({
+      ...OPEN_CLAIM,
+      id: `claim${index + 1}`,
+      invoiceLineId: `line${index + 1}`,
+      openedAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+    }));
+    const user = userEvent.setup();
+    renderWithProviders(<WarrantyCenterPage />);
+
+    await user.click(screen.getByRole("button", { name: /طلبات الضمان/ }));
+
+    expect(screen.getAllByRole("button", { name: /استبدال/ })).toHaveLength(10);
+    await user.click(screen.getByRole("button", { name: /عرض المزيد \(2 متبقي\)/ }));
+    expect(screen.getAllByRole("button", { name: /استبدال/ })).toHaveLength(12);
   });
 });
