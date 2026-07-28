@@ -4,7 +4,7 @@
 
 تطبيق Windows Desktop مستقل لمحلات وتجار قطع غيار السيارات. يدير كتالوج السيارات وتوافق القطع والبدائل والمخزون والفواتير، ويعمل أوفلاين بقاعدة SQLite محلية مشفرة.
 
-**Package version:** `6.0.2`
+**Package version:** `6.1.1`
 
 ## نظرة عامة
 
@@ -146,7 +146,7 @@ release/
 اسم المثبت يعتمد على `productName` و `version` في `package.json`:
 
 ```text
-AutoParts Inventory & Sales System-6.0.2-Setup.exe
+AutoParts Inventory & Sales System-6.1.1-Setup.exe
 ```
 
 البناء يستخدم:
