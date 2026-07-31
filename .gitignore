@@ -73,3 +73,7 @@ coverage/
 # Test runner artifacts (Playwright + vitest reports, traces, screenshots, junit)
 test-results/
 /reports/
+
+# Split into its own repo: github.com/amrhanygomaa/Helpers-Technologies-partflow-mobile
+# (has its own .git — a gitlink here would be a broken submodule reference)
+/flutter_app/
