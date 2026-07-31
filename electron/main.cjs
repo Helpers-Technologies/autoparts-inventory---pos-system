@@ -152,6 +152,10 @@ const {
 // Derived keys used only inside main.cjs
 const LICENSE_TOKEN_KEY = "__license_token";
 const LICENSE_LAST_SEEN_KEY = "__license_last_seen_at";
+const COMMERCE_SYNC_HASH_KEY = "__commerce_sync_hash";
+const COMMERCE_SYNC_AT_KEY = "__commerce_sync_at";
+const COMMERCE_SYNC_SOURCE_REVISION_KEY = "__commerce_sync_source_revision";
+const COMMERCE_SYNC_ERROR_KEY = "__commerce_sync_error";
 const BRANCH_ACTIVATIONS_KEY = "__branch_license_activations";
 const BRANCH_LEGACY_SLOTS_KEY = "__branch_license_legacy_slots";
 const BRANCHES_STORAGE_KEY = `${STORE_PREFIX}branches`;
@@ -1332,6 +1336,10 @@ function isBostaFeatureLicensed() {
   return isFeatureLicensed("bostaIntegration");
 }
 
+function isMobileCompanionFeatureLicensed() {
+  return isFeatureLicensed("mobileCompanion");
+}
+
 function getEffectiveMfaPolicyMode() {
   return isMfaFeatureLicensed() ? getMfaPolicyMode() : "disabled";
 }
@@ -1691,7 +1699,7 @@ function verifyMfaProofForUser(user, code) {
           : { ...failed, error: "code_reused" };
       }
       clearMfaVerificationAttempts(user.id);
-      return { ok: true, method: "totp" };
+      return { ok: true, method: "totp", counter: accepted.counter };
     } catch {
       return recordFailedMfaVerification(user.id);
     }
@@ -2111,6 +2119,14 @@ function validateBranchStorageValue(value) {
 // existing offline signature-only validation completely unaffected — a shop
 // with no internet keeps working exactly as before this existed.
 const HEARTBEAT_BASE_URL = LICENSE_HEARTBEAT_URL?.replace(/\/$/, "") || null;
+let REFERRAL_PORTAL_ORIGIN = null;
+if (HEARTBEAT_BASE_URL) {
+  try {
+    REFERRAL_PORTAL_ORIGIN = new URL(HEARTBEAT_BASE_URL).origin;
+  } catch {
+    REFERRAL_PORTAL_ORIGIN = null;
+  }
+}
 
 async function checkLicenseOnline() {
   if (HW_E2E || !HEARTBEAT_BASE_URL) return;
@@ -2149,6 +2165,301 @@ async function checkLicenseOnline() {
     }
   } catch (err) {
     // Silent fail if offline or error
+  }
+}
+
+async function getReferralInfoOnline() {
+  const status = getLicenseStatus();
+  if (status.state !== "active") return { ok: false, error: "license_inactive" };
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token) return { ok: false, error: "license_inactive" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(
+      `${REFERRAL_PORTAL_ORIGIN}/api/public/referral-account`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      },
+    );
+    if (response.status === 401 || response.status === 404) {
+      return { ok: false, error: "referral_not_available" };
+    }
+    if (!response.ok) return { ok: false, error: "online_service_unavailable" };
+    const data = await response.json();
+    const code = String(data?.code || "").trim().toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9-]{3,23}$/.test(code)) {
+      return { ok: false, error: "invalid_server_response" };
+    }
+    const nonNegativeMinor = (value) => {
+      const amount = Number(value);
+      return Number.isSafeInteger(amount) && amount >= 0 ? amount : 0;
+    };
+    const allowedStatuses = new Set(["invited", "pending", "approved", "paid", "cancelled"]);
+    const currency = /^[A-Z]{3}$/.test(String(data?.currency || "")) ? data.currency : "EGP";
+    const history = Array.isArray(data?.history)
+      ? data.history.slice(0, 100).map((entry) => ({
+          id: Number(entry?.id) || 0,
+          referredShopName: String(entry?.referred_shop_name || "عميل مدعو").slice(0, 160),
+          status: allowedStatuses.has(entry?.status) ? entry.status : "invited",
+          commissionAmountMinor: nonNegativeMinor(entry?.commission_amount_minor),
+          currency: /^[A-Z]{3}$/.test(String(entry?.currency || "")) ? entry.currency : currency,
+          createdAt: entry?.created_at || null,
+          convertedAt: entry?.converted_at || null,
+          approvedAt: entry?.approved_at || null,
+          paidAt: entry?.paid_at || null,
+          paymentReference: entry?.payment_reference ? String(entry.payment_reference).slice(0, 160) : null,
+        }))
+      : [];
+    return {
+      ok: true,
+      code,
+      url: new URL(`/r/${encodeURIComponent(code)}`, REFERRAL_PORTAL_ORIGIN).toString(),
+      currency,
+      summary: {
+        totalReferrals: Math.max(0, Number(data?.summary?.totalReferrals) || 0),
+        pendingMinor: nonNegativeMinor(data?.summary?.pendingMinor),
+        approvedMinor: nonNegativeMinor(data?.summary?.approvedMinor),
+        paidMinor: nonNegativeMinor(data?.summary?.paidMinor),
+        totalCommissionMinor: nonNegativeMinor(data?.summary?.totalCommissionMinor),
+      },
+      history,
+    };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function canManageMobileCompanion(user) {
+  return Boolean(
+    user &&
+      (user.role === "owner" || user.permissions?.pos?.supervisorOverride),
+  );
+}
+
+async function createMobilePairingOnline(event, payload) {
+  const user = getSessionUser(event);
+  if (!canManageMobileCompanion(user)) {
+    return { ok: false, error: "not_authorized" };
+  }
+  if (!isMobileCompanionFeatureLicensed()) {
+    return { ok: false, error: "mobile_feature_not_licensed" };
+  }
+  if (!isMfaFeatureLicensed()) {
+    return { ok: false, error: "two_factor_not_licensed" };
+  }
+  if (getLicenseStatus().state !== "active") {
+    return { ok: false, error: "license_inactive" };
+  }
+  if (!REFERRAL_PORTAL_ORIGIN) {
+    return { ok: false, error: "online_service_unavailable" };
+  }
+  if (app.isPackaged && new URL(REFERRAL_PORTAL_ORIGIN).protocol !== "https:") {
+    return { ok: false, error: "secure_connection_required" };
+  }
+  // Check the portal before consuming a time-based MFA code. A transient
+  // outage should never force the user to wait for the next Authenticator
+  // window just because the network was unavailable.
+  const healthController = new AbortController();
+  const healthTimeout = setTimeout(() => healthController.abort(), 3500);
+  try {
+    const health = await fetch(`${REFERRAL_PORTAL_ORIGIN}/healthz`, {
+      headers: { Accept: "application/json" },
+      signal: healthController.signal,
+    });
+    if (!health.ok) return { ok: false, error: "portal_unreachable" };
+  } catch {
+    return { ok: false, error: "portal_unreachable" };
+  } finally {
+    clearTimeout(healthTimeout);
+  }
+  const record = getMfaRecord(user.id);
+  if (!record?.enabled) return { ok: false, error: "mfa_not_enabled" };
+  const password = String(payload?.password || "");
+  if (!(await verifyPassword(user.passwordHash, password))) {
+    return { ok: false, error: "invalid_password" };
+  }
+  const code = String(payload?.verificationCode || "").replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(code)) return { ok: false, error: "invalid_code" };
+  const proof = verifyMfaProofForUser(user, code);
+  if (!proof.ok) return proof;
+
+  let totpSecret;
+  try {
+    totpSecret = decryptMfaSecret(record.secret_encrypted);
+  } catch {
+    return { ok: false, error: "mfa_secret_unavailable" };
+  }
+  const salt = crypto.randomBytes(16);
+  const passwordVerifier = crypto
+    .scryptSync(password.normalize("NFKC"), salt, 32, {
+      N: 16384,
+      r: 8,
+      p: 1,
+    })
+    .toString("hex");
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) {
+    return { ok: false, error: "license_inactive" };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(
+      `${REFERRAL_PORTAL_ORIGIN}/api/v1/mobile/pairing-code`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          localUserId: user.id,
+          username: user.username,
+          displayName: user.name || user.username,
+          role: user.role === "owner" ? "owner" : "supervisor",
+          passwordSalt: salt.toString("hex"),
+          passwordVerifier,
+          totpSecret,
+          totpLastCounter: proof.counter,
+          label: String(payload?.label || "تطبيق الهاتف").trim().slice(0, 80),
+        }),
+        signal: controller.signal,
+      },
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) {
+      return {
+        ok: false,
+        error: String(data?.error?.code || data?.error || "online_service_unavailable"),
+      };
+    }
+    const activationCode = String(data.activationCode || "").trim();
+    if (!/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(activationCode)) {
+      return { ok: false, error: "invalid_server_response" };
+    }
+    return {
+      ok: true,
+      activationCode,
+      expiresAt: data.expiresAt,
+      user: { name: user.name, username: user.username, role: user.role },
+    };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function commerceMinor(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.round(amount * 100)));
+}
+
+function commerceMilli(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.max(-Number.MAX_SAFE_INTEGER, Math.min(Number.MAX_SAFE_INTEGER, Math.round(amount * 1000)));
+}
+
+function buildCommerceSnapshot() {
+  const products = readJsonKey(`${STORE_PREFIX}products`, []);
+  const customers = readJsonKey(`${STORE_PREFIX}customers`, []);
+  const invoices = readJsonKey(`${STORE_PREFIX}salesInvoices`, []);
+  const customerStats = new Map();
+  for (const invoice of invoices) {
+    if (!invoice || invoice.cancelled) continue;
+    const id = String(invoice.customerId || "");
+    const current = customerStats.get(id) || { balanceMinor: 0, orderCount: 0, totalSpentMinor: 0 };
+    current.balanceMinor += commerceMinor(invoice.remaining);
+    current.orderCount += 1;
+    current.totalSpentMinor += commerceMinor(invoice.total);
+    customerStats.set(id, current);
+  }
+  const payload = {
+    snapshotVersion: 1,
+    products: Array.isArray(products) ? products.map((product) => ({
+      id: String(product.id || ""), code: product.code, name: product.name,
+      partNumber: product.partNumber, brand: product.partBrand, category: product.category,
+      quantityMilli: commerceMilli(product.quantity), minStockMilli: commerceMilli(product.minStock),
+      retailPriceMinor: commerceMinor(product.retailPrice), costMinor: commerceMinor(product.avgCost ?? product.purchasePrice),
+      archived: Boolean(product.archived),
+    })) : [],
+    customers: Array.isArray(customers) ? customers.map((customer) => {
+      const stats = customerStats.get(String(customer.id || "")) || { balanceMinor: 0, orderCount: 0, totalSpentMinor: 0 };
+      return { id: String(customer.id || ""), code: customer.code, name: customer.name, phone: customer.phone,
+        archived: Boolean(customer.archived), createdAt: customer.createdAt, ...stats };
+    }) : [],
+    orders: Array.isArray(invoices) ? invoices.map((invoice) => {
+      const lines = Array.isArray(invoice.lines) ? invoice.lines.map((line) => ({
+        productId: String(line.productId || ""), productName: line.productName,
+        quantityMilli: commerceMilli(line.quantity), priceMinor: commerceMinor(line.price), costMinor: commerceMinor(line.costPrice),
+      })) : [];
+      const costMinor = lines.reduce((sum, line) => sum + Math.round(line.costMinor * line.quantityMilli / 1000), 0);
+      return { id: String(invoice.id || ""), invoiceNumber: invoice.invoiceNumber, date: invoice.date,
+        customerId: String(invoice.customerId || ""), customerName: invoice.customerName || "عميل نقدي",
+        branchName: invoice.branchName, status: invoice.status || "unknown", paymentType: invoice.paymentType,
+        totalMinor: commerceMinor(invoice.total), receivedMinor: commerceMinor(invoice.amountReceived),
+        remainingMinor: commerceMinor(invoice.remaining), discountMinor: commerceMinor(invoice.discount), costMinor,
+        itemCount: lines.reduce((sum, line) => sum + Math.max(0, Math.round(line.quantityMilli / 1000)), 0),
+        cancelled: Boolean(invoice.cancelled), lines, createdAt: invoice.createdAt };
+    }) : [],
+  };
+  const serialized = JSON.stringify(payload);
+  return { ...payload, datasetHash: crypto.createHash("sha256").update(serialized).digest("hex") };
+}
+
+let commerceSyncInFlight = false;
+function commerceSourceRevision() {
+  const keys = [`${STORE_PREFIX}products`, `${STORE_PREFIX}customers`, `${STORE_PREFIX}salesInvoices`];
+  const rows = openDatabase().prepare("SELECT key, updated_at FROM kv_store WHERE key IN (?, ?, ?) ORDER BY key").all(...keys);
+  return crypto.createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+}
+
+async function syncCommerceOnline({ force = false } = {}) {
+  if (commerceSyncInFlight || !REFERRAL_PORTAL_ORIGIN) return;
+  if (getLicenseStatus().state !== "active") return;
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return;
+  const lastAt = Date.parse(storageGet(COMMERCE_SYNC_AT_KEY) || "");
+  const sourceRevision = commerceSourceRevision();
+  if (!force && storageGet(COMMERCE_SYNC_SOURCE_REVISION_KEY) === sourceRevision &&
+      Number.isFinite(lastAt) && Date.now() - lastAt < 24 * 60 * 60 * 1000) return;
+  const snapshot = buildCommerceSnapshot();
+  commerceSyncInFlight = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/snapshot`, {
+      method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(snapshot), signal: controller.signal,
+    });
+    if (response.ok) {
+      storageSet(COMMERCE_SYNC_HASH_KEY, snapshot.datasetHash);
+      storageSet(COMMERCE_SYNC_SOURCE_REVISION_KEY, sourceRevision);
+      storageSet(COMMERCE_SYNC_AT_KEY, new Date().toISOString());
+      storageRemove(COMMERCE_SYNC_ERROR_KEY);
+    } else {
+      const message = `http_${response.status}`;
+      console.error(`[electron] commerce sync rejected by portal: ${message}`);
+      storageSet(COMMERCE_SYNC_ERROR_KEY, JSON.stringify({ message, at: new Date().toISOString() }));
+    }
+  } catch (e) {
+    // Offline-first: failure never blocks local sales; the periodic job retries.
+    const message = e?.name === "AbortError" ? "timeout" : e?.message || "unknown_error";
+    console.error(`[electron] commerce sync failed: ${message}`);
+    storageSet(COMMERCE_SYNC_ERROR_KEY, JSON.stringify({ message, at: new Date().toISOString() }));
+  } finally {
+    clearTimeout(timeout);
+    commerceSyncInFlight = false;
   }
 }
 
@@ -4132,6 +4443,34 @@ function registerIpc() {
 
   ipcMain.handle("license:get-machine-code", () => getMachineCode());
   ipcMain.handle("license:get-status", () => getLicenseStatus());
+  ipcMain.handle("license:get-referral", (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    return getReferralInfoOnline();
+  });
+  ipcMain.handle("license:get-commerce-sync-status", (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    const lastError = storageGet(COMMERCE_SYNC_ERROR_KEY);
+    return {
+      ok: true,
+      lastSyncedAt: storageGet(COMMERCE_SYNC_AT_KEY),
+      lastError: lastError ? JSON.parse(lastError) : null,
+    };
+  });
+  ipcMain.handle("license:get-mobile-link-status", (event) => {
+    const user = getSessionUser(event);
+    if (!user) return { ok: false, error: "not_authorized" };
+    return {
+      ok: true,
+      allowedRole: canManageMobileCompanion(user),
+      featureLicensed: isMobileCompanionFeatureLicensed(),
+      twoFactorLicensed: isMfaFeatureLicensed(),
+      mfaEnabled: Boolean(getMfaRecord(user.id)?.enabled),
+      role: user.role === "owner" ? "owner" : "supervisor",
+    };
+  });
+  ipcMain.handle("license:create-mobile-pairing", (event, payload) =>
+    createMobilePairingOnline(event, payload),
+  );
   ipcMain.handle("license:activate", (_event, serial) => {
     const status = evaluateLicense(serial, false);
     if (status.state !== "active") {
@@ -4857,6 +5196,8 @@ app.whenReady().then(() => {
   setInterval(() => {
     void checkLicenseOnline();
   }, 30 * 1000);
+  setTimeout(() => void syncCommerceOnline({ force: true }), 15 * 1000);
+  setInterval(() => void syncCommerceOnline(), 2 * 60 * 1000);
 
   if (isSmokeTestRun()) {
     // SECURITY: Removed console.log of license status

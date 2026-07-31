@@ -32,6 +32,74 @@ declare global {
       license: {
         getMachineCode: () => Promise<string>;
         getStatus: () => Promise<LicenseStatus>;
+        getReferral: () => Promise<
+          | {
+              ok: true;
+              code: string;
+              url: string;
+              currency: string;
+              summary: {
+                totalReferrals: number;
+                pendingMinor: number;
+                approvedMinor: number;
+                paidMinor: number;
+                totalCommissionMinor: number;
+              };
+              history: Array<{
+                id: number;
+                referredShopName: string;
+                status: "invited" | "pending" | "approved" | "paid" | "cancelled";
+                commissionAmountMinor: number;
+                currency: string;
+                createdAt: string | null;
+                convertedAt: string | null;
+                approvedAt: string | null;
+                paidAt: string | null;
+                paymentReference: string | null;
+              }>;
+            }
+          | {
+              ok: false;
+              error:
+                | "not_authorized"
+                | "license_inactive"
+                | "online_service_unavailable"
+                | "referral_not_available"
+                | "invalid_server_response";
+            }
+        >;
+        getCommerceSyncStatus: () => Promise<
+          | {
+              ok: true;
+              lastSyncedAt: string | null;
+              lastError: { message: string; at: string } | null;
+            }
+          | { ok: false; error: "not_authorized" }
+        >;
+        getMobileLinkStatus: () => Promise<
+          | {
+              ok: true;
+              allowedRole: boolean;
+              featureLicensed: boolean;
+              twoFactorLicensed: boolean;
+              mfaEnabled: boolean;
+              role: "owner" | "supervisor";
+            }
+          | { ok: false; error: "not_authorized" }
+        >;
+        createMobilePairing: (
+          password: string,
+          verificationCode: string,
+          label?: string,
+        ) => Promise<
+          | {
+              ok: true;
+              activationCode: string;
+              expiresAt: string;
+              user: { name: string; username: string; role: "owner" | "employee" };
+            }
+          | { ok: false; error: string; remainSeconds?: number; attemptsRemaining?: number }
+        >;
         activate: (
           serial: string,
         ) => Promise<{ ok: boolean; status: LicenseStatus }>;
