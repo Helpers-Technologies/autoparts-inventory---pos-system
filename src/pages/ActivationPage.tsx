@@ -71,7 +71,7 @@ export function ActivationPage() {
   const tone = TONES[state] ?? TONES.inactive;
 
   const activationWhatsappUrl = `https://wa.me/201118445625?text=${encodeURIComponent(
-    "طلب تفعيل / تجديد نسخة — AutoParts Inventory & Sales System\n" +
+    "طلب تفعيل / تجديد نسخة — PartFlow — By Helpers Tech\n" +
       "الحالة: " + (statusText[state] || "—") + "\n" +
       "كود الجهاز: " + (licenseStatus.machineCode || "غير متاح")
   )}`;
@@ -106,7 +106,7 @@ export function ActivationPage() {
           <div className="flex items-center gap-3">
             <img src="./helpers_tech_logo.png" alt="Helpers Technologies" className="h-10 w-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,.5)]" />
             <div>
-              <div className="text-sm font-bold leading-tight text-white">AutoParts Inventory & Sales</div>
+              <div className="text-sm font-bold leading-tight text-white">PartFlow</div>
               <div className="text-[11px] font-medium text-slate-300">شركة هيلبيرز تيكنولوجي · Helpers Technologies</div>
             </div>
           </div>

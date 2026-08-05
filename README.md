@@ -1,4 +1,6 @@
-# AutoParts Inventory & Sales System
+# PartFlow
+
+Desktop inventory and sales management system for auto-parts stores.
 
 [![CI](https://github.com/amrhanygomaa/Inv_system/actions/workflows/ci.yml/badge.svg)](https://github.com/amrhanygomaa/Inv_system/actions/workflows/ci.yml)
 
@@ -35,6 +37,7 @@
 | المستخدمون | مالك وموظفون، صلاحيات تفصيلية، عمولات وتارجت شهري |
 | النسخ الاحتياطي | نسخ يدوية وتلقائية ومشفرة بصيغة `.hwbak`، واستعادة آمنة |
 | التراخيص | سيريال موقّع مرتبط بالجهاز، باقات مميزات، وتجديد أو ترقية من داخل التطبيق |
+| دعوة صديق | كود تلقائي لكل عميل، مشاركة وواتساب، ورصيد وسجل عمولة 5% على أول شراء مُحال |
 
 ## المميزات القابلة للترخيص
 

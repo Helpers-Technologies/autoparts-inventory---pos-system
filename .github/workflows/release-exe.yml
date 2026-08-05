@@ -77,16 +77,50 @@ jobs:
         id: find_installer
         shell: pwsh
         run: |
-          $installer = Get-ChildItem -Path release -Filter *.exe -Recurse | Select-Object -First 1
-          if (-not $installer) { throw "No .exe artifact found under release/" }
+          $version = node -p "require('./package.json').version"
+          $expectedPath = Join-Path $PWD "release/PartFlow-$version-Setup.exe"
+          if (-not (Test-Path -LiteralPath $expectedPath -PathType Leaf)) {
+            throw "Expected NSIS installer was not produced: $expectedPath"
+          }
+          $installer = Get-Item -LiteralPath $expectedPath
           echo "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
           echo "name=$($installer.Name)" >> $env:GITHUB_OUTPUT
+
+      # Auto-update must never inherit the signing hook's local-development
+      # fail-open behaviour. The updater validates Authenticode before it
+      # installs, so a production release without a trusted timestamped
+      # signature would be unusable as well as unsafe.
+      - name: Verify trusted timestamped Authenticode signature
+        shell: pwsh
+        run: |
+          $signature = Get-AuthenticodeSignature -LiteralPath "${{ steps.find_installer.outputs.path }}"
+          if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+            throw "Installer Authenticode signature is not trusted: $($signature.Status) — $($signature.StatusMessage)"
+          }
+          if (-not $signature.TimeStamperCertificate) {
+            throw "Installer signature has no RFC-3161 timestamp; refusing to publish an auto-update artifact."
+          }
+          "Verified publisher: $($signature.SignerCertificate.Subject)"
+
+      - name: Generate portal update metadata
+        id: update_metadata
+        shell: pwsh
+        run: |
+          node scripts/generate-update-metadata.cjs --file "release/${{ steps.find_installer.outputs.name }}"
+          $version = node -p "require('./package.json').version"
+          $metadata = Join-Path $PWD "release/PartFlow-$version-update.json"
+          if (-not (Test-Path -LiteralPath $metadata -PathType Leaf)) {
+            throw "Update metadata was not generated: $metadata"
+          }
+          echo "path=$metadata" >> $env:GITHUB_OUTPUT
 
       - name: Upload installer as workflow artifact
         uses: actions/upload-artifact@v5
         with:
           name: windows-installer
-          path: ${{ steps.find_installer.outputs.path }}
+          path: |
+            ${{ steps.find_installer.outputs.path }}
+            ${{ steps.update_metadata.outputs.path }}
           retention-days: 90
 
       - name: Create GitHub Release with installer attached
@@ -100,10 +134,10 @@ jobs:
             Signed with the Helpers Technologies code-signing certificate and
             verifies real production license serials.
 
-            ⚠️ The certificate is **self-signed** (not issued by a public CA),
-            so Windows SmartScreen will still show an "unknown publisher"
-            prompt on first run regardless of signing — that only goes away
-            with a CA-issued certificate. Functionally, this build is
-            equivalent to a local `npm run dist:win` release.
+            The workflow publishes only after Windows reports a trusted,
+            timestamped Authenticode signature. Upload this exact installer
+            through the PartFlow license portal to distribute it as an update.
           prerelease: true
-          files: ${{ steps.find_installer.outputs.path }}
+          files: |
+            ${{ steps.find_installer.outputs.path }}
+            ${{ steps.update_metadata.outputs.path }}

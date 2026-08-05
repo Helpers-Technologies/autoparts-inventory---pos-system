@@ -34,7 +34,7 @@ const { createHash } = require("node:crypto");
 const { flipFuses, FuseVersion, FuseV1Options } = require("@electron/fuses");
 
 const CERT_SHA1 = "E950B2D3C22831B0EDE52E0F69D7C0C422BCBE02";
-const MAIN_EXE_NAME = "AutoParts Inventory & Sales System.exe";
+const MAIN_EXE_NAME = "PartFlow.exe"; // must match package.json build.productName
 
 // Public RFC-3161 timestamp authorities, tried in order. A timestamped
 // signature stays valid after the signing certificate expires.

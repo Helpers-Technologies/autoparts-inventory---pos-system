@@ -10,7 +10,7 @@ import { useAuditLog } from "../store/AuditLogContext";
 import { useToast } from "../components/ui/Toast";
 import { lsGet } from "../lib/storage";
 import { FEATURES, FEATURE_CATEGORIES, FEATURE_CATEGORY_BY_KEY, defaultFeatureState, isAllowedByLicense, type FeatureDef, type FeatureKey } from "../lib/features";
-import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ChevronDown, ChevronUp } from "lucide-react";
+import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ChevronDown, ChevronUp, Gift, RefreshCw, Smartphone, ShieldAlert, CheckCircle2 } from "lucide-react";
 import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import {
   DEFAULT_INVOICE_WHATSAPP_TEMPLATE,
@@ -18,9 +18,52 @@ import {
 } from "../lib/whatsappTemplate";
 import { MfaPolicyCard } from "../components/security/MfaPolicyCard";
 import { TwoFactorSecurityPanel } from "../components/security/TwoFactorSecurityPanel";
+import { UpdateSettingsCard } from "../components/updates/UpdateSettingsCard";
 
 const SUPPORT_WHATSAPP = "201118445625";
 const FEATURE_PREVIEW_LIMIT = 8;
+
+type ReferralHistoryEntry = {
+  id: number;
+  referredShopName: string;
+  status: "invited" | "pending" | "approved" | "paid" | "cancelled";
+  commissionAmountMinor: number;
+  currency: string;
+  createdAt: string | null;
+  convertedAt: string | null;
+  approvedAt: string | null;
+  paidAt: string | null;
+  paymentReference: string | null;
+};
+
+const REFERRAL_STATUS_LABELS: Record<ReferralHistoryEntry["status"], string> = {
+  invited: "تمت الدعوة",
+  pending: "قيد المراجعة",
+  approved: "مستحقة للدفع",
+  paid: "تم الدفع",
+  cancelled: "ملغاة",
+};
+
+const REFERRAL_STATUS_CLASSES: Record<ReferralHistoryEntry["status"], string> = {
+  invited: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  pending: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300",
+  approved: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300",
+  paid: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300",
+  cancelled: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300",
+};
+
+function formatReferralMoney(minor: number, currency: string): string {
+  return new Intl.NumberFormat("ar-EG", { style: "currency", currency }).format(minor / 100);
+}
+
+function formatReferralDate(value: string | null): string {
+  if (!value) return "—";
+  const normalized = value.includes("T") ? value : value.replace(" ", "T") + "Z";
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleDateString("ar-EG", { year: "numeric", month: "short", day: "numeric" });
+}
 
 const PLAN_LABELS: Record<string, string> = {
   basic: "الباقة الأساسية",
@@ -67,6 +110,28 @@ function planDisplayLabel(license?: { plan?: string; features?: string[] } | nul
   return "الباقة الشاملة";
 }
 
+function MobileRequirement({ ok, title, description }: { ok: boolean; title: string; description: string }) {
+  return (
+    <div className={cn(
+      "flex items-start gap-3 rounded-xl border p-3",
+      ok
+        ? "border-emerald-200 bg-emerald-50/55 dark:border-emerald-500/25 dark:bg-emerald-500/10"
+        : "border-rose-200 bg-rose-50/55 dark:border-rose-500/25 dark:bg-rose-500/10",
+    )}>
+      <span className={cn(
+        "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg",
+        ok ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
+      )}>
+        {ok ? <CheckCircle2 className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-ink">{title}</span>
+        <span className="mt-0.5 block text-xs leading-5 text-ink-muted">{description}</span>
+      </span>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { settings, updateSettings, exportBackup, importBackup, backupToPath, exportToExcel, licenseStatus, activateLicense, currentUser } = useApp();
   const toast = useToast();
@@ -86,17 +151,188 @@ export function SettingsPage() {
   const [previewTab, setPreviewTab] = useState<"invoice" | "whatsapp">("invoice");
   const [whatsappTemplateExpanded, setWhatsappTemplateExpanded] = useState(false);
   const [mfaRefreshKey, setMfaRefreshKey] = useState(0);
+  const [mobileLinkStatus, setMobileLinkStatus] = useState<
+    | { state: "loading" }
+    | { state: "unavailable" }
+    | {
+        state: "ready";
+        allowedRole: boolean;
+        featureLicensed: boolean;
+        twoFactorLicensed: boolean;
+        mfaEnabled: boolean;
+      }
+  >({ state: "loading" });
+  const [mobileLinkDialogOpen, setMobileLinkDialogOpen] = useState(false);
+  const [mobilePassword, setMobilePassword] = useState("");
+  const [mobileTotpCode, setMobileTotpCode] = useState("");
+  const [mobileDeviceLabel, setMobileDeviceLabel] = useState("هاتف الإدارة");
+  const [mobilePairingLoading, setMobilePairingLoading] = useState(false);
+  const [mobilePairingError, setMobilePairingError] = useState("");
+  const [mobilePairingResult, setMobilePairingResult] = useState<{ activationCode: string; expiresAt: string } | null>(null);
   const [showAllFeatures, setShowAllFeatures] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<FeatureDef | null>(null);
+  const [referralHistoryOpen, setReferralHistoryOpen] = useState(false);
+  const [referralInfo, setReferralInfo] = useState<
+    | { state: "idle" }
+    | { state: "loading" }
+    | {
+        state: "ready";
+        code: string;
+        url: string;
+        currency: string;
+        summary: {
+          totalReferrals: number;
+          pendingMinor: number;
+          approvedMinor: number;
+          paidMinor: number;
+          totalCommissionMinor: number;
+        };
+        history: ReferralHistoryEntry[];
+      }
+    | { state: "error"; error: string }
+  >({ state: "idle" });
   const whatsappTemplateRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => setForm(settings), [settings]);
+
+  useEffect(() => {
+    let active = true;
+    const api = window.desktopAPI?.license?.getMobileLinkStatus;
+    if (!currentUser || !api) {
+      setMobileLinkStatus({ state: "unavailable" });
+      return () => { active = false; };
+    }
+    setMobileLinkStatus({ state: "loading" });
+    void api().then((result) => {
+      if (!active) return;
+      if (!result.ok) {
+        setMobileLinkStatus({ state: "unavailable" });
+        return;
+      }
+      setMobileLinkStatus({
+        state: "ready",
+        allowedRole: result.allowedRole,
+        featureLicensed: result.featureLicensed,
+        twoFactorLicensed: result.twoFactorLicensed,
+        mfaEnabled: result.mfaEnabled,
+      });
+    }).catch(() => {
+      if (active) setMobileLinkStatus({ state: "unavailable" });
+    });
+    return () => { active = false; };
+  }, [currentUser?.id, licenseStatus?.license?.licenseId, mfaRefreshKey]);
+
+  function openMobilePairingDialog() {
+    setMobilePassword("");
+    setMobileTotpCode("");
+    setMobilePairingError("");
+    setMobilePairingResult(null);
+    setMobileLinkDialogOpen(true);
+  }
+
+  async function createMobilePairing() {
+    if (!mobilePassword || !/^\d{6}$/.test(mobileTotpCode)) {
+      setMobilePairingError("اكتب كلمة مرور حسابك وكود Authenticator المكوّن من 6 أرقام");
+      return;
+    }
+    const api = window.desktopAPI?.license?.createMobilePairing;
+    if (!api) {
+      setMobilePairingError("إنشاء كود الربط متاح من برنامج سطح المكتب فقط");
+      return;
+    }
+    setMobilePairingLoading(true);
+    setMobilePairingError("");
+    const result = await api(mobilePassword, mobileTotpCode, mobileDeviceLabel.trim() || undefined);
+    setMobilePairingLoading(false);
+    if (result.ok) {
+      setMobilePairingResult({ activationCode: result.activationCode, expiresAt: result.expiresAt });
+      setMobilePassword("");
+      setMobileTotpCode("");
+      toast.success("تم إنشاء كود ربط آمن", "صالح لمرة واحدة ولمدة 10 دقائق");
+      return;
+    }
+    const messages: Record<string, string> = {
+      not_authorized: "الميزة متاحة للمالك أو المشرف المصرح له فقط",
+      mobile_feature_not_licensed: "ميزة ربط الهاتف غير مفعلة في الترخيص الحالي",
+      two_factor_not_licensed: "يجب تفعيل ميزة المصادقة الثنائية على الترخيص",
+      mfa_not_enabled: "فعّل 2FA على حسابك أولًا ثم أعد المحاولة",
+      invalid_password: "كلمة مرور الحساب غير صحيحة",
+      invalid_code: "كود Authenticator غير صحيح أو انتهت صلاحيته",
+      code_reused: "تم استخدام كود Authenticator هذا من قبل؛ انتظر الكود التالي",
+      rate_limited: "محاولات كثيرة؛ انتظر قليلًا ثم أعد المحاولة",
+      license_inactive: "ترخيص البرنامج غير نشط",
+      secure_connection_required: "الخدمة تتطلب اتصال HTTPS آمن",
+      online_service_unavailable: "تعذر الاتصال بخدمة الربط؛ تحقق من الإنترنت",
+      portal_unreachable: "خدمة البورتال غير متاحة الآن؛ شغّلها أو تحقق من عنوان الخدمة ثم حاول مجددًا",
+      invalid_server_response: "وصل رد غير صحيح من خدمة الربط",
+    };
+    setMobilePairingError(messages[result.error] || `تعذر إنشاء كود الربط حاليًا (${result.error || "unknown"})`);
+  }
+
+  async function copyMobilePairingCode() {
+    if (!mobilePairingResult) return;
+    await navigator.clipboard.writeText(mobilePairingResult.activationCode);
+    toast.success("تم نسخ كود التفعيل");
+  }
+
+  async function loadReferralInfo() {
+    const api = window.desktopAPI?.license?.getReferral;
+    if (!api) {
+      setReferralInfo({ state: "error", error: "معاينة المتصفح لا تحتوي على ترخيص عميل؛ افتح برنامج Windows المرخّص لعرض حساب الدعوات الحقيقي" });
+      return;
+    }
+    setReferralInfo({ state: "loading" });
+    const result = await api();
+    if (result.ok) {
+      setReferralInfo({
+        state: "ready",
+        code: result.code,
+        url: result.url,
+        currency: result.currency,
+        summary: result.summary,
+        history: result.history,
+      });
+      return;
+    }
+    const messages: Record<string, string> = {
+      not_authorized: "الميزة متاحة لمالك النظام فقط",
+      license_inactive: "فعّل ترخيص النظام أولًا لعرض كود الدعوة",
+      online_service_unavailable: "تعذر الاتصال بخدمة الدعوات — تحقق من الإنترنت وحاول مرة أخرى",
+      referral_not_available: "كود الدعوة غير متاح حاليًا — تواصل مع الدعم",
+      invalid_server_response: "وصل رد غير صحيح من خدمة الدعوات",
+    };
+    setReferralInfo({ state: "error", error: messages[result.error] || "تعذر تحميل كود الدعوة" });
+  }
+
+  useEffect(() => {
+    if (licenseStatus?.state === "active" && currentUser?.role === "owner") {
+      void loadReferralInfo();
+    }
+    // Reload when a newly activated serial replaces the current license.
+  }, [licenseStatus?.state, licenseStatus?.license?.licenseId, currentUser?.role]);
 
   async function copyMachineCode() {
     const code = licenseStatus?.machineCode;
     if (!code) return toast.error("كود الجهاز غير متاح");
     await navigator.clipboard.writeText(code);
     toast.success("تم نسخ كود الجهاز");
+  }
+
+  async function copyReferralLink() {
+    if (referralInfo.state !== "ready") return;
+    await navigator.clipboard.writeText(referralInfo.url);
+    toast.success("تم نسخ رابط الدعوة");
+  }
+
+  function shareReferralOnWhatsapp() {
+    if (referralInfo.state !== "ready") return;
+    const message = [
+      "أرشح لك نظام PartFlow لإدارة مخزون ومبيعات قطع الغيار.",
+      "استخدم رابط دعوتي للتواصل وشراء النظام:",
+      referralInfo.url,
+      `كود الدعوة: ${referralInfo.code}`,
+    ].join("\n");
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
   }
 
   function buildLicenseRequest() {
@@ -112,7 +348,7 @@ export function SettingsPage() {
         ? "بدون ضمان"
         : Math.max(0, getRemainingDays(form.warrantyStartDate, form.warrantyMonths)) + " يوم";
     return [
-      "طلب تجديد / ترقية ترخيص — AutoParts Inventory & Sales System",
+      "طلب تجديد / ترقية ترخيص — PartFlow — By Helpers Tech",
       "العميل: " + (form.companyNameAr || form.companyName || "—"),
       "كود الجهاز: " + code,
       "مدة الاشتراك: " + sub,
@@ -132,7 +368,7 @@ export function SettingsPage() {
   function openFeatureUpgradeWhatsapp() {
     if (!lockedFeature) return;
     const message = [
-      "طلب ترقية / إضافة مدفوعة — AutoParts Inventory & Sales System",
+      "طلب ترقية / إضافة مدفوعة — PartFlow — By Helpers Tech",
       "العميل: " + (form.companyNameAr || form.companyName || "—"),
       "الميزة المطلوبة: " + lockedFeature.label,
       "كود الجهاز: " + (licenseStatus?.machineCode ?? "غير متاح"),
@@ -432,6 +668,69 @@ export function SettingsPage() {
           </CardBody>
         </Card>
 
+        <Card className="lg:col-span-2" dir="rtl">
+          <CardHeader
+            title={
+              <div className="flex items-center gap-2">
+                <Smartphone className="h-4 w-4 text-brand-600" />
+                <span>ربط تطبيق PartFlow للهاتف</span>
+              </div>
+            }
+            subtitle="أنشئ كود ربط لمرة واحدة بعد إثبات كلمة المرور و2FA — للمالك أو المشرف المصرح له فقط"
+          />
+          <CardBody className="space-y-4">
+            {mobileLinkStatus.state === "loading" ? (
+              <div className="rounded-xl border border-line bg-surface-muted/45 p-4 text-sm text-ink-muted">جارٍ فحص متطلبات الربط…</div>
+            ) : mobileLinkStatus.state === "unavailable" ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                افتح هذه الصفحة من برنامج سطح المكتب بعد تسجيل الدخول لعرض حالة الربط.
+              </div>
+            ) : !mobileLinkStatus.featureLicensed ? (
+              <PaidFeatureNotice
+                title="ربط تطبيق PartFlow للهاتف"
+                featureKey="mobileCompanion"
+                description="فعّل الإضافة على الترخيص لتوصيل تطبيق Android وiPhone بحساب متجرك بصورة آمنة."
+              />
+            ) : (
+              <>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <MobileRequirement
+                    ok={mobileLinkStatus.allowedRole}
+                    title="صلاحية الحساب"
+                    description={mobileLinkStatus.allowedRole ? "مالك أو مشرف مصرح له" : "يتطلب مالكًا أو صلاحية اعتماد المشرف"}
+                  />
+                  <MobileRequirement
+                    ok={mobileLinkStatus.twoFactorLicensed}
+                    title="ميزة 2FA"
+                    description={mobileLinkStatus.twoFactorLicensed ? "مفعلة على الترخيص" : "غير مفعلة على الترخيص"}
+                  />
+                  <MobileRequirement
+                    ok={mobileLinkStatus.mfaEnabled}
+                    title="حماية حسابك"
+                    description={mobileLinkStatus.mfaEnabled ? "Authenticator مفعل" : "فعّل Authenticator لحسابك أولًا"}
+                  />
+                </div>
+                <div className="flex flex-col gap-3 rounded-xl border border-brand-200 bg-brand-50/45 p-4 dark:border-brand-500/25 dark:bg-brand-500/10 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-ink">كود آمن صالح لمرة واحدة</div>
+                    <div className="mt-1 text-xs leading-5 text-ink-muted">
+                      عند فتح التطبيق سيُطلب اسم المستخدم وكلمة المرور وكود 2FA الحالي بالإضافة إلى كود الربط.
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    className="shrink-0"
+                    disabled={!mobileLinkStatus.allowedRole || !mobileLinkStatus.twoFactorLicensed || !mobileLinkStatus.mfaEnabled}
+                    onClick={openMobilePairingDialog}
+                  >
+                    <KeyRound className="h-4 w-4" /> إنشاء كود ربط
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardBody>
+        </Card>
+
         <Card className="lg:col-span-2">
           <CardHeader title="الإعدادات العامة والأمان" subtitle="إعدادات التشغيل الأساسية وحماية الحساب" />
           <CardBody className="grid grid-cols-1 items-start gap-4 space-y-0 md:grid-cols-2 xl:grid-cols-3">
@@ -586,6 +885,8 @@ export function SettingsPage() {
             </div>
           ) : null}
         </Card>
+
+        <UpdateSettingsCard />
 
         <Card className="lg:col-span-2">
           <CardHeader
@@ -1025,8 +1326,201 @@ export function SettingsPage() {
                 بيانات رسمية موثقة من <strong>Helpers Technologies</strong> ولا يمكن تعديلها من داخل النظام.
               </p>
             </div>
+
+            {currentUser?.role === "owner" ? (
+              <div className="rounded-xl border border-amber-200 bg-gradient-to-l from-amber-50/90 to-orange-50/60 p-4 dark:border-amber-500/25 dark:from-amber-500/10 dark:to-orange-500/[0.06]">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                      <Gift className="h-5 w-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-bold text-amber-950 dark:text-amber-100">ادعُ صديقًا واحصل على عمولة 5%</div>
+                      <p className="mt-1 text-xs leading-5 text-amber-900/70 dark:text-amber-200/70">
+                        شارك رابطك مع صاحب محل جديد. بعد شراء النظام واعتماد العملية، تُسجّل عمولتك باسمك.
+                      </p>
+                    </div>
+                  </div>
+
+                  {referralInfo.state === "ready" ? (
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                      <button
+                        type="button"
+                        onClick={copyReferralLink}
+                        title="نسخ رابط الدعوة"
+                        className="flex min-w-0 items-center gap-2 rounded-lg border border-amber-200 bg-surface px-3 py-2 text-amber-900 transition-colors hover:border-amber-400 dark:border-amber-500/30 dark:text-amber-200"
+                      >
+                        <span dir="ltr" className="font-mono text-xs font-bold">{referralInfo.code}</span>
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                      <Button type="button" size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700" onClick={shareReferralOnWhatsapp}>
+                        <MessageCircle className="h-4 w-4" /> مشاركة على واتساب
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => setReferralHistoryOpen(true)}>
+                        <Clock className="h-4 w-4" /> سجل العمولات
+                      </Button>
+                    </div>
+                  ) : referralInfo.state === "loading" || referralInfo.state === "idle" ? (
+                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                      <RefreshCw className="h-4 w-4 animate-spin" /> جارِ تحميل كود الدعوة...
+                    </div>
+                  ) : (
+                    <div className="flex max-w-sm items-center gap-2">
+                      <span className="text-xs leading-5 text-amber-900/75 dark:text-amber-200/75">{referralInfo.error}</span>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void loadReferralInfo()}>
+                        <RefreshCw className="h-3.5 w-3.5" /> إعادة المحاولة
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {referralInfo.state === "ready" ? (
+                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-amber-200/70 pt-4 dark:border-amber-500/20 sm:grid-cols-4">
+                    <div className="rounded-lg border border-amber-200/70 bg-white/70 px-3 py-2 dark:border-amber-500/20 dark:bg-slate-950/25">
+                      <div className="text-[10px] font-bold text-amber-900/60 dark:text-amber-200/60">إجمالي الدعوات</div>
+                      <div className="mt-1 font-mono text-base font-black text-amber-950 dark:text-amber-100">{referralInfo.summary.totalReferrals}</div>
+                    </div>
+                    <div className="rounded-lg border border-amber-200/70 bg-white/70 px-3 py-2 dark:border-amber-500/20 dark:bg-slate-950/25">
+                      <div className="text-[10px] font-bold text-amber-900/60 dark:text-amber-200/60">قيد المراجعة</div>
+                      <div className="mt-1 font-mono text-sm font-black text-amber-700 dark:text-amber-300">{formatReferralMoney(referralInfo.summary.pendingMinor, referralInfo.currency)}</div>
+                    </div>
+                    <div className="rounded-lg border border-emerald-200/70 bg-white/70 px-3 py-2 dark:border-emerald-500/20 dark:bg-slate-950/25">
+                      <div className="text-[10px] font-bold text-emerald-900/60 dark:text-emerald-200/60">مستحق للدفع</div>
+                      <div className="mt-1 font-mono text-sm font-black text-emerald-700 dark:text-emerald-300">{formatReferralMoney(referralInfo.summary.approvedMinor, referralInfo.currency)}</div>
+                    </div>
+                    <div className="rounded-lg border border-blue-200/70 bg-white/70 px-3 py-2 dark:border-blue-500/20 dark:bg-slate-950/25">
+                      <div className="text-[10px] font-bold text-blue-900/60 dark:text-blue-200/60">تم دفعه لك</div>
+                      <div className="mt-1 font-mono text-sm font-black text-blue-700 dark:text-blue-300">{formatReferralMoney(referralInfo.summary.paidMinor, referralInfo.currency)}</div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </CardBody>
         </Card>
+
+        <Dialog
+          open={mobileLinkDialogOpen}
+          onClose={() => {
+            if (mobilePairingLoading) return;
+            setMobileLinkDialogOpen(false);
+          }}
+          title="إنشاء كود ربط آمن للهاتف"
+          subtitle="يجب أن يستخدم صاحب الحساب بياناته وAuthenticator بنفسه"
+          width="md"
+          footer={
+            mobilePairingResult ? (
+              <Button type="button" onClick={() => setMobileLinkDialogOpen(false)}>تم</Button>
+            ) : (
+              <>
+                <Button type="button" variant="outline" disabled={mobilePairingLoading} onClick={() => setMobileLinkDialogOpen(false)}>إلغاء</Button>
+                <Button type="button" disabled={mobilePairingLoading} onClick={() => void createMobilePairing()}>
+                  {mobilePairingLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                  {mobilePairingLoading ? "جارٍ التحقق…" : "إصدار الكود"}
+                </Button>
+              </>
+            )
+          }
+        >
+          <div className="space-y-4" dir="rtl">
+            {mobilePairingResult ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-center dark:border-emerald-500/25 dark:bg-emerald-500/10">
+                  <CheckCircle2 className="mx-auto h-7 w-7 text-emerald-600" />
+                  <div className="mt-2 text-sm font-bold text-ink">تم إصدار كود الربط</div>
+                  <div className="mt-1 text-xs text-ink-muted">صالح لمرة واحدة حتى {new Date(mobilePairingResult.expiresAt).toLocaleTimeString("ar-EG", { hour: "numeric", minute: "2-digit" })}</div>
+                </div>
+                <div className="flex items-stretch gap-2" dir="ltr">
+                  <div className="flex min-h-14 flex-1 items-center justify-center rounded-xl border border-brand-300 bg-brand-50 px-4 font-mono text-xl font-black tracking-[0.18em] text-brand-800 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-200">
+                    {mobilePairingResult.activationCode}
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => void copyMobilePairingCode()} aria-label="نسخ كود التفعيل">
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50/55 p-3 text-xs leading-6 text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
+                  لا ترسل كلمة المرور أو كود 2FA لأي شخص. افتح PartFlow واكتب هذا الكود مع بيانات الحساب، وانتظر كود Authenticator التالي بدل إعادة استخدام الكود الذي أصدرت به الربط.
+                </div>
+              </div>
+            ) : (
+              <>
+                <Field label="اسم الجهاز" hint="اسم اختياري يساعدك على معرفة الهاتف المرتبط">
+                  <Input value={mobileDeviceLabel} maxLength={80} onChange={(event) => setMobileDeviceLabel(event.target.value)} placeholder="مثال: iPhone الإدارة" />
+                </Field>
+                <Field label="كلمة مرور حسابك">
+                  <Input type="password" autoComplete="current-password" value={mobilePassword} onChange={(event) => setMobilePassword(event.target.value)} placeholder="كلمة مرور المالك أو المشرف" />
+                </Field>
+                <Field label="كود Authenticator الحالي" hint="الكود المكوّن من 6 أرقام في تطبيق المصادقة">
+                  <Input
+                    dir="ltr"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={mobileTotpCode}
+                    onChange={(event) => setMobileTotpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="000000"
+                    className="font-mono tracking-[0.35em]"
+                  />
+                </Field>
+                {mobilePairingError ? (
+                  <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
+                    {mobilePairingError}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </Dialog>
+
+        <Dialog
+          open={referralHistoryOpen}
+          onClose={() => setReferralHistoryOpen(false)}
+          title="سجل دعواتي وعمولاتي"
+          subtitle="قيمة كل عمولة وحالتها وتاريخ اعتمادها أو دفعها"
+          width="lg"
+        >
+          {referralInfo.state === "ready" ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <LicenseCell label="إجمالي الدعوات" value={String(referralInfo.summary.totalReferrals)} />
+                <LicenseCell label="قيد المراجعة" value={formatReferralMoney(referralInfo.summary.pendingMinor, referralInfo.currency)} valueClass="text-amber-600" />
+                <LicenseCell label="مستحق للدفع" value={formatReferralMoney(referralInfo.summary.approvedMinor, referralInfo.currency)} valueClass="text-emerald-600" />
+                <LicenseCell label="تم دفعه" value={formatReferralMoney(referralInfo.summary.paidMinor, referralInfo.currency)} valueClass="text-blue-600" />
+              </div>
+
+              {referralInfo.history.length ? (
+                <div className="max-h-[58vh] space-y-2 overflow-y-auto pe-1">
+                  {referralInfo.history.map((entry) => {
+                    const eventDate = entry.paidAt || entry.approvedAt || entry.convertedAt || entry.createdAt;
+                    return (
+                      <div key={entry.id} className="flex flex-col gap-3 rounded-xl border border-line bg-surface-muted/45 p-3 sm:flex-row sm:items-center">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-bold text-ink">{entry.referredShopName}</div>
+                          <div className="mt-1 text-[11px] text-ink-faint">{formatReferralDate(eventDate)}</div>
+                          {entry.status === "paid" && entry.paymentReference ? (
+                            <div dir="ltr" className="mt-1 truncate text-left font-mono text-[10px] text-ink-faint">مرجع الدفع: {entry.paymentReference}</div>
+                          ) : null}
+                        </div>
+                        <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-[11px] font-bold ${REFERRAL_STATUS_CLASSES[entry.status]}`}>
+                          {REFERRAL_STATUS_LABELS[entry.status]}
+                        </span>
+                        <div dir="ltr" className="font-mono text-sm font-black text-ink">
+                          {entry.commissionAmountMinor > 0 ? formatReferralMoney(entry.commissionAmountMinor, entry.currency) : "—"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-ink-faint">
+                  لسه مفيش دعوات مسجلة على كودك. شارك الرابط علشان تبدأ.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="p-8 text-center text-sm text-ink-faint">بيانات الدعوات غير متاحة حاليًا.</div>
+          )}
+        </Dialog>
 
         <Dialog
           open={licenseDialogOpen}

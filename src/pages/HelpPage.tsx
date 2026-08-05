@@ -102,7 +102,7 @@ export function HelpPage() {
   }, [assistantMessages]);
 
   const supportUrl = `https://wa.me/201118445625?text=${encodeURIComponent(
-    "استفسار / مشكلة — AutoParts Inventory & Sales System\nالمحل: " + (settings.companyNameAr || settings.companyName || "—"),
+    "استفسار / مشكلة — PartFlow — By Helpers Tech\nالمحل: " + (settings.companyNameAr || settings.companyName || "—"),
   )}`;
 
   function askAssistant(rawQuestion?: string) {

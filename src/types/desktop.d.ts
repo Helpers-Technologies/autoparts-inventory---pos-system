@@ -17,6 +17,19 @@ import type {
 
 export {};
 
+// Mirrors normalizeUpdateRelease() in electron/update-policy.cjs, which is
+// fed straight from the portal's /api/public/updates/check response.
+type DesktopUpdateRelease = {
+  id: string;
+  version: string;
+  title: string;
+  notes?: string;
+  severity: "normal" | "important" | "critical" | "emergency";
+  publishedAt: string | null;
+  policy?: { message?: string; deadlineAt?: string };
+  artifactSize?: number | null;
+};
+
 declare global {
   interface Window {
     desktopAPI?: {
@@ -426,6 +439,73 @@ declare global {
       app: {
         onRunCloseBackup: (cb: () => void) => () => void;
         closeBackupDone: () => void;
+      };
+      updates?: {
+        getStatus: () => Promise<{
+          ok: boolean;
+          phase: "idle" | "checking" | "available" | "downloading" | "downloaded" | "installing" | "error";
+          release: DesktopUpdateRelease | null;
+          downloadPercent: number;
+          error: string | null;
+          lastCheckAt: string | null;
+          preferences: {
+            autoCheck: boolean;
+            autoDownload: boolean;
+            autoInstallOnQuit: boolean;
+          };
+          currentVersion: string;
+          canSkip: boolean;
+          blocked: boolean;
+          persistent: boolean;
+        }>;
+        checkNow: () => Promise<{
+          ok: boolean;
+          updateAvailable?: boolean;
+          skipped?: boolean;
+          release?: DesktopUpdateRelease;
+          error?: string;
+        }>;
+        download: () => Promise<{ ok: boolean; error?: string }>;
+        cancelDownload: () => Promise<{ ok: boolean }>;
+        install: () => Promise<{ ok: boolean }>;
+        skipRelease: (releaseId: string) => Promise<{ ok: boolean; error?: string }>;
+        getPreferences: () => Promise<{
+          ok: boolean;
+          preferences: {
+            autoCheck: boolean;
+            autoDownload: boolean;
+            autoInstallOnQuit: boolean;
+          };
+        }>;
+        setPreferences: (prefs: Partial<{
+          autoCheck: boolean;
+          autoDownload: boolean;
+          autoInstallOnQuit: boolean;
+        }>) => Promise<{
+          ok: boolean;
+          preferences?: {
+            autoCheck: boolean;
+            autoDownload: boolean;
+            autoInstallOnQuit: boolean;
+          };
+          error?: string;
+        }>;
+        onStateChanged: (
+          // Mirrors broadcastUpdateState()'s payload in electron/main.cjs —
+          // these five fields are always present; only extra ad-hoc keys
+          // (e.g. from a specific event) are ever added on top.
+          cb: (state: {
+            phase: "idle" | "checking" | "available" | "downloading" | "downloaded" | "installing" | "error";
+            release: DesktopUpdateRelease | null;
+            downloadPercent: number;
+            error: string | null;
+            lastCheckAt: string | null;
+          }) => void
+        ) => () => void;
+        onAvailable: (cb: (data: { release: DesktopUpdateRelease; canSkip: boolean; persistent: boolean }) => void) => () => void;
+        onDownloadProgress: (cb: (data: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => () => void;
+        onDownloaded: (cb: (data: { release: DesktopUpdateRelease; blocked: boolean }) => void) => () => void;
+        onBlocked: (cb: (data: { release: DesktopUpdateRelease }) => void) => () => void;
       };
     };
   }

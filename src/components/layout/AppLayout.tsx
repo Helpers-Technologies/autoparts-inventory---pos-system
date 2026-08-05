@@ -19,6 +19,7 @@ import {
 } from "../../lib/whatsNew";
 import { useFeatures } from "../../lib/useFeatures";
 import { AppLayoutControlsProvider } from "./AppLayoutControls";
+import { UpdateBanner } from "../updates/UpdateBanner";
 
 const WHATS_NEW_KEY = "whatsNew_lastSeenVersion";
 
@@ -186,6 +187,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
         ) : null}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          <UpdateBanner />
           {!isPos ? (
             <div className="no-print">
               <Topbar

@@ -1,8 +1,8 @@
 {
   "name": "autoparts-inventory-system",
   "private": true,
-  "version": "6.1.1",
-  "description": "Protected desktop auto parts inventory and sales management system",
+  "version": "8.5.0",
+  "description": "PartFlow — protected desktop auto parts inventory and sales management system. By Helpers Tech.",
   "author": "Helpers Technologies",
   "type": "module",
   "main": "electron/main.cjs",
@@ -13,6 +13,7 @@
     "catalog:sync": "node scripts/sync-vehicle-catalog.mjs",
     "build": "tsc -b && vite build",
     "dist:win": "node scripts/prepare-dist-win.cjs && npm run build && electron-builder --win nsis",
+    "dist:linux": "npm run build && electron-builder --linux AppImage",
     "license:init": "node ../autoparts-license-studio/scripts/generate-license.cjs --init-keypair",
     "license:generate": "node ../autoparts-license-studio/scripts/generate-license.cjs",
     "license:studio": "node ../autoparts-license-studio/scripts/license-studio.cjs",
@@ -26,8 +27,8 @@
     "test:smoke:e2e": "playwright test --grep @smoke"
   },
   "build": {
-    "appId": "com.helperstechnologies.autoparts",
-    "productName": "AutoParts Inventory & Sales System",
+    "appId": "com.helperstechnologies.partflow.desktop",
+    "productName": "PartFlow",
     "directories": {
       "output": "release"
     },
@@ -97,6 +98,14 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "artifactName": "${productName}-${version}.${ext}"
     }
   },
   "dependencies": {
@@ -115,6 +124,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "electron-updater": "^6.8.9",
     "jsbarcode": "^3.12.3",
     "lucide-react": "^1.8.0",
     "node-machine-id": "^1.1.12",

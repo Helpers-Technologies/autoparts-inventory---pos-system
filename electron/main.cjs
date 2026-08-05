@@ -72,6 +72,7 @@ const CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
 // self-heal by re-baselining, so a single bad clock read can't permanently
 // lock a paying customer out with no recovery path.
 const CLOCK_TAMPER_SELF_HEAL_MS = 365 * 24 * 60 * 60 * 1000;
+
 const MAX_TOKEN_LENGTH = 8192;
 const MAX_USERNAME_LENGTH = 80;
 const MAX_PASSWORD_LENGTH = 256;
@@ -166,6 +167,41 @@ const BOSTA_WEBHOOK_HEADER_VALUE = "__integration_bosta_webhook_header_value";
 const BOSTA_WEBHOOK_POLL_TOKEN = "__integration_bosta_webhook_poll_token";
 const BOSTA_API_BASE = "https://app.bosta.co/api/v2";
 const BOSTA_TRACKING_API_BASE = "https://tracking.bosta.co";
+
+// ── Auto-update system ──────────────────────────────────────────────────
+const UPDATE_INSTALLATION_ID_KEY = "__update_installation_id";
+const UPDATE_PREFERENCES_KEY = "__update_preferences";
+const UPDATE_SKIPPED_RELEASES_KEY = "__update_skipped_releases";
+const UPDATE_LAST_CHECK_KEY = "__update_last_check";
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const {
+  DEFAULT_UPDATE_PREFERENCES,
+  normalizeUpdatePreferences,
+  normalizeUpdateRelease,
+  canSkipUpdate,
+  shouldAutoDownloadUpdate,
+  shouldBlockForUpdate,
+  shouldShowPersistentUpdate,
+} = require("./update-policy.cjs");
+
+// In-memory update state — never persisted beyond the kv_store keys above.
+let _updateState = {
+  /** @type {"idle"|"checking"|"available"|"downloading"|"downloaded"|"installing"|"error"} */
+  phase: "idle",
+  /** @type {object|null} Portal-provided release metadata (normalised). */
+  release: null,
+  /** @type {{latestYmlUrl:string, expiresAt:string}|null} */
+  feed: null,
+  /** @type {number} 0..100 */
+  downloadPercent: 0,
+  /** @type {string|null} */
+  error: null,
+  /** @type {string|null} ISO timestamp of last successful check. */
+  lastCheckAt: null,
+};
+let _updateCheckTimer = null;
+/** @type {import("builder-util-runtime").CancellationToken|null} */
+let _updateCancellationToken = null;
 
 // ── SECURITY: Login brute-force protection ──────────────────────────────
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -1454,12 +1490,12 @@ function getMfaStatusForUser(user) {
 function getMfaIssuer() {
   const settings = readJsonKey(`${STORE_PREFIX}settings`, {});
   const candidate = String(
-    settings?.companyNameAr || settings?.companyName || "AutoParts Inventory",
+    settings?.companyNameAr || settings?.companyName || "PartFlow",
   )
     .replace(/:/g, "-")
     .trim()
     .slice(0, 80);
-  return candidate || "AutoParts Inventory";
+  return candidate || "PartFlow";
 }
 
 function pruneMfaChallenges(now = Date.now()) {
@@ -2166,6 +2202,399 @@ async function checkLicenseOnline() {
   } catch (err) {
     // Silent fail if offline or error
   }
+}
+
+// ── Auto-update engine ────────────────────────────────────────────────────
+// Follows the same trust model as checkLicenseOnline: the portal's answer is
+// advisory until electron-updater verifies the downloaded artifact's SHA-512
+// and publisher certificate. Network errors never break the offline app.
+
+function getInstallationId() {
+  let id = storageGet(UPDATE_INSTALLATION_ID_KEY);
+  if (id && /^[A-Za-z0-9-]{8,128}$/.test(id)) return id;
+  id = crypto.randomUUID();
+  storageSet(UPDATE_INSTALLATION_ID_KEY, id);
+  return id;
+}
+
+function getUpdatePreferences() {
+  return normalizeUpdatePreferences(readJsonKey(UPDATE_PREFERENCES_KEY, null));
+}
+
+function setUpdatePreferencesStore(prefs) {
+  const merged = normalizeUpdatePreferences({
+    ...getUpdatePreferences(),
+    ...(prefs && typeof prefs === "object" ? prefs : {}),
+  });
+  writeJsonKey(UPDATE_PREFERENCES_KEY, merged);
+  // Apply immediately — the "تثبيت عند الإغلاق" toggle would otherwise only
+  // take effect on the next download, and never at all if none is pending.
+  try {
+    require("electron-updater").autoUpdater.autoInstallOnAppQuit = merged.autoInstallOnQuit;
+  } catch {
+    // electron-updater unavailable (dev/unpackaged) — preference still saved.
+  }
+  return merged;
+}
+
+function getSkippedReleases() {
+  const arr = readJsonKey(UPDATE_SKIPPED_RELEASES_KEY, []);
+  return Array.isArray(arr) ? arr : [];
+}
+
+function addSkippedRelease(releaseId) {
+  const list = getSkippedReleases();
+  if (!list.includes(releaseId)) {
+    list.push(releaseId);
+    // Keep a bounded window — nobody needs more than the last 50 skipped.
+    writeJsonKey(UPDATE_SKIPPED_RELEASES_KEY, list.slice(-50));
+  }
+}
+
+function broadcastUpdateState(extra) {
+  const payload = {
+    phase: _updateState.phase,
+    release: _updateState.release,
+    downloadPercent: _updateState.downloadPercent,
+    error: _updateState.error,
+    lastCheckAt: _updateState.lastCheckAt,
+    ...extra,
+  };
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send("updates:state-changed", payload);
+    }
+  });
+}
+
+async function reportUpdateEvent(eventType, extraFields) {
+  if (HW_E2E || !REFERRAL_PORTAL_ORIGIN) return;
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/public/updates/event`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        installationId: getInstallationId(),
+        clientEventId: crypto.randomUUID(),
+        eventType,
+        appVersion: app.getVersion(),
+        occurredAt: new Date().toISOString(),
+        ...extraFields,
+      }),
+      signal: controller.signal,
+    });
+  } catch {
+    // Best-effort — portal will see next check-in regardless.
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function checkForUpdateOnline(reason) {
+  if (HW_E2E || !REFERRAL_PORTAL_ORIGIN) return { updateAvailable: false };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token) return { updateAvailable: false };
+
+  const prefs = getUpdatePreferences();
+  if (!prefs.autoCheck && reason !== "manual") return { updateAvailable: false };
+
+  if (_updateState.phase === "checking") return { updateAvailable: false };
+  _updateState.phase = "checking";
+  _updateState.error = null;
+  broadcastUpdateState();
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(
+      `${REFERRAL_PORTAL_ORIGIN}/api/public/updates/check`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          installationId: getInstallationId(),
+          currentVersion: app.getVersion(),
+          machineHash: getMachineHash(),
+          platform: process.platform,
+          arch: process.arch,
+          autoCheck: prefs.autoCheck,
+          autoDownload: prefs.autoDownload,
+          reason: reason || "scheduled",
+        }),
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) {
+      _updateState.phase = "idle";
+      _updateState.lastCheckAt = new Date().toISOString();
+      broadcastUpdateState();
+      void reportUpdateEvent("check_error", {
+        errorCode: `HTTP_${response.status}`,
+        errorMessage: response.statusText,
+      });
+      return { updateAvailable: false };
+    }
+    const data = await response.json();
+    _updateState.lastCheckAt = new Date().toISOString();
+    writeJsonKey(UPDATE_LAST_CHECK_KEY, _updateState.lastCheckAt);
+
+    if (!data.updateAvailable) {
+      _updateState.phase = "idle";
+      _updateState.release = null;
+      _updateState.feed = null;
+      broadcastUpdateState();
+      return { updateAvailable: false };
+    }
+
+    const release = normalizeUpdateRelease(data.release);
+    if (!release) {
+      _updateState.phase = "idle";
+      broadcastUpdateState();
+      return { updateAvailable: false };
+    }
+
+    // Skip releases the user explicitly dismissed (only normal severity).
+    const skipped = getSkippedReleases();
+    if (canSkipUpdate(release) && skipped.includes(release.id)) {
+      _updateState.phase = "idle";
+      broadcastUpdateState();
+      return { updateAvailable: false, skipped: true };
+    }
+
+    _updateState.phase = "available";
+    _updateState.release = release;
+    _updateState.feed = data.feed || null;
+    _updateState.downloadPercent = 0;
+    broadcastUpdateState();
+
+    // Report discovery
+    void reportUpdateEvent("update_available", {
+      targetVersion: release.version,
+      fromVersion: app.getVersion(),
+    });
+
+    // Notify renderer(s)
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send("updates:available", {
+          release,
+          canSkip: canSkipUpdate(release),
+          persistent: shouldShowPersistentUpdate(release),
+        });
+      }
+    });
+
+    // Auto-download if policy allows
+    if (shouldAutoDownloadUpdate(release, prefs)) {
+      void downloadUpdate();
+    }
+
+    return { updateAvailable: true, release };
+  } catch (err) {
+    _updateState.phase = _updateState.release ? "available" : "idle";
+    _updateState.error = err?.message || "فشل الاتصال بالخادم";
+    broadcastUpdateState();
+    void reportUpdateEvent("check_error", {
+      errorCode: "NETWORK",
+      errorMessage: String(err?.message || "").slice(0, 200),
+    });
+    return { updateAvailable: false, error: _updateState.error };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function downloadUpdate() {
+  if (!_updateState.release || !_updateState.feed) return false;
+  if (_updateState.phase === "downloading" || _updateState.phase === "downloaded") return false;
+
+  _updateState.phase = "downloading";
+  _updateState.downloadPercent = 0;
+  _updateState.error = null;
+  broadcastUpdateState();
+  void reportUpdateEvent("download_started", { targetVersion: _updateState.release.version, fromVersion: app.getVersion() });
+
+  try {
+    // electron-updater's autoUpdater with a generic (custom) feed URL.
+    const { autoUpdater, CancellationToken } = require("electron-updater");
+    autoUpdater.autoDownload = false;
+    // Honour the user's "install on quit" preference instead of hardcoding it.
+    autoUpdater.autoInstallOnAppQuit = getUpdatePreferences().autoInstallOnQuit;
+    autoUpdater.allowPrerelease = false;
+    autoUpdater.forceDevUpdateConfig = !app.isPackaged;
+    // Differential (delta) downloads need a `blockMapSize` field per file in
+    // the portal's latest.yml (AppImage/Mac) or a separate <file>.blockmap
+    // upload alongside the installer (NSIS web installer) — the portal
+    // serves neither today, so electron-updater's own blockmap parser
+    // computes a NaN offset and throws mid-download. It already falls back
+    // to a full download on that failure, but disabling it up front avoids
+    // the failed attempt (and its console/log noise) entirely rather than
+    // relying on a caught exception every single update.
+    autoUpdater.disableDifferentialDownload = true;
+
+    const feedUrl = _updateState.feed.latestYmlUrl;
+    // The feed URL from the portal is relative — resolve against the portal origin.
+    const resolvedUrl = feedUrl.startsWith("http")
+      ? feedUrl
+      : new URL(feedUrl, REFERRAL_PORTAL_ORIGIN).toString();
+
+    // Generic provider: electron-updater fetches latest.yml from this URL.
+    autoUpdater.setFeedURL({
+      provider: "generic",
+      url: resolvedUrl.replace(/\/latest\.yml$/, ""),
+    });
+
+    // Wire up progress & completion events
+    autoUpdater.removeAllListeners("download-progress");
+    autoUpdater.removeAllListeners("update-downloaded");
+    autoUpdater.removeAllListeners("error");
+
+    autoUpdater.on("download-progress", (info) => {
+      _updateState.downloadPercent = Math.round(info.percent || 0);
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("updates:download-progress", {
+            percent: _updateState.downloadPercent,
+            bytesPerSecond: info.bytesPerSecond || 0,
+            transferred: info.transferred || 0,
+            total: info.total || 0,
+          });
+        }
+      });
+    });
+
+    autoUpdater.on("update-downloaded", () => {
+      _updateState.phase = "downloaded";
+      _updateState.downloadPercent = 100;
+      broadcastUpdateState();
+      void reportUpdateEvent("downloaded", { targetVersion: _updateState.release?.version, fromVersion: app.getVersion() });
+
+      // Notify renderer
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("updates:downloaded", {
+            release: _updateState.release,
+            blocked: shouldBlockForUpdate(_updateState.release, "downloaded"),
+          });
+        }
+      });
+
+      // If severity is critical/emergency, block the UI
+      if (shouldBlockForUpdate(_updateState.release, "downloaded")) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) {
+            win.webContents.send("updates:blocked", { release: _updateState.release });
+          }
+        });
+      }
+    });
+
+    autoUpdater.on("error", (err) => {
+      _updateState.phase = "error";
+      _updateState.error = err?.message || "فشل تحميل التحديث";
+      broadcastUpdateState();
+      void reportUpdateEvent("failed", {
+        targetVersion: _updateState.release?.version,
+        fromVersion: app.getVersion(),
+        errorCode: "DOWNLOAD",
+        errorMessage: String(err?.message || "").slice(0, 500),
+      });
+    });
+
+    // electron-updater refuses to download until a check has populated its
+    // internal updateInfo — calling downloadUpdate() on its own rejects with
+    // "Please check update first". autoDownload is false, so this check only
+    // resolves the feed; the download below stays under our control.
+    await autoUpdater.checkForUpdates();
+
+    // Keep the token so cancelDownload() can actually abort the transfer —
+    // autoUpdater has no public cancellationToken of its own.
+    const cancellationToken = new CancellationToken();
+    _updateCancellationToken = cancellationToken;
+    try {
+      await autoUpdater.downloadUpdate(cancellationToken);
+    } finally {
+      _updateCancellationToken = null;
+    }
+    return true;
+  } catch (err) {
+    // A user-initiated cancel surfaces here as a rejection; it already
+    // reset the phase in cancelDownload(), so don't report it as a failure.
+    if (err?.message === "cancelled" || _updateState.phase === "available") {
+      return false;
+    }
+    _updateState.phase = "error";
+    _updateState.error = err?.message || "فشل تحميل التحديث";
+    broadcastUpdateState();
+    void reportUpdateEvent("failed", {
+      targetVersion: _updateState.release?.version,
+      fromVersion: app.getVersion(),
+      errorCode: "DOWNLOAD_EXCEPTION",
+      errorMessage: String(err?.message || "").slice(0, 500),
+    });
+    return false;
+  }
+}
+
+function installUpdate() {
+  if (_updateState.phase !== "downloaded") return false;
+  _updateState.phase = "installing";
+  broadcastUpdateState();
+  void reportUpdateEvent("install_started", { targetVersion: _updateState.release?.version, fromVersion: app.getVersion() });
+  try {
+    const { autoUpdater } = require("electron-updater");
+    autoUpdater.quitAndInstall(false, true);
+    return true;
+  } catch (err) {
+    _updateState.phase = "error";
+    _updateState.error = err?.message || "فشل تثبيت التحديث";
+    broadcastUpdateState();
+    return false;
+  }
+}
+
+function cancelDownload() {
+  // The token created in downloadUpdate() is the only handle that can abort
+  // an in-flight transfer — `autoUpdater.cancellationToken` does not exist
+  // (it belongs to DownloadUpdateOptions), so reaching for it silently no-ops
+  // and leaves the download running behind a UI that claims it stopped.
+  try {
+    _updateCancellationToken?.cancel();
+  } catch {
+    // Ignore cancellation error
+  }
+  _updateCancellationToken = null;
+  _updateState.phase = "available";
+  _updateState.downloadPercent = 0;
+  _updateState.error = null;
+  broadcastUpdateState();
+  void reportUpdateEvent("deferred", { targetVersion: _updateState.release?.version });
+  return true;
+}
+
+function getUpdateStatusForRenderer() {
+  return {
+    phase: _updateState.phase,
+    release: _updateState.release,
+    downloadPercent: _updateState.downloadPercent,
+    error: _updateState.error,
+    lastCheckAt: _updateState.lastCheckAt || readJsonKey(UPDATE_LAST_CHECK_KEY, null),
+    preferences: getUpdatePreferences(),
+    currentVersion: app.getVersion(),
+    canSkip: _updateState.release ? canSkipUpdate(_updateState.release) : false,
+    blocked: _updateState.release ? shouldBlockForUpdate(_updateState.release, _updateState.phase) : false,
+    persistent: _updateState.release ? shouldShowPersistentUpdate(_updateState.release) : false,
+  };
 }
 
 async function getReferralInfoOnline() {
@@ -3088,7 +3517,7 @@ function createWindow() {
     height: 860,
     minWidth: 1100,
     minHeight: 720,
-    title: "AutoParts Inventory & Sales System",
+    title: "PartFlow — By Helpers Tech",
     icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
@@ -5163,15 +5592,69 @@ function registerIpc() {
       return { ok: false, error: "decrypt_failed" };
     }
   });
+
+  // ── Auto-update IPC handlers ──────────────────────────────────────────
+  ipcMain.handle("updates:get-status", () => {
+    return { ok: true, ...getUpdateStatusForRenderer() };
+  });
+  ipcMain.handle("updates:check-now", async () => {
+    try {
+      const result = await checkForUpdateOnline("manual");
+      return { ok: true, ...result };
+    } catch {
+      return { ok: false, error: "check_failed" };
+    }
+  });
+  ipcMain.handle("updates:download", async () => {
+    try {
+      const ok = await downloadUpdate();
+      return { ok };
+    } catch {
+      return { ok: false, error: "download_failed" };
+    }
+  });
+  ipcMain.handle("updates:install", () => {
+    return { ok: installUpdate() };
+  });
+  ipcMain.handle("updates:cancel-download", () => {
+    return { ok: cancelDownload() };
+  });
+  ipcMain.handle("updates:skip-release", (_event, releaseId) => {
+    if (!releaseId || typeof releaseId !== "string") return { ok: false };
+    if (
+      _updateState.release &&
+      canSkipUpdate(_updateState.release) &&
+      _updateState.release.id === releaseId
+    ) {
+      addSkippedRelease(releaseId);
+      void reportUpdateEvent("skipped", {
+        targetVersion: _updateState.release?.version,
+      });
+      _updateState.phase = "idle";
+      _updateState.release = null;
+      _updateState.feed = null;
+      broadcastUpdateState();
+      return { ok: true };
+    }
+    return { ok: false, error: "cannot_skip" };
+  });
+  ipcMain.handle("updates:get-preferences", () => {
+    return { ok: true, preferences: getUpdatePreferences() };
+  });
+  ipcMain.handle("updates:set-preferences", (event, prefs) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    return { ok: true, preferences: setUpdatePreferencesStore(prefs) };
+  });
 }
 
 app.whenReady().then(() => {
   // ── SECURITY: Set Content Security Policy ──────────────────────────
   const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const portalSrc = REFERRAL_PORTAL_ORIGIN ? ` ${REFERRAL_PORTAL_ORIGIN}` : "";
     const cspDirectives = isDev
-      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://app.bosta.co https://tracking.bosta.co;"
-      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://app.bosta.co https://tracking.bosta.co; object-src 'none'; base-uri 'self'; form-action 'self';";
+      ? `default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://app.bosta.co https://tracking.bosta.co${portalSrc};`
+      : `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://app.bosta.co https://tracking.bosta.co${portalSrc}; object-src 'none'; base-uri 'self'; form-action 'self';`;
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -5199,6 +5682,14 @@ app.whenReady().then(() => {
   setTimeout(() => void syncCommerceOnline({ force: true }), 15 * 1000);
   setInterval(() => void syncCommerceOnline(), 2 * 60 * 1000);
 
+  // Auto-update check — first check after 30 s, then every 5 min.
+  setTimeout(() => {
+    void checkForUpdateOnline("startup");
+    _updateCheckTimer = setInterval(() => {
+      void checkForUpdateOnline("scheduled");
+    }, UPDATE_CHECK_INTERVAL_MS);
+  }, 30 * 1000);
+
   if (isSmokeTestRun()) {
     // SECURITY: Removed console.log of license status
     exitForSmokeTest();
@@ -5217,6 +5708,14 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  // Install-on-quit: if a downloaded update is pending and the user opted in,
+  // trigger the installer now so the machine restarts into the new version.
+  if (_updateState.phase === "downloaded" && getUpdatePreferences().autoInstallOnQuit) {
+    try {
+      const { autoUpdater } = require("electron-updater");
+      autoUpdater.quitAndInstall(false, true);
+    } catch { /* best-effort */ }
+  }
   try {
     db?.pragma("wal_checkpoint(TRUNCATE)");
   } catch {
