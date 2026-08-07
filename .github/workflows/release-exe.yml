@@ -86,6 +86,19 @@ jobs:
           echo "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
           echo "name=$($installer.Name)" >> $env:GITHUB_OUTPUT
 
+      # Makes the raw installer downloadable even if the trust check below
+      # fails, so a build blocked from public release (e.g. while the signing
+      # certificate is self-signed / pending a real CA) is still inspectable
+      # instead of vanishing entirely. Deliberately NOT a GitHub Release —
+      # customers' auto-updaters never see this, only whoever opens the
+      # workflow run and explicitly downloads it.
+      - name: Upload unverified build artifact (always, pre-trust-check)
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-installer-unverified
+          path: ${{ steps.find_installer.outputs.path }}
+          retention-days: 14
+
       # Auto-update must never inherit the signing hook's local-development
       # fail-open behaviour. The updater validates Authenticode before it
       # installs, so a production release without a trusted timestamped
