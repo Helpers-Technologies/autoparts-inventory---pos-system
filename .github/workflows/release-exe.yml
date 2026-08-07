@@ -94,6 +94,13 @@ jobs:
         shell: pwsh
         run: |
           $signature = Get-AuthenticodeSignature -LiteralPath "${{ steps.find_installer.outputs.path }}"
+          # Issuer/subject of a code-signing cert are public — they ship inside
+          # every signed binary already — so logging them unconditionally (pass
+          # or fail) costs nothing and turns the next chain-trust failure into a
+          # one-look diagnosis instead of a guessing game.
+          "Signer: $($signature.SignerCertificate.Subject)"
+          "Issuer: $($signature.SignerCertificate.Issuer)"
+          "Status: $($signature.Status) — $($signature.StatusMessage)"
           if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
             throw "Installer Authenticode signature is not trusted: $($signature.Status) — $($signature.StatusMessage)"
           }
