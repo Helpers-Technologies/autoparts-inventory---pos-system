@@ -130,6 +130,7 @@ const {
   STORE_PREFIX,
   REDACTED_PASSWORD_HASH,
   PROTECTED_KEYS,
+  isRendererStorageKey,
   safeUserForRenderer,
   safeUsersForRenderer,
 } = require("./storage-security.cjs");
@@ -569,6 +570,7 @@ const {
   encryptBackupContent,
   decryptBackupContent,
   encryptBackupWithPassphrase,
+  encryptBackupWithPassphraseAsync,
   decryptBackupWithPassphrase,
   getBackupEnvelopeVersion,
 } = require("./backup-crypto.cjs");
@@ -1374,6 +1376,10 @@ function isBostaFeatureLicensed() {
 
 function isMobileCompanionFeatureLicensed() {
   return isFeatureLicensed("mobileCompanion");
+}
+
+function isCloudBackupFeatureLicensed() {
+  return isFeatureLicensed("cloudBackup");
 }
 
 function getEffectiveMfaPolicyMode() {
@@ -2785,6 +2791,214 @@ async function createMobilePairingOnline(event, payload) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// --- Full encrypted cloud archive ------------------------------------------
+// The commerce snapshot above is a curated, queryable subset for the phone app.
+// This is the other half: every renderer storage key, encrypted here with the
+// owner's passphrase and stored in the portal as an opaque blob. It is what
+// makes the shop's data "local AND cloud" rather than local-only, and it is
+// restorable onto a brand-new machine with nothing but the passphrase.
+const CLOUD_ARCHIVE_PASSPHRASE_KEY = "__cloud_archive_passphrase";
+const CLOUD_ARCHIVE_AT_KEY = "__cloud_archive_at";
+const CLOUD_ARCHIVE_HASH_KEY = "__cloud_archive_hash";
+const CLOUD_ARCHIVE_ERROR_KEY = "__cloud_archive_error";
+// Matches MAX_ENVELOPE_BYTES in the portal's cloudState.js. Checked before
+// encrypting so a shop that outgrows the limit gets a clear message instead of
+// a 413 after spending seconds on scrypt.
+const CLOUD_ARCHIVE_MAX_BYTES = 48 * 1024 * 1024;
+
+/** Every renderer-owned key, i.e. the whole shop minus internal/protected ones. */
+function buildCloudArchivePayload() {
+  const rows = openDatabase()
+    .prepare("SELECT key, value, updated_at FROM kv_store ORDER BY key")
+    .all()
+    .filter((row) => isRendererStorageKey(row.key));
+  const state = {};
+  for (const row of rows) state[row.key] = row.value;
+  const plaintext = JSON.stringify({
+    archiveVersion: 1,
+    capturedAt: new Date().toISOString(),
+    appVersion: app.getVersion(),
+    state,
+  });
+  return {
+    plaintext,
+    keyCount: rows.length,
+    sourceHash: crypto.createHash("sha256").update(plaintext).digest("hex"),
+  };
+}
+
+function getCloudArchivePassphrase() {
+  const stored = storageGet(CLOUD_ARCHIVE_PASSPHRASE_KEY);
+  if (!stored) return null;
+  try {
+    return decryptMfaSecret(stored);
+  } catch {
+    return null;
+  }
+}
+
+let cloudArchiveInFlight = false;
+
+async function syncCloudArchive({ force = false } = {}) {
+  if (cloudArchiveInFlight || !REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "not_configured" };
+  if (getLicenseStatus().state !== "active") return { ok: false, error: "license_inactive" };
+  // Sold standalone like mobileCompanion — a shop without this add-on must
+  // never upload the archive even silently in the background.
+  if (!isCloudBackupFeatureLicensed()) return { ok: false, error: "cloud_backup_not_licensed" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return { ok: false, error: "license_inactive" };
+  const passphrase = getCloudArchivePassphrase();
+  // Not configured is a normal state, not an error: the owner has to choose a
+  // passphrase before anything can be uploaded, and we never invent one for
+  // them — an archive we could decrypt unaided would defeat the design.
+  if (!passphrase) return { ok: false, error: "passphrase_not_set" };
+
+  const payload = buildCloudArchivePayload();
+  if (!force && storageGet(CLOUD_ARCHIVE_HASH_KEY) === payload.sourceHash) {
+    return { ok: true, skipped: true };
+  }
+  if (Buffer.byteLength(payload.plaintext, "utf8") > CLOUD_ARCHIVE_MAX_BYTES) {
+    storageSet(CLOUD_ARCHIVE_ERROR_KEY, JSON.stringify({ message: "archive_too_large", at: new Date().toISOString() }));
+    return { ok: false, error: "archive_too_large" };
+  }
+
+  cloudArchiveInFlight = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  try {
+    const envelope = await encryptBackupWithPassphraseAsync(payload.plaintext, passphrase);
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/state`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        envelope,
+        sourceHash: payload.sourceHash,
+        keyCount: payload.keyCount,
+        appVersion: app.getVersion(),
+        machineLabel: os.hostname(),
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const message = `http_${response.status}`;
+      storageSet(CLOUD_ARCHIVE_ERROR_KEY, JSON.stringify({ message, at: new Date().toISOString() }));
+      return { ok: false, error: message };
+    }
+    storageSet(CLOUD_ARCHIVE_HASH_KEY, payload.sourceHash);
+    storageSet(CLOUD_ARCHIVE_AT_KEY, new Date().toISOString());
+    storageRemove(CLOUD_ARCHIVE_ERROR_KEY);
+    return { ok: true, keyCount: payload.keyCount };
+  } catch (e) {
+    // Offline-first, exactly like the commerce sync: a failed upload never
+    // blocks local work and the periodic job retries.
+    const message = e?.name === "AbortError" ? "timeout" : e?.message || "unknown_error";
+    storageSet(CLOUD_ARCHIVE_ERROR_KEY, JSON.stringify({ message, at: new Date().toISOString() }));
+    return { ok: false, error: message };
+  } finally {
+    clearTimeout(timeout);
+    cloudArchiveInFlight = false;
+  }
+}
+
+/** Pulls the archive back down and decrypts it, without writing anything yet. */
+async function fetchCloudArchive(passphrase) {
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "not_configured" };
+  if (!isCloudBackupFeatureLicensed()) return { ok: false, error: "cloud_backup_not_licensed" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return { ok: false, error: "license_inactive" };
+  if (typeof passphrase !== "string" || !passphrase) return { ok: false, error: "passphrase_required" };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  try {
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/state`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (response.status === 404) return { ok: false, error: "archive_not_found" };
+    if (!response.ok) return { ok: false, error: `http_${response.status}` };
+    const body = await response.json();
+    let parsed;
+    try {
+      parsed = JSON.parse(decryptBackupWithPassphrase(String(body.envelope || ""), passphrase));
+    } catch {
+      // AES-GCM cannot tell "wrong passphrase" from "tampered blob", and the
+      // honest message for the overwhelmingly likely case is the passphrase.
+      return { ok: false, error: "wrong_passphrase" };
+    }
+    if (!parsed?.state || typeof parsed.state !== "object") {
+      return { ok: false, error: "invalid_archive" };
+    }
+    return {
+      ok: true,
+      state: parsed.state,
+      capturedAt: parsed.capturedAt || null,
+      appVersion: parsed.appVersion || null,
+      keyCount: Object.keys(parsed.state).length,
+    };
+  } catch (e) {
+    return { ok: false, error: e?.name === "AbortError" ? "timeout" : "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// --- Linked mobile devices -------------------------------------------------
+// Shares the pairing route's gating exactly: the same role check, the same
+// feature checks, the same licence state. Listing or remotely signing out a
+// device is as sensitive as creating a pairing code, so it must not be reachable
+// on an install where pairing itself is refused.
+async function mobileDevicesRequest(event, path, { method = "GET", body } = {}) {
+  const user = getSessionUser(event);
+  if (!canManageMobileCompanion(user)) return { ok: false, error: "not_authorized" };
+  if (!isMobileCompanionFeatureLicensed()) return { ok: false, error: "mobile_feature_not_licensed" };
+  if (!isMfaFeatureLicensed()) return { ok: false, error: "two_factor_not_licensed" };
+  if (getLicenseStatus().state !== "active") return { ok: false, error: "license_inactive" };
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return { ok: false, error: "license_inactive" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}${path}`, {
+      method,
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      return { ok: false, error: String(data?.error?.code || "online_service_unavailable") };
+    }
+    return { ok: true, ...data };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function listMobileDevicesOnline(event) {
+  return mobileDevicesRequest(event, "/api/v1/mobile/devices");
+}
+
+function revokeMobileDeviceOnline(event, payload) {
+  const id = Number(payload?.deviceId);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return Promise.resolve({ ok: false, error: "device_not_found" });
+  }
+  return mobileDevicesRequest(event, `/api/v1/mobile/devices/${id}/revoke`, {
+    method: "POST",
+    // keepTrust ends the session but lets the phone sign back in with account
+    // + 2FA; without it the device also has to be paired again.
+    body: { keepTrust: payload?.keepTrust === true },
+  });
 }
 
 function commerceMinor(value) {
@@ -4900,6 +5114,100 @@ function registerIpc() {
   ipcMain.handle("license:create-mobile-pairing", (event, payload) =>
     createMobilePairingOnline(event, payload),
   );
+  // ── Cloud archive ────────────────────────────────────────────────────
+  // Owner-only throughout: the passphrase is the single thing standing between
+  // the archive and anyone who obtains it, and a restore replaces every record
+  // in the shop.
+  ipcMain.handle("cloud-archive:get-status", (event) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    const lastError = storageGet(CLOUD_ARCHIVE_ERROR_KEY);
+    return {
+      ok: true,
+      featureLicensed: isCloudBackupFeatureLicensed(),
+      configured: Boolean(getCloudArchivePassphrase()),
+      lastArchivedAt: storageGet(CLOUD_ARCHIVE_AT_KEY),
+      lastError: lastError ? JSON.parse(lastError) : null,
+      serviceAvailable: Boolean(REFERRAL_PORTAL_ORIGIN),
+    };
+  });
+
+  ipcMain.handle("cloud-archive:set-passphrase", async (event, payload) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    if (!isCloudBackupFeatureLicensed()) return { ok: false, error: "cloud_backup_not_licensed" };
+    const passphrase = String(payload?.passphrase || "");
+    // scrypt makes short passphrases expensive to brute-force but not safe;
+    // this is the only secret protecting a full copy of the shop.
+    if (passphrase.length < 12) return { ok: false, error: "passphrase_too_short" };
+    if (!(await verifyPassword(user.passwordHash, String(payload?.password || "")))) {
+      return { ok: false, error: "invalid_password" };
+    }
+    storageSet(CLOUD_ARCHIVE_PASSPHRASE_KEY, encryptMfaSecret(passphrase));
+    // The old archive was sealed with the previous passphrase, so force a
+    // fresh upload rather than leaving an entry the owner can no longer open.
+    storageRemove(CLOUD_ARCHIVE_HASH_KEY);
+    return syncCloudArchive({ force: true });
+  });
+
+  ipcMain.handle("cloud-archive:sync-now", (event) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    return syncCloudArchive({ force: true });
+  });
+
+  ipcMain.handle("cloud-archive:preview-restore", async (event, payload) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    const result = await fetchCloudArchive(String(payload?.passphrase || ""));
+    // Never hand the renderer the actual records for a preview — it only needs
+    // to know what it is about to overwrite itself with.
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      capturedAt: result.capturedAt,
+      appVersion: result.appVersion,
+      keyCount: result.keyCount,
+    };
+  });
+
+  ipcMain.handle("cloud-archive:restore", async (event, payload) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    const archive = await fetchCloudArchive(String(payload?.passphrase || ""));
+    if (!archive.ok) return archive;
+    // Same write path and same key filter as storage:import, so a crafted
+    // archive can no more reach a protected key than a crafted backup file.
+    const insert = openDatabase().prepare(
+      "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    );
+    let restored = 0;
+    const now = new Date().toISOString();
+    openDatabase().transaction(() => {
+      for (const [key, value] of Object.entries(archive.state)) {
+        if (typeof key !== "string" || typeof value !== "string") continue;
+        if (!isRendererStorageKey(key)) continue;
+        insert.run(key, normalizeRendererStorageValue(key, value), now);
+        restored += 1;
+      }
+    })();
+    // The audit log lives in the renderer's own store (autoparts_inventory_v1::
+    // auditLogs) and has just been overwritten by the archive, so there is no
+    // durable place to record this from here — the renderer writes the entry
+    // after it reloads.
+    console.log(JSON.stringify({
+      event: "cloud_archive_restored", keyCount: restored, capturedAt: archive.capturedAt,
+    }));
+    // The renderer holds the old state in memory; only a reload is honest.
+    return { ok: true, keyCount: restored, capturedAt: archive.capturedAt, requiresReload: true };
+  });
+
+  ipcMain.handle("license:list-mobile-devices", (event) =>
+    listMobileDevicesOnline(event),
+  );
+  ipcMain.handle("license:revoke-mobile-device", (event, payload) =>
+    revokeMobileDeviceOnline(event, payload),
+  );
   ipcMain.handle("license:activate", (_event, serial) => {
     const status = evaluateLicense(serial, false);
     if (status.state !== "active") {
@@ -5681,6 +5989,12 @@ app.whenReady().then(() => {
   }, 30 * 1000);
   setTimeout(() => void syncCommerceOnline({ force: true }), 15 * 1000);
   setInterval(() => void syncCommerceOnline(), 2 * 60 * 1000);
+
+  // Cloud archive — much heavier than the commerce snapshot (scrypt plus the
+  // whole store), so it runs on a slower cadence and skips unchanged state via
+  // its own content hash. A no-op costs one hash of the kv_store.
+  setTimeout(() => void syncCloudArchive(), 90 * 1000);
+  setInterval(() => void syncCloudArchive(), 30 * 60 * 1000);
 
   // Auto-update check — first check after 30 s, then every 5 min.
   setTimeout(() => {

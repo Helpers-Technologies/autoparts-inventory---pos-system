@@ -30,6 +30,24 @@ type DesktopUpdateRelease = {
   artifactSize?: number | null;
 };
 
+// A phone/tablet/browser paired with this shop, as returned by the portal's
+// /api/v1/mobile/devices. `lastSeenAt` is stamped on every authenticated read
+// from the app, so it doubles as "last activity".
+export type LinkedMobileDevice = {
+  id: number;
+  deviceName: string;
+  platform: "android" | "ios" | "web" | "windows" | "macos" | "linux" | null;
+  appVersion: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  lastLoginAt: string | null;
+  revoked: boolean;
+  revokedAt: string | null;
+  userDisplayName: string;
+  userRole: "owner" | "supervisor";
+  activeSessions: number;
+};
+
 declare global {
   interface Window {
     desktopAPI?: {
@@ -112,6 +130,42 @@ declare global {
               user: { name: string; username: string; role: "owner" | "employee" };
             }
           | { ok: false; error: string; remainSeconds?: number; attemptsRemaining?: number }
+        >;
+        getCloudArchiveStatus: () => Promise<
+          | {
+              ok: true;
+              featureLicensed: boolean;
+              configured: boolean;
+              lastArchivedAt: string | null;
+              lastError: { message: string; at: string } | null;
+              serviceAvailable: boolean;
+            }
+          | { ok: false; error: string }
+        >;
+        setCloudArchivePassphrase: (
+          password: string,
+          passphrase: string,
+        ) => Promise<{ ok: boolean; error?: string; keyCount?: number }>;
+        syncCloudArchiveNow: () => Promise<{ ok: boolean; error?: string; keyCount?: number; skipped?: boolean }>;
+        previewCloudArchiveRestore: (passphrase: string) => Promise<
+          | { ok: true; capturedAt: string | null; appVersion: string | null; keyCount: number }
+          | { ok: false; error: string }
+        >;
+        restoreCloudArchive: (passphrase: string) => Promise<
+          | { ok: true; keyCount: number; capturedAt: string | null; requiresReload: boolean }
+          | { ok: false; error: string }
+        >;
+        listMobileDevices: () => Promise<
+          | { ok: true; devices: LinkedMobileDevice[] }
+          | { ok: false; error: string }
+        >;
+        revokeMobileDevice: (
+          deviceId: number,
+          /** Ends the session but keeps the device paired for account + 2FA sign-in. */
+          keepTrust?: boolean,
+        ) => Promise<
+          | { ok: true; sessionsRevoked: number; trustRemoved: boolean }
+          | { ok: false; error: string }
         >;
         activate: (
           serial: string,

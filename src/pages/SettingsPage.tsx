@@ -10,7 +10,8 @@ import { useAuditLog } from "../store/AuditLogContext";
 import { useToast } from "../components/ui/Toast";
 import { lsGet } from "../lib/storage";
 import { FEATURES, FEATURE_CATEGORIES, FEATURE_CATEGORY_BY_KEY, defaultFeatureState, isAllowedByLicense, type FeatureDef, type FeatureKey } from "../lib/features";
-import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ChevronDown, ChevronUp, Gift, RefreshCw, Smartphone, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ChevronDown, ChevronUp, Gift, RefreshCw, Smartphone, ShieldAlert, CheckCircle2, LogOut, Link2Off, Laptop, Globe, TabletSmartphone, CloudUpload, CloudDownload } from "lucide-react";
+import type { LinkedMobileDevice } from "../types/desktop";
 import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import {
   DEFAULT_INVOICE_WHATSAPP_TEMPLATE,
@@ -110,6 +111,104 @@ function planDisplayLabel(license?: { plan?: string; features?: string[] } | nul
   return "الباقة الشاملة";
 }
 
+const DEVICE_PLATFORM_ICONS = {
+  android: Smartphone,
+  ios: Smartphone,
+  web: Globe,
+  windows: Laptop,
+  macos: Laptop,
+  linux: Laptop,
+} as const;
+
+const DEVICE_PLATFORM_LABELS: Record<string, string> = {
+  android: "أندرويد",
+  ios: "آيفون / آيباد",
+  web: "متصفح",
+  windows: "ويندوز",
+  macos: "ماك",
+  linux: "لينكس",
+};
+
+/** Absolute date plus a coarse "how long ago", which is what an owner scanning
+ *  the list actually wants to know about a device they don't recognise. */
+function formatDeviceMoment(value: string | null): string {
+  if (!value) return "—";
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "—";
+  const date = new Date(time).toLocaleString("ar-EG", {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+  const minutes = Math.floor((Date.now() - time) / 60000);
+  if (minutes < 2) return `${date} (الآن)`;
+  if (minutes < 60) return `${date} (منذ ${minutes} دقيقة)`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${date} (منذ ${hours} ساعة)`;
+  return `${date} (منذ ${Math.floor(hours / 24)} يوم)`;
+}
+
+function MobileDeviceRow({
+  device, busy, onSignOut, onUnlink,
+}: {
+  device: LinkedMobileDevice;
+  busy: boolean;
+  onSignOut: () => void;
+  onUnlink: () => void;
+}) {
+  const Icon = (device.platform && DEVICE_PLATFORM_ICONS[device.platform]) || TabletSmartphone;
+  const online = device.activeSessions > 0 && !device.revoked;
+  return (
+    <li className={cn(
+      "rounded-xl border p-3",
+      device.revoked ? "border-line bg-surface-muted/50 opacity-70" : "border-line bg-surface",
+    )}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300">
+            <Icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate text-sm font-bold text-ink">{device.deviceName}</span>
+              {device.revoked ? (
+                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
+                  ملغي
+                </span>
+              ) : online ? (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                  جلسة نشطة
+                </span>
+              ) : (
+                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-bold text-ink-muted">
+                  مسجل خروج
+                </span>
+              )}
+            </div>
+            <div className="mt-1 space-y-0.5 text-xs leading-5 text-ink-muted">
+              <div>
+                {device.userDisplayName} · {device.userRole === "owner" ? "مالك" : "مشرف"}
+                {device.platform ? ` · ${DEVICE_PLATFORM_LABELS[device.platform] ?? device.platform}` : ""}
+                {device.appVersion ? ` · إصدار ${device.appVersion}` : ""}
+              </div>
+              <div>تاريخ الربط: {formatDeviceMoment(device.createdAt)}</div>
+              <div>آخر نشاط: {formatDeviceMoment(device.lastSeenAt)}</div>
+            </div>
+          </div>
+        </div>
+        {!device.revoked && (
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button type="button" variant="ghost" disabled={busy || !online} onClick={onSignOut}>
+              <LogOut className="h-4 w-4" /> تسجيل خروج
+            </Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={onUnlink}>
+              <Link2Off className="h-4 w-4" /> إلغاء الربط
+            </Button>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
 function MobileRequirement({ ok, title, description }: { ok: boolean; title: string; description: string }) {
   return (
     <div className={cn(
@@ -169,6 +268,40 @@ export function SettingsPage() {
   const [mobilePairingLoading, setMobilePairingLoading] = useState(false);
   const [mobilePairingError, setMobilePairingError] = useState("");
   const [mobilePairingResult, setMobilePairingResult] = useState<{ activationCode: string; expiresAt: string } | null>(null);
+  const [mobileDevices, setMobileDevices] = useState<
+    | { state: "idle" }
+    | { state: "loading" }
+    | { state: "ready"; devices: LinkedMobileDevice[] }
+    | { state: "error"; error: string }
+  >({ state: "idle" });
+  const [cloudArchive, setCloudArchive] = useState<
+    | { state: "unavailable" }
+    | { state: "loading" }
+    | {
+        state: "ready";
+        featureLicensed: boolean;
+        configured: boolean;
+        lastArchivedAt: string | null;
+        lastError: { message: string; at: string } | null;
+        serviceAvailable: boolean;
+      }
+  >({ state: "loading" });
+  const [cloudArchiveRefreshKey, setCloudArchiveRefreshKey] = useState(0);
+  const [cloudArchiveBusy, setCloudArchiveBusy] = useState(false);
+  const [cloudPassphraseDialogOpen, setCloudPassphraseDialogOpen] = useState(false);
+  const [cloudAccountPassword, setCloudAccountPassword] = useState("");
+  const [cloudPassphrase, setCloudPassphrase] = useState("");
+  const [cloudPassphraseConfirm, setCloudPassphraseConfirm] = useState("");
+  const [cloudPassphraseError, setCloudPassphraseError] = useState("");
+  const [cloudRestoreDialogOpen, setCloudRestoreDialogOpen] = useState(false);
+  const [cloudRestorePassphrase, setCloudRestorePassphrase] = useState("");
+  const [cloudRestoreError, setCloudRestoreError] = useState("");
+  const [cloudRestorePreview, setCloudRestorePreview] = useState<
+    { capturedAt: string | null; appVersion: string | null; keyCount: number } | null
+  >(null);
+  const [devicePendingRevoke, setDevicePendingRevoke] = useState<LinkedMobileDevice | null>(null);
+  const [deviceRevokeBusy, setDeviceRevokeBusy] = useState(false);
+  const [deviceRefreshKey, setDeviceRefreshKey] = useState(0);
   const [showAllFeatures, setShowAllFeatures] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<FeatureDef | null>(null);
   const [referralHistoryOpen, setReferralHistoryOpen] = useState(false);
@@ -221,6 +354,171 @@ export function SettingsPage() {
     });
     return () => { active = false; };
   }, [currentUser?.id, licenseStatus?.license?.licenseId, mfaRefreshKey]);
+
+  useEffect(() => {
+    let active = true;
+    const api = window.desktopAPI?.license?.getCloudArchiveStatus;
+    if (!api || currentUser?.role !== "owner") {
+      setCloudArchive({ state: "unavailable" });
+      return () => { active = false; };
+    }
+    setCloudArchive({ state: "loading" });
+    void api().then((result) => {
+      if (!active) return;
+      setCloudArchive(result.ok ? { state: "ready", ...result } : { state: "unavailable" });
+    }).catch(() => {
+      if (active) setCloudArchive({ state: "unavailable" });
+    });
+    return () => { active = false; };
+  }, [currentUser?.id, currentUser?.role, cloudArchiveRefreshKey]);
+
+  const CLOUD_ARCHIVE_ERRORS: Record<string, string> = {
+    not_authorized: "النسخ الاحتياطي السحابي متاح للمالك فقط",
+    cloud_backup_not_licensed: "ميزة النسخة السحابية غير مفعلة على الترخيص الحالي",
+    passphrase_too_short: "كلمة سر النسخة يجب ألا تقل عن 12 حرفًا",
+    invalid_password: "كلمة مرور حسابك غير صحيحة",
+    passphrase_not_set: "اضبط كلمة سر النسخة السحابية أولًا",
+    passphrase_required: "اكتب كلمة سر النسخة السحابية",
+    wrong_passphrase: "كلمة سر النسخة غير صحيحة",
+    archive_not_found: "لا توجد نسخة سحابية محفوظة بعد",
+    archive_too_large: "حجم بيانات المتجر تجاوز الحد المسموح للنسخة السحابية",
+    license_inactive: "ترخيص البرنامج غير نشط",
+    not_configured: "خدمة السحابة غير مهيأة في هذا الإصدار",
+    online_service_unavailable: "تعذر الاتصال بالخدمة؛ تحقق من الإنترنت",
+    timeout: "انتهت مهلة الاتصال بالخدمة",
+  };
+
+  async function saveCloudPassphrase() {
+    if (cloudPassphrase.length < 12) {
+      setCloudPassphraseError("كلمة سر النسخة يجب ألا تقل عن 12 حرفًا");
+      return;
+    }
+    if (cloudPassphrase !== cloudPassphraseConfirm) {
+      setCloudPassphraseError("تأكيد كلمة السر غير مطابق");
+      return;
+    }
+    const api = window.desktopAPI?.license?.setCloudArchivePassphrase;
+    if (!api) return;
+    setCloudArchiveBusy(true);
+    setCloudPassphraseError("");
+    const result = await api(cloudAccountPassword, cloudPassphrase);
+    setCloudArchiveBusy(false);
+    if (result.ok) {
+      setCloudPassphraseDialogOpen(false);
+      setCloudAccountPassword("");
+      setCloudPassphrase("");
+      setCloudPassphraseConfirm("");
+      setCloudArchiveRefreshKey((key) => key + 1);
+      toast.success("تم تفعيل النسخة السحابية", "احتفظ بكلمة السر — من غيرها لا يمكن استرجاع النسخة");
+      return;
+    }
+    setCloudPassphraseError(CLOUD_ARCHIVE_ERRORS[result.error || ""] || "تعذر حفظ الإعداد");
+  }
+
+  async function runCloudArchiveSync() {
+    const api = window.desktopAPI?.license?.syncCloudArchiveNow;
+    if (!api) return;
+    setCloudArchiveBusy(true);
+    const result = await api();
+    setCloudArchiveBusy(false);
+    setCloudArchiveRefreshKey((key) => key + 1);
+    if (result.ok) {
+      toast.success(
+        result.skipped ? "النسخة السحابية محدَّثة بالفعل" : "تم رفع نسخة سحابية جديدة",
+        result.skipped ? "لا توجد تغييرات منذ آخر رفع" : `${result.keyCount ?? 0} مجموعة بيانات`,
+      );
+      return;
+    }
+    toast.error("تعذر رفع النسخة", CLOUD_ARCHIVE_ERRORS[result.error || ""] || result.error || "");
+  }
+
+  async function previewCloudRestore() {
+    const api = window.desktopAPI?.license?.previewCloudArchiveRestore;
+    if (!api) return;
+    setCloudArchiveBusy(true);
+    setCloudRestoreError("");
+    const result = await api(cloudRestorePassphrase);
+    setCloudArchiveBusy(false);
+    if (result.ok) {
+      setCloudRestorePreview(result);
+      return;
+    }
+    setCloudRestorePreview(null);
+    setCloudRestoreError(CLOUD_ARCHIVE_ERRORS[result.error] || "تعذر قراءة النسخة السحابية");
+  }
+
+  async function confirmCloudRestore() {
+    const api = window.desktopAPI?.license?.restoreCloudArchive;
+    if (!api) return;
+    setCloudArchiveBusy(true);
+    const result = await api(cloudRestorePassphrase);
+    setCloudArchiveBusy(false);
+    if (!result.ok) {
+      setCloudRestoreError(CLOUD_ARCHIVE_ERRORS[result.error] || "تعذر استعادة النسخة السحابية");
+      return;
+    }
+    // The renderer's in-memory stores still hold the pre-restore data, so
+    // anything short of a reload would show a mix of old and new records.
+    toast.success("تمت الاستعادة", "سيتم إعادة تشغيل الواجهة الآن");
+    setTimeout(() => window.location.reload(), 1200);
+  }
+
+  // Only fetched once the same gate that guards pairing has passed, so an
+  // unlicensed or unauthorised install never even asks the portal.
+  const mobileDevicesEligible =
+    mobileLinkStatus.state === "ready" &&
+    mobileLinkStatus.featureLicensed &&
+    mobileLinkStatus.twoFactorLicensed &&
+    mobileLinkStatus.allowedRole;
+
+  useEffect(() => {
+    let active = true;
+    const api = window.desktopAPI?.license?.listMobileDevices;
+    if (!mobileDevicesEligible || !api) {
+      setMobileDevices({ state: "idle" });
+      return () => { active = false; };
+    }
+    setMobileDevices({ state: "loading" });
+    void api().then((result) => {
+      if (!active) return;
+      setMobileDevices(
+        result.ok
+          ? { state: "ready", devices: result.devices }
+          : { state: "error", error: result.error },
+      );
+    }).catch(() => {
+      if (active) setMobileDevices({ state: "error", error: "online_service_unavailable" });
+    });
+    return () => { active = false; };
+  }, [mobileDevicesEligible, deviceRefreshKey]);
+
+  async function revokeMobileDevice(device: LinkedMobileDevice, keepTrust: boolean) {
+    const api = window.desktopAPI?.license?.revokeMobileDevice;
+    if (!api) return;
+    setDeviceRevokeBusy(true);
+    const result = await api(device.id, keepTrust);
+    setDeviceRevokeBusy(false);
+    setDevicePendingRevoke(null);
+    if (result.ok) {
+      toast.success(
+        keepTrust ? "تم تسجيل خروج الجهاز" : "تم إلغاء ربط الجهاز",
+        keepTrust
+          ? `${device.deviceName} هيحتاج تسجيل دخول بالحساب و2FA`
+          : `${device.deviceName} هيحتاج كود ربط جديد`,
+      );
+      setDeviceRefreshKey((key) => key + 1);
+      return;
+    }
+    const messages: Record<string, string> = {
+      not_authorized: "الميزة متاحة للمالك أو المشرف المصرح له فقط",
+      mobile_feature_not_licensed: "ميزة ربط الهاتف غير مفعلة في الترخيص الحالي",
+      two_factor_not_licensed: "يجب تفعيل ميزة المصادقة الثنائية على الترخيص",
+      license_inactive: "ترخيص البرنامج غير نشط",
+      device_not_found: "الجهاز غير موجود أو تم إلغاؤه بالفعل",
+      online_service_unavailable: "تعذر الاتصال بخدمة الربط؛ تحقق من الإنترنت",
+    };
+    toast.error("تعذر تنفيذ العملية", messages[result.error] || result.error);
+  }
 
   function openMobilePairingDialog() {
     setMobilePassword("");
@@ -668,6 +966,92 @@ export function SettingsPage() {
           </CardBody>
         </Card>
 
+        {cloudArchive.state !== "unavailable" && (
+          <Card className="lg:col-span-2" dir="rtl">
+            <CardHeader
+              title={
+                <div className="flex items-center gap-2">
+                  <CloudUpload className="h-4 w-4 text-brand-600" />
+                  <span>النسخة السحابية الكاملة</span>
+                </div>
+              }
+              subtitle="كل بيانات المتجر مشفَّرة بكلمة سر تخصك — محليًا وعلى السحابة، وقابلة للاستعادة على أي جهاز"
+            />
+            <CardBody className="space-y-4">
+              {cloudArchive.state === "loading" ? (
+                <div className="rounded-xl border border-line bg-surface-muted/45 p-4 text-sm text-ink-muted">جارٍ فحص حالة النسخة السحابية…</div>
+              ) : !cloudArchive.featureLicensed ? (
+                <PaidFeatureNotice
+                  title="النسخة السحابية الكاملة"
+                  featureKey="cloudBackup"
+                  description="نسخة مشفّرة من كل بيانات المتجر على السحابة، قابلة للاستعادة على أي جهاز بكلمة سرك — تُباع بشكل مستقل عن باقات الاشتراك."
+                />
+              ) : !cloudArchive.serviceAvailable ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                  خدمة السحابة غير مهيأة في هذا الإصدار.
+                </div>
+              ) : (
+                <>
+                  <div className={cn(
+                    "rounded-xl border p-4",
+                    cloudArchive.configured
+                      ? "border-emerald-200 bg-emerald-50/55 dark:border-emerald-500/25 dark:bg-emerald-500/10"
+                      : "border-amber-200 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/10",
+                  )}>
+                    <div className="text-sm font-bold text-ink">
+                      {cloudArchive.configured ? "النسخة السحابية مفعّلة" : "النسخة السحابية غير مفعّلة"}
+                    </div>
+                    <div className="mt-1 text-xs leading-6 text-ink-muted">
+                      {cloudArchive.configured
+                        ? <>آخر رفع: {formatDeviceMoment(cloudArchive.lastArchivedAt)} · يتم الرفع تلقائيًا كل نصف ساعة عند تغيّر البيانات.</>
+                        : "اختر كلمة سر للنسخة عشان يبدأ رفع بيانات المتجر بالكامل مشفّرة. البورتال لا يستطيع فك التشفير — احتفظ بكلمة السر في مكان آمن."}
+                    </div>
+                    {cloudArchive.lastError && (
+                      <div className="mt-2 text-xs text-rose-700 dark:text-rose-300">
+                        آخر محاولة فشلت: {cloudArchive.lastError.message}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      disabled={cloudArchiveBusy}
+                      onClick={() => {
+                        setCloudPassphraseError("");
+                        setCloudAccountPassword("");
+                        setCloudPassphrase("");
+                        setCloudPassphraseConfirm("");
+                        setCloudPassphraseDialogOpen(true);
+                      }}
+                    >
+                      <KeyRound className="h-4 w-4" />
+                      {cloudArchive.configured ? "تغيير كلمة سر النسخة" : "تفعيل النسخة السحابية"}
+                    </Button>
+                    {cloudArchive.configured && (
+                      <Button type="button" variant="outline" disabled={cloudArchiveBusy} onClick={() => void runCloudArchiveSync()}>
+                        <CloudUpload className={cn("h-4 w-4", cloudArchiveBusy && "animate-pulse")} /> رفع نسخة الآن
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={cloudArchiveBusy}
+                      onClick={() => {
+                        setCloudRestoreError("");
+                        setCloudRestorePassphrase("");
+                        setCloudRestorePreview(null);
+                        setCloudRestoreDialogOpen(true);
+                      }}
+                    >
+                      <CloudDownload className="h-4 w-4" /> استعادة من السحابة
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardBody>
+          </Card>
+        )}
+
         <Card className="lg:col-span-2" dir="rtl">
           <CardHeader
             title={
@@ -725,6 +1109,53 @@ export function SettingsPage() {
                   >
                     <KeyRound className="h-4 w-4" /> إنشاء كود ربط
                   </Button>
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-line bg-surface-muted/35 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-bold text-ink">الأجهزة المرتبطة</div>
+                      <div className="mt-1 text-xs leading-5 text-ink-muted">
+                        كل جهاز ربط التطبيق بحساب المتجر، وآخر نشاط له، مع إمكانية تسجيل الخروج عن بُعد.
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="shrink-0"
+                      disabled={mobileDevices.state === "loading"}
+                      onClick={() => setDeviceRefreshKey((key) => key + 1)}
+                    >
+                      <RefreshCw className={cn("h-4 w-4", mobileDevices.state === "loading" && "animate-spin")} />
+                      تحديث
+                    </Button>
+                  </div>
+
+                  {mobileDevices.state === "loading" ? (
+                    <div className="rounded-lg border border-line bg-surface p-4 text-sm text-ink-muted">
+                      جارٍ تحميل قائمة الأجهزة…
+                    </div>
+                  ) : mobileDevices.state === "error" ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                      تعذر تحميل قائمة الأجهزة الآن — تحقق من الإنترنت ثم اضغط تحديث.
+                    </div>
+                  ) : mobileDevices.state === "ready" && mobileDevices.devices.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-line bg-surface p-5 text-center text-sm text-ink-muted">
+                      لا توجد أجهزة مرتبطة بعد. أنشئ كود ربط وافتح التطبيق على الهاتف.
+                    </div>
+                  ) : mobileDevices.state === "ready" ? (
+                    <ul className="space-y-2">
+                      {mobileDevices.devices.map((device) => (
+                        <MobileDeviceRow
+                          key={device.id}
+                          device={device}
+                          busy={deviceRevokeBusy}
+                          onSignOut={() => void revokeMobileDevice(device, true)}
+                          onUnlink={() => setDevicePendingRevoke(device)}
+                        />
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               </>
             )}
@@ -1404,6 +1835,10 @@ export function SettingsPage() {
           onClose={() => {
             if (mobilePairingLoading) return;
             setMobileLinkDialogOpen(false);
+            // A device only appears once the phone redeems the code, so the
+            // useful moment to re-read the list is when the owner closes this
+            // dialog — typically right after pairing the handset.
+            if (mobilePairingResult) setDeviceRefreshKey((key) => key + 1);
           }}
           title="إنشاء كود ربط آمن للهاتف"
           subtitle="يجب أن يستخدم صاحب الحساب بياناته وAuthenticator بنفسه"
@@ -1917,6 +2352,105 @@ export function SettingsPage() {
           </div>
         </Dialog>
       </div>
+
+      <Dialog
+        open={cloudPassphraseDialogOpen}
+        onClose={() => { if (!cloudArchiveBusy) setCloudPassphraseDialogOpen(false); }}
+        title="كلمة سر النسخة السحابية"
+        subtitle="تُستخدم لتشفير بيانات المتجر قبل رفعها — لا أحد غيرك يستطيع فتحها"
+        width="sm"
+        footer={
+          <div className="flex gap-2">
+            <Button type="button" disabled={cloudArchiveBusy} onClick={() => void saveCloudPassphrase()}>
+              {cloudArchiveBusy ? "جارٍ الحفظ…" : "حفظ وبدء الرفع"}
+            </Button>
+            <Button type="button" variant="outline" disabled={cloudArchiveBusy} onClick={() => setCloudPassphraseDialogOpen(false)}>إلغاء</Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs leading-6 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            لو نسيت كلمة السر دي مفيش طريقة لاسترجاع النسخة السحابية — لا نحن ولا أي حد تاني يقدر يفكها. اكتبها واحتفظ بيها في مكان آمن.
+          </div>
+          <Field label="كلمة مرور حسابك" hint="لتأكيد أنك صاحب الحساب">
+            <Input type="password" value={cloudAccountPassword} onChange={(e) => setCloudAccountPassword(e.target.value)} autoComplete="current-password" />
+          </Field>
+          <Field label="كلمة سر النسخة السحابية" hint="12 حرفًا على الأقل">
+            <Input type="password" value={cloudPassphrase} onChange={(e) => setCloudPassphrase(e.target.value)} autoComplete="new-password" />
+          </Field>
+          <Field label="تأكيد كلمة سر النسخة">
+            <Input type="password" value={cloudPassphraseConfirm} onChange={(e) => setCloudPassphraseConfirm(e.target.value)} autoComplete="new-password" />
+          </Field>
+          {cloudPassphraseError && (
+            <div className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{cloudPassphraseError}</div>
+          )}
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={cloudRestoreDialogOpen}
+        onClose={() => { if (!cloudArchiveBusy) setCloudRestoreDialogOpen(false); }}
+        title="استعادة من النسخة السحابية"
+        subtitle="اكتب كلمة سر النسخة لعرض تفاصيلها قبل الاستبدال"
+        width="sm"
+        footer={
+          <div className="flex gap-2">
+            {cloudRestorePreview ? (
+              <Button type="button" variant="danger" disabled={cloudArchiveBusy} onClick={() => void confirmCloudRestore()}>
+                {cloudArchiveBusy ? "جارٍ الاستعادة…" : "استبدال كل البيانات"}
+              </Button>
+            ) : (
+              <Button type="button" disabled={cloudArchiveBusy || !cloudRestorePassphrase} onClick={() => void previewCloudRestore()}>
+                {cloudArchiveBusy ? "جارٍ الفحص…" : "فحص النسخة"}
+              </Button>
+            )}
+            <Button type="button" variant="outline" disabled={cloudArchiveBusy} onClick={() => setCloudRestoreDialogOpen(false)}>إلغاء</Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <Field label="كلمة سر النسخة السحابية">
+            <Input
+              type="password"
+              value={cloudRestorePassphrase}
+              onChange={(e) => { setCloudRestorePassphrase(e.target.value); setCloudRestorePreview(null); }}
+              autoComplete="off"
+            />
+          </Field>
+          {cloudRestorePreview && (
+            <div className="rounded-xl border border-brand-200 bg-brand-50/45 p-3 text-xs leading-6 text-ink dark:border-brand-500/25 dark:bg-brand-500/10">
+              <div className="font-bold">تم فتح النسخة بنجاح</div>
+              <div className="mt-1 text-ink-muted">
+                تاريخ النسخة: {formatDeviceMoment(cloudRestorePreview.capturedAt)}
+                {cloudRestorePreview.appVersion ? ` · إصدار ${cloudRestorePreview.appVersion}` : ""}
+                {` · ${cloudRestorePreview.keyCount} مجموعة بيانات`}
+              </div>
+              <div className="mt-2 text-rose-700 dark:text-rose-300">
+                الاستعادة هتستبدل كل بيانات المتجر الحالية نهائيًا ولا يمكن التراجع عنها.
+              </div>
+            </div>
+          )}
+          {cloudRestoreError && (
+            <div className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{cloudRestoreError}</div>
+          )}
+        </div>
+      </Dialog>
+
+      <ConfirmDialog
+        open={devicePendingRevoke !== null}
+        onClose={() => setDevicePendingRevoke(null)}
+        title="إلغاء ربط الجهاز"
+        message={
+          devicePendingRevoke
+            ? `سيتم إنهاء جلسة "${devicePendingRevoke.deviceName}" ونسيان الجهاز تمامًا. للدخول مرة أخرى سيحتاج كود ربط جديد من هذه الصفحة.`
+            : ""
+        }
+        confirmText="إلغاء الربط"
+        variant="danger"
+        onConfirm={async () => {
+          if (devicePendingRevoke) await revokeMobileDevice(devicePendingRevoke, false);
+        }}
+      />
 
       <ConfirmDialog
         open={pendingRestore !== null}

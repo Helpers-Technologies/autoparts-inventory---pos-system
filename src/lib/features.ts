@@ -54,7 +54,8 @@ export type FeatureKey =
   | "employeePayroll"
   | "shippingManagement"
   | "bostaIntegration"
-  | "mobileCompanion";
+  | "mobileCompanion"
+  | "cloudBackup";
 
 export interface FeatureDef {
   key: FeatureKey;
@@ -108,6 +109,7 @@ export const FEATURES: FeatureDef[] = [
   { key: "shippingManagement", label: "إدارة التوصيل والشحن", description: "أوامر التوصيل بسائق الفرع وشركات الشحن، قوائم الأسعار والعناوين والتحصيل والتقارير وكشف حساب السائق", defaultEnabled: false },
   { key: "bostaIntegration", label: "الربط المباشر مع بوسطه", description: "إنشاء الشحنات وجلب الأسعار والتتبع داخل النظام وتحديث الحالات تلقائيًا عبر واجهة بوسطه وWebhook", defaultEnabled: false },
   { key: "mobileCompanion", label: "ربط تطبيق PartFlow للهاتف", description: "عرض بيانات المتجر وتحليلاته على Android وiPhone بتسجيل آمن ومصادقة ثنائية", defaultEnabled: false },
+  { key: "cloudBackup", label: "النسخة السحابية الكاملة", description: "نسخة مشفّرة من كل بيانات المتجر على السحابة، قابلة للاستعادة على أي جهاز بكلمة سرك", defaultEnabled: false },
 ];
 
 export const FEATURE_MAP: Record<FeatureKey, FeatureDef> = FEATURES.reduce(
@@ -187,6 +189,7 @@ export const FEATURE_CATEGORY_BY_KEY: Record<FeatureKey, FeatureCategoryId> = {
   shippingManagement: "sales",
   bostaIntegration: "automation",
   mobileCompanion: "security",
+  cloudBackup: "security",
 };
 
 export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
@@ -217,6 +220,7 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
   "shippingManagement",
   "bostaIntegration",
   "mobileCompanion",
+  "cloudBackup",
 ]);
 
 /**
@@ -279,6 +283,7 @@ export const FEATURE_TIER: Record<FeatureKey, PackageTier> = {
   darkMode: "full",
   bostaIntegration: "full",
   mobileCompanion: "full",
+  cloudBackup: "full",
 };
 
 /**

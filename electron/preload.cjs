@@ -21,6 +21,17 @@ contextBridge.exposeInMainWorld("desktopAPI", {
     getMobileLinkStatus: () => ipcRenderer.invoke("license:get-mobile-link-status"),
     createMobilePairing: (password, verificationCode, label) =>
       ipcRenderer.invoke("license:create-mobile-pairing", { password, verificationCode, label }),
+    getCloudArchiveStatus: () => ipcRenderer.invoke("cloud-archive:get-status"),
+    setCloudArchivePassphrase: (password, passphrase) =>
+      ipcRenderer.invoke("cloud-archive:set-passphrase", { password, passphrase }),
+    syncCloudArchiveNow: () => ipcRenderer.invoke("cloud-archive:sync-now"),
+    previewCloudArchiveRestore: (passphrase) =>
+      ipcRenderer.invoke("cloud-archive:preview-restore", { passphrase }),
+    restoreCloudArchive: (passphrase) =>
+      ipcRenderer.invoke("cloud-archive:restore", { passphrase }),
+    listMobileDevices: () => ipcRenderer.invoke("license:list-mobile-devices"),
+    revokeMobileDevice: (deviceId, keepTrust) =>
+      ipcRenderer.invoke("license:revoke-mobile-device", { deviceId, keepTrust }),
     activate: (serial) => ipcRenderer.invoke("license:activate", serial),
     onRevoked: (cb) => {
       const handler = () => cb();
