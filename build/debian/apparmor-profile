@@ -1,0 +1,113 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+profile "${executable}" "/opt/${sanitizedProductName}/${executable}" flags=(attach_disconnected,mediate_deleted) {
+  # Distribution-maintained rule sets, used in preference to hand-listing
+  # paths: they track where the system actually keeps fonts, DRI nodes and
+  # theme data across releases, which a hardcoded list here would not.
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/fonts>
+  #include <abstractions/freedesktop.org>
+  #include <abstractions/gnome>
+  #include <abstractions/X>
+  #include <abstractions/wayland>
+  #include <abstractions/dri-common>
+  #include <abstractions/dri-enumerate>
+  #include <abstractions/mesa>
+  #include <abstractions/audio>
+  #include <abstractions/dbus-session-strict>
+  #include <abstractions/user-tmp>
+
+  # Allow unprivileged user namespace creation for Chromium/Electron sandbox
+  userns,
+
+  # Executable & library permissions
+  #
+  # `ix` (inherit) on the binary itself is load-bearing: Chromium starts its
+  # zygote, GPU and renderer processes by re-executing this same binary, so
+  # without an exec permission the app dies at startup with "failed to execvp"
+  # and a zygote_host check failure — an error that never names AppArmor.
+  /opt/${sanitizedProductName}/${executable} mrix,
+  /opt/${sanitizedProductName}/chrome-sandbox rix,
+  /opt/${sanitizedProductName}/chrome_crashpad_handler rix,
+  /opt/${sanitizedProductName}/** r,
+  # `**/*.so*` requires at least one directory level, so it silently missed the
+  # shared objects Electron ships directly in the install root — libffmpeg.so
+  # among them, which killed the app at launch. `**.so*` matches any depth
+  # including zero.
+  /opt/${sanitizedProductName}/**.so* mr,
+  # Native Node addons are shared objects with a different extension, and this
+  # app has two that are not optional: argon2 hashes every password and
+  # better-sqlite3 opens the encrypted database. Missing this means the app
+  # starts and then dies on its first real action.
+  /opt/${sanitizedProductName}/**.node mr,
+
+  # User data directories
+  owner @{HOME}/.config/${executable}/** rwkl,
+  owner @{HOME}/.config/${sanitizedProductName}/** rwkl,
+
+  # Temporary and shared memory files
+  /tmp/** rwkl,
+  /dev/shm/** rwkl,
+  /run/user/*/** rwkl,
+
+  # System status and devices
+  /sys/bus/pci/devices/ r,
+  /sys/devices/** r,
+  /proc/** r,
+  /etc/** r,
+  /usr/share/** r,
+  /usr/lib/** r,
+  # Chromium reads the user's GTK theme and icon set to match the desktop.
+  owner @{HOME}/.themes/** r,
+  owner @{HOME}/.icons/** r,
+  owner @{HOME}/.local/share/** r,
+  owner @{HOME}/.fonts/** r,
+  owner @{HOME}/.cache/fontconfig/** rwkl,
+
+  # Network and desktop communication
+  network,
+  dbus,
+
+  # Chromium's multi-process model: the browser process supervises and traces
+  # its own children, and they signal each other on shutdown.
+  ptrace peer=@{profile_name},
+  signal peer=@{profile_name},
+  # Without this the app can only be signalled by itself: a plain `kill`, a
+  # terminal Ctrl-C, or the session manager shutting the desktop down are all
+  # refused, so the process survives everything short of SIGKILL from root.
+  #
+  # Deliberately unqualified rather than `peer=unconfined`: the sender is very
+  # often confined itself — a terminal, an IDE, the session manager — and
+  # naming only unconfined leaves those still refused. Receiving a signal is
+  # not a privilege this app holds over anything; whoever can signal it already
+  # has that right from the kernel by uid.
+  signal (receive),
+
+  # Chromium's own sandbox builds a locked-down PID/network namespace with an
+  # empty root for each renderer. That is the layer that actually contains a
+  # compromised renderer, so it has to be permitted for the app to start at
+  # all — denying it does not harden anything, it just stops Chromium before
+  # it can sandbox itself.
+  capability sys_admin,
+  capability sys_chroot,
+  capability sys_ptrace,
+  capability setuid,
+  capability setgid,
+  capability dac_override,
+  capability dac_read_search,
+  mount,
+  umount,
+  pivot_root,
+
+  # The trailing-slash forms are directory reads; `@{PROC}/**` alone does not
+  # grant them, and the sandbox enumerates its own thread list at startup.
+  @{PROC}/ r,
+  @{PROC}/** r,
+  @{PROC}/*/ r,
+  @{PROC}/*/task/ r,
+
+  # Site-specific additions and overrides
+  include if exists <local/${executable}>
+}
