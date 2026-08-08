@@ -3,7 +3,10 @@
   "private": true,
   "version": "9.0.0",
   "description": "PartFlow — protected desktop auto parts inventory and sales management system. By Helpers Tech.",
-  "author": "Helpers Technologies",
+  "author": {
+    "name": "Helpers Technologies",
+    "email": "support@helperstechnologies.com"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -13,7 +16,9 @@
     "catalog:sync": "node scripts/sync-vehicle-catalog.mjs",
     "build": "tsc -b && vite build",
     "dist:win": "node scripts/prepare-dist-win.cjs && npm run build && electron-builder --win nsis",
-    "dist:linux": "npm run build && electron-builder --linux AppImage",
+    "dist:linux": "npm run build && electron-builder --linux deb",
+    "build:linux:deb": "npm run build && electron-builder --linux deb",
+    "build:linux:appimage": "npm run build && electron-builder --linux AppImage",
     "license:init": "node ../autoparts-license-studio/scripts/generate-license.cjs --init-keypair",
     "license:generate": "node ../autoparts-license-studio/scripts/generate-license.cjs",
     "license:studio": "node ../autoparts-license-studio/scripts/license-studio.cjs",
@@ -102,11 +107,33 @@
     "linux": {
       "icon": "build/icon.png",
       "target": [
+        "deb",
         "AppImage"
       ],
       "category": "Office",
       "artifactName": "${productName}-${version}.${ext}"
+    },
+    "deb": {
+      "maintainer": "Helpers Technologies <support@helperstechnologies.com>",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ],
+      "afterInstall": "build/debian/after-install.sh",
+      "afterRemove": "build/debian/after-remove.sh",
+      "appArmorProfile": "build/debian/apparmor-profile"
     }
+  },
+  "overrides": {
+    "js-yaml": "^4.3.1"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
@@ -132,7 +159,7 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-is": "^19.2.6",
-    "react-router-dom": "^6.30.3",
+    "react-router-dom": "^7.18.2",
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.5.0",
     "zod": "^4.4.3"
@@ -152,7 +179,7 @@
     "autoprefixer": "^10.5.0",
     "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
-    "electron": "^39.8.5",
+    "electron": "^39.8.10",
     "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -171,8 +198,8 @@
   },
   "allowScripts": {
     "argon2@0.44.0": true,
-    "better-sqlite3-multiple-ciphers@12.9.0": true,
-    "electron@39.8.5": true,
+    "better-sqlite3-multiple-ciphers@12.11.1": true,
+    "electron@39.8.10": true,
     "electron-winstaller@5.4.0": true
   }
 }
