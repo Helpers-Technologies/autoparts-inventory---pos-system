@@ -2094,7 +2094,9 @@ export function SettingsPage() {
                     let isProtected = false;
                     try {
                       const head = JSON.parse(await file.text());
-                      isProtected = head?.enc === "aes-256-gcm" && head?.v === 2;
+                      // v2 and v3 are both passphrase-sealed (v3 adds gzip);
+                      // only v1 uses the app key and needs no prompt.
+                      isProtected = head?.enc === "aes-256-gcm" && (head?.v === 2 || head?.v === 3);
                     } catch {
                       /* plain or non-JSON — importBackup handles it */
                     }

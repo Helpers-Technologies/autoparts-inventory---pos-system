@@ -616,7 +616,11 @@ function getLegacyBackupKey() {
 // (and legacy) use the app key — try the new per-machine key first, then
 // fall back to the legacy global key for pre-migration backups.
 function decryptBackup(encryptedStr, passphrase) {
-  if (getBackupEnvelopeVersion(encryptedStr) === 2) {
+  const version = getBackupEnvelopeVersion(encryptedStr);
+  // v3 is v2 plus gzip; both are passphrase-sealed, so both take this branch.
+  // Testing for 2 alone would send every compressed archive down the app-key
+  // path and fail to restore it.
+  if (version === 2 || version === 3) {
     const pass = normalizeBackupPassphrase(passphrase);
     if (!pass) throw new Error("passphrase_required");
     return decryptBackupWithPassphrase(encryptedStr, pass);

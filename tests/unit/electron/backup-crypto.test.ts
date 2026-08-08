@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
+import crypto from "node:crypto";
 
 const require = createRequire(import.meta.url);
 const {
@@ -19,6 +20,7 @@ const {
   isEncryptedBackup,
   ENVELOPE_VERSION,
   PASSPHRASE_ENVELOPE_VERSION,
+  COMPRESSED_ENVELOPE_VERSION,
   ALGO,
 } = require("../../../electron/backup-crypto.cjs");
 
@@ -189,9 +191,11 @@ describe("passphrase envelope roundtrip — TC-BCR-007", () => {
     expect(decryptBackupWithPassphrase(enc, PASSPHRASE)).toBe(big);
   });
 
-  it(`produces a v${PASSPHRASE_ENVELOPE_VERSION} scrypt envelope with a random salt`, () => {
+  it(`produces a v${COMPRESSED_ENVELOPE_VERSION} scrypt envelope with a random salt`, () => {
     const env = JSON.parse(encryptBackupWithPassphrase(SAMPLE_PLAINTEXT, PASSPHRASE));
-    expect(env.v).toBe(PASSPHRASE_ENVELOPE_VERSION);
+    // v3 since compression landed; v2 stays readable, which the compatibility
+    // test below covers explicitly.
+    expect(env.v).toBe(COMPRESSED_ENVELOPE_VERSION);
     expect(env.enc).toBe(ALGO);
     expect(env.kdf).toBe("scrypt");
     expect(typeof env.salt).toBe("string");
@@ -220,6 +224,84 @@ describe("passphrase envelope roundtrip — TC-BCR-007", () => {
   });
 });
 
+// ── Compression (v3) ──────────────────────────────────────────────────────
+//
+// v3 gzips before encrypting so a real shop's archive fits the portal's 48 MB
+// ceiling. The tests that matter are the ones about NOT breaking v2: an archive
+// written before this change may be the only copy a shop has.
+
+describe("v3 compressed envelope", () => {
+  /** Byte-for-byte the v2 format, built here so the compatibility test does not
+   *  depend on the current encryptor still being able to produce one. */
+  function makeV2Envelope(plaintext: string, passphrase: string) {
+    const salt = crypto.randomBytes(16);
+    const params = { N: 16384, r: 8, p: 1, keylen: 32 };
+    const key = crypto.scryptSync(Buffer.from(passphrase, "utf8"), salt, params.keylen, {
+      N: params.N, r: params.r, p: params.p, maxmem: 64 * 1024 * 1024,
+    });
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+    const data = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+    return JSON.stringify({
+      v: 2, enc: "aes-256-gcm", kdf: "scrypt", kdfParams: params,
+      salt: salt.toString("base64"), iv: iv.toString("base64"),
+      tag: cipher.getAuthTag().toString("base64"), data: data.toString("base64"),
+    });
+  }
+
+  it("still restores an archive written before compression existed", () => {
+    const legacy = makeV2Envelope(SAMPLE_PLAINTEXT, PASSPHRASE);
+    expect(JSON.parse(legacy).v).toBe(2);
+    expect(decryptBackupWithPassphrase(legacy, PASSPHRASE)).toBe(SAMPLE_PLAINTEXT);
+  });
+
+  it("reports v2 archives as passphrase-protected so the UI still prompts", () => {
+    expect(getBackupEnvelopeVersion(makeV2Envelope(SAMPLE_PLAINTEXT, PASSPHRASE))).toBe(2);
+  });
+
+  it("marks itself as gzip and round-trips", () => {
+    const env = JSON.parse(encryptBackupWithPassphrase(SAMPLE_PLAINTEXT, PASSPHRASE));
+    expect(env.v).toBe(3);
+    expect(env.zip).toBe("gzip");
+    expect(decryptBackupWithPassphrase(JSON.stringify(env), PASSPHRASE)).toBe(SAMPLE_PLAINTEXT);
+  });
+
+  it("actually shrinks shop-shaped data, which is the entire point", () => {
+    // Repetitive records with Arabic names — what a real archive looks like.
+    const shop = JSON.stringify({
+      products: Array.from({ length: 2000 }, (_, i) => ({
+        id: `prod-${i}`, code: `P-${i}`, name: `فلتر زيت بوش تويوتا ${i}`,
+        category: "فلاتر", unit: "قطعة", purchasePrice: 120.5, retailPrice: 165,
+        quantity: 12, minStock: 4, archived: false,
+      })),
+    });
+    const envelope = encryptBackupWithPassphrase(shop, PASSPHRASE);
+    // Base64 inflates by 4/3, so an uncompressed envelope is always LARGER than
+    // its plaintext. Beating the plaintext at all proves compression is on.
+    expect(envelope.length).toBeLessThan(shop.length / 2);
+    expect(decryptBackupWithPassphrase(envelope, PASSPHRASE)).toBe(shop);
+  });
+
+  it("rejects a tampered payload as a bad tag, never as a bad gzip stream", () => {
+    const env = JSON.parse(encryptBackupWithPassphrase(SAMPLE_PLAINTEXT, PASSPHRASE));
+    const bytes = Buffer.from(env.data, "base64");
+    bytes[Math.floor(bytes.length / 2)] ^= 0xff;
+    env.data = bytes.toString("base64");
+    // GCM authenticates before anything is handed to zlib, so this must fail
+    // on the auth tag — decompressing attacker-controlled bytes is how a zip
+    // bomb would get a foothold.
+    expect(() => decryptBackupWithPassphrase(JSON.stringify(env), PASSPHRASE))
+      .toThrow(/unable to authenticate|auth/i);
+  });
+
+  it("refuses an unknown compression algorithm rather than guessing", () => {
+    const env = JSON.parse(encryptBackupWithPassphrase(SAMPLE_PLAINTEXT, PASSPHRASE));
+    env.zip = "brotli";
+    expect(() => decryptBackupWithPassphrase(JSON.stringify(env), PASSPHRASE))
+      .toThrow(/unsupported_compression/);
+  });
+});
+
 // ── TC-BCR-008: getBackupEnvelopeVersion detector ─────────────────────────────
 
 describe("getBackupEnvelopeVersion — TC-BCR-008", () => {
@@ -227,8 +309,8 @@ describe("getBackupEnvelopeVersion — TC-BCR-008", () => {
     expect(getBackupEnvelopeVersion(encryptBackupContent(SAMPLE_PLAINTEXT, TEST_KEY))).toBe(1);
   });
 
-  it("returns 2 for a passphrase envelope", () => {
-    expect(getBackupEnvelopeVersion(encryptBackupWithPassphrase(SAMPLE_PLAINTEXT, PASSPHRASE))).toBe(2);
+  it("returns 3 for a freshly written passphrase envelope", () => {
+    expect(getBackupEnvelopeVersion(encryptBackupWithPassphrase(SAMPLE_PLAINTEXT, PASSPHRASE))).toBe(3);
   });
 
   it("returns null for plaintext / non-JSON / unknown", () => {

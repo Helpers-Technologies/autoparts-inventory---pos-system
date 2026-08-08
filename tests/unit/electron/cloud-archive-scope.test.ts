@@ -52,7 +52,7 @@ describe("cloud archive envelope", () => {
     const envelope = encryptBackupWithPassphrase(payload, "a long owner passphrase");
     // The portal validates exactly these fields before storing.
     const parsed = JSON.parse(envelope);
-    expect(parsed.v).toBe(2);
+    expect(parsed.v).toBe(3);
     expect(parsed.kdf).toBe("scrypt");
     expect(envelope).not.toContain("فلتر زيت");
     expect(decryptBackupWithPassphrase(envelope, "a long owner passphrase")).toBe(payload);
@@ -72,7 +72,7 @@ describe("async envelope", () => {
     const secret = "another long owner passphrase";
     const plaintext = JSON.stringify({ archiveVersion: 1, state: { a: "قطعة غيار" } });
     const envelope = await encryptBackupWithPassphraseAsync(plaintext, secret);
-    expect(JSON.parse(envelope).v).toBe(2);
+    expect(JSON.parse(envelope).v).toBe(3);
     expect(envelope).not.toContain("قطعة غيار");
     expect(decryptBackupWithPassphrase(envelope, secret)).toBe(plaintext);
     expect(() => decryptBackupWithPassphrase(envelope, "nope")).toThrow();
