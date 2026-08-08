@@ -135,6 +135,14 @@ const {
   safeUsersForRenderer,
 } = require("./storage-security.cjs");
 
+// ── Mobile push: what to say, and whether to say it again ────────────────
+const {
+  alertSignature,
+  formatNotificationBody,
+  shopAlertSummary,
+  shouldNotify,
+} = require("./mobile-notifications.cjs");
+
 // ── Rate-limiting: pure state machine ────────────────────────────────────
 const {
   checkRateLimit,
@@ -158,6 +166,7 @@ const COMMERCE_SYNC_HASH_KEY = "__commerce_sync_hash";
 const COMMERCE_SYNC_AT_KEY = "__commerce_sync_at";
 const COMMERCE_SYNC_SOURCE_REVISION_KEY = "__commerce_sync_source_revision";
 const COMMERCE_SYNC_ERROR_KEY = "__commerce_sync_error";
+const MOBILE_NOTIFY_STATE_KEY = "__mobile_notify_state";
 const BRANCH_ACTIVATIONS_KEY = "__branch_license_activations";
 const BRANCH_LEGACY_SLOTS_KEY = "__branch_license_legacy_slots";
 const BRANCHES_STORAGE_KEY = `${STORE_PREFIX}branches`;
@@ -3001,6 +3010,67 @@ function revokeMobileDeviceOnline(event, payload) {
   });
 }
 
+// --- Push notifications to the shop's phones -------------------------------
+// Same licence and feature gate as the linked-devices screen, minus the session
+// -user check: this runs from the background sync job, where there is no signed
+// -in renderer to attribute it to. Nothing here is user-triggered, so there is
+// no privilege to escalate — but an unlicensed or expired install must still be
+// unable to send.
+async function notifyMobileDevices(notification) {
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
+  if (!isMobileCompanionFeatureLicensed() || !isMfaFeatureLicensed()) {
+    return { ok: false, error: "mobile_feature_not_licensed" };
+  }
+  if (getLicenseStatus().state !== "active") return { ok: false, error: "license_inactive" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return { ok: false, error: "license_inactive" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/notify/devices`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(notification),
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) return { ok: false, error: String(data?.error?.code || "online_service_unavailable") };
+    return { ok: true, ...data };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/// Sends at most one notification per genuine change — see
+/// electron/mobile-notifications.cjs for why the suppression matters.
+async function maybeNotifyMobileDevices(snapshot) {
+  const summary = shopAlertSummary(snapshot);
+  const body = formatNotificationBody(summary);
+  if (!body) return;
+  const signature = alertSignature(summary);
+  let previous = null;
+  try {
+    previous = JSON.parse(storageGet(MOBILE_NOTIFY_STATE_KEY) || "null");
+  } catch {
+    previous = null;
+  }
+  if (!shouldNotify(previous, signature)) return;
+
+  const result = await notifyMobileDevices({
+    title: "تنبيهات متجرك",
+    body,
+    data: { kind: "shop_alerts", lowStock: summary.lowStockCount, unpaid: summary.unpaidCount },
+  });
+  // Only remember it as delivered when it actually was. Recording a failed
+  // attempt would let a transient outage suppress the alert for six hours.
+  if (result.ok) {
+    storageSet(MOBILE_NOTIFY_STATE_KEY, JSON.stringify({ signature, at: new Date().toISOString() }));
+  }
+}
+
 function commerceMinor(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return 0;
@@ -3090,6 +3160,12 @@ async function syncCommerceOnline({ force = false } = {}) {
       storageSet(COMMERCE_SYNC_SOURCE_REVISION_KEY, sourceRevision);
       storageSet(COMMERCE_SYNC_AT_KEY, new Date().toISOString());
       storageRemove(COMMERCE_SYNC_ERROR_KEY);
+      // Only after the phones can actually see the new numbers — notifying
+      // about stock the app has not received yet sends the owner to a screen
+      // that still shows the old figure.
+      await maybeNotifyMobileDevices(snapshot).catch((e) => {
+        console.error(`[electron] mobile notification failed: ${e?.message || e}`);
+      });
     } else {
       const message = `http_${response.status}`;
       console.error(`[electron] commerce sync rejected by portal: ${message}`);
