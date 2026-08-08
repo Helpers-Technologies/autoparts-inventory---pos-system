@@ -3003,29 +3003,45 @@ async function mobileDevicesRequest(event, path, { method = "GET", body } = {}) 
   const token = storageGet(LICENSE_TOKEN_KEY);
   if (!token?.startsWith("APLIC.")) return { ok: false, error: "license_inactive" };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}${path}`, {
-      method,
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: controller.signal,
-    });
-    const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      return { ok: false, error: String(data?.error?.code || "online_service_unavailable") };
+  // Retried for the same reason the pairing pre-flight is: a measurable share
+  // of requests to the portal stall on connection setup, and a single attempt
+  // turned that into "check your internet connection" on a machine whose
+  // internet was fine. GET is safe to repeat; anything that changes state
+  // (revoking a device) is sent once, because a retried revoke that actually
+  // succeeded the first time would report a failure the owner cannot explain.
+  const attempts = method === "GET" ? 3 : 1;
+  let lastError = "online_service_unavailable";
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}${path}`, {
+        method,
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => null);
+      if (response.ok) return { ok: true, ...data };
+      const code = String(data?.error?.code || "online_service_unavailable");
+      // The portal answered and said no. Repeating that gets the same answer
+      // and only delays telling the owner what is actually wrong.
+      if (response.status < 500) return { ok: false, error: code };
+      lastError = code;
+    } catch {
+      lastError = "online_service_unavailable";
+    } finally {
+      clearTimeout(timeout);
     }
-    return { ok: true, ...data };
-  } catch {
-    return { ok: false, error: "online_service_unavailable" };
-  } finally {
-    clearTimeout(timeout);
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
   }
+  return { ok: false, error: lastError };
 }
 
 function listMobileDevicesOnline(event) {

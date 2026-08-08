@@ -156,16 +156,18 @@ function StatCard({
   };
   return (
     <Card
-      className={`h-32 ${onClick ? "cursor-pointer hover:border-brand-500/50 hover:shadow-md transition-all group" : ""}`}
+      className={`h-full ${onClick ? "cursor-pointer hover:border-brand-500/50 hover:shadow-md transition-all group" : ""}`}
       onClick={onClick}
     >
-      <CardBody className="flex h-full items-start gap-3">
-        <div className={`w-10 h-10 rounded-lg grid place-items-center shrink-0 ${toneMap[tone]}`}>
+      {/* p-3.5 rather than the default p-4, and the icon shrinks a step: at
+          four columns the padding was costing more width than the numbers. */}
+      <CardBody className="flex h-full items-start gap-2.5 p-3.5">
+        <div className={`w-9 h-9 rounded-lg grid place-items-center shrink-0 ${toneMap[tone]}`}>
           {icon}
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">{title}</div>
-          <div className="text-xl font-bold text-ink mt-1 tabular-nums leading-tight">{value}</div>
+          <div className="text-xl font-bold text-ink mt-0.5 tabular-nums leading-tight">{value}</div>
           {delta ? (
             <div className={`text-[10px] text-ink-muted mt-1 font-medium bg-surface-muted inline-block px-1.5 py-0.5 rounded-md border border-line ${onClick ? "group-hover:border-brand-500/40 group-hover:text-brand-600 dark:group-hover:text-brand-400" : ""}`}>
               {delta}
@@ -553,9 +555,13 @@ export function DashboardPage() {
         }
       />
 
-      {/* ── Stat Cards ── */}
+      {/* ── Stat Cards ──
+          auto-rows-fr, not a fixed 8rem: a row is now as tall as its own
+          tallest card instead of every row reserving space for a delta chip
+          most cards never show. Rows without one collapse, so the same screen
+          fits noticeably more of the dashboard. */}
       {visibleCards.length > 0 ? (
-        <div className="grid auto-rows-[8rem] grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid auto-rows-fr grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
           {visibleCards.map((c) => renderCard(c.id))}
         </div>
       ) : (
