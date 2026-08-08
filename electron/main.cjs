@@ -2687,6 +2687,41 @@ function canManageMobileCompanion(user) {
   );
 }
 
+/// Is the portal answering right now?
+///
+/// Only ever used to decide whether it is worth spending the user's current
+/// 2FA code, so it must not report "down" for anything short of a real outage.
+/// Deliberately generous: three attempts, and a failure is only believed after
+/// all of them.
+async function portalIsReachable({
+  attempts = 3,
+  timeoutMs = 4000,
+  gapMs = 400,
+} = {}) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/healthz`, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (response.ok) return true;
+      // A 5xx is the portal telling us it is unwell — worth another try. Any
+      // other status means it answered, which is all this check needs to know.
+      if (response.status < 500) return true;
+    } catch {
+      // Timed out or the connection failed; fall through to the next attempt.
+    } finally {
+      clearTimeout(timer);
+    }
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, gapMs));
+    }
+  }
+  return false;
+}
+
 async function createMobilePairingOnline(event, payload) {
   const user = getSessionUser(event);
   if (!canManageMobileCompanion(user)) {
@@ -2710,18 +2745,18 @@ async function createMobilePairingOnline(event, payload) {
   // Check the portal before consuming a time-based MFA code. A transient
   // outage should never force the user to wait for the next Authenticator
   // window just because the network was unavailable.
-  const healthController = new AbortController();
-  const healthTimeout = setTimeout(() => healthController.abort(), 3500);
-  try {
-    const health = await fetch(`${REFERRAL_PORTAL_ORIGIN}/healthz`, {
-      headers: { Accept: "application/json" },
-      signal: healthController.signal,
-    });
-    if (!health.ok) return { ok: false, error: "portal_unreachable" };
-  } catch {
+  //
+  // Retried, because a single attempt made this check the very thing it was
+  // meant to prevent. Measured against the live portal from a healthy machine:
+  // the request normally completes in 56-283ms, but roughly one attempt in
+  // eight stalls past three seconds — enough that a one-shot 3.5s check failed
+  // outright, told the owner to "check the service address", and sent them
+  // chasing a portal that was answering fine. Three tries with a wider window
+  // keep the original intent (do not burn a 2FA code when the portal is really
+  // down) without turning a network blip into a support call. The worst case is
+  // a slow button, which the dialog already shows a spinner for.
+  if (!(await portalIsReachable())) {
     return { ok: false, error: "portal_unreachable" };
-  } finally {
-    clearTimeout(healthTimeout);
   }
   const record = getMfaRecord(user.id);
   if (!record?.enabled) return { ok: false, error: "mfa_not_enabled" };
