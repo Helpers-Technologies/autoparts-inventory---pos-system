@@ -70,7 +70,7 @@ export function translateBostaError(error?: string): string {
   }
 
   const labels: Record<string, string> = {
-    feature_not_licensed: "ربط بوسطة غير متاح في باقتك الحالية. رقِّ إلى باقة المؤسسات أو أضف ميزة ربط بوسطة.",
+    feature_not_licensed: "ربط بوسطه غير متاح في باقتك الحالية. رقِّ إلى باقة المؤسسات أو أضف ميزة ربط بوسطه.",
     desktop_required: "العملية متاحة في نسخة سطح المكتب فقط",
     integration_disabled: "فعّل ربط Bosta من مركز الربط والتكاملات",
     api_key_missing: "أدخل مفتاح API الخاص بحساب Bosta أولًا",
@@ -104,9 +104,9 @@ export function translateBostaError(error?: string): string {
     cod_already_settled: "تم توريد هذا التحصيل من قبل",
     invoice_already_paid: "الفاتورة مسددة بالفعل ولا يوجد مبلغ مطلوب توريده",
     tracking_number_missing: "لا يوجد رقم تتبع لهذا الأمر",
-    invalid_tracking_reference: "رقم الشحنة غير صحيح. اكتب رقم التتبع كما يظهر في بوليصة بوسطة",
-    tracking_not_found: "لم يتم العثور على الشحنة لدى بوسطة. راجع رقم التتبع ثم أعد المحاولة",
-    tracking_request_failed: "تعذر جلب حالة الشحنة من خدمة تتبع بوسطة حاليًا",
+    invalid_tracking_reference: "رقم الشحنة غير صحيح. اكتب رقم التتبع كما يظهر في بوليصة بوسطه",
+    tracking_not_found: "لم يتم العثور على الشحنة لدى بوسطه. راجع رقم التتبع ثم أعد المحاولة",
+    tracking_request_failed: "تعذر جلب حالة الشحنة من خدمة تتبع بوسطه حاليًا",
     rate_limit_exceeded: "تم تنفيذ محاولات تتبع كثيرة. انتظر قليلًا ثم أعد المحاولة",
     tracking_state_unavailable: "لم تُرجع Bosta حالة واضحة لهذه الشحنة",
     price_unavailable: "تعذر جلب سعر الشحن من Bosta حاليًا",
@@ -186,7 +186,7 @@ export function snapshotCustomerAddress(
   };
 }
 
-const BOSTA_STATUS: Record<number, { status: DeliveryOrderStatus; label: string }> = {
+export const BOSTA_STATUS: Record<number, { status: DeliveryOrderStatus; label: string }> = {
   10: { status: "pickup_requested", label: "تم طلب الاستلام" },
   20: { status: "assigned", label: "تم تعيين مندوب" },
   21: { status: "picked_up", label: "تم استلام الشحنة من الفرع" },

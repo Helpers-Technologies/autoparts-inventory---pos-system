@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Bot,
   ChevronDown,
@@ -15,8 +16,8 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Field, Input, Select } from "../components/ui/Input";
-import { Dialog } from "../components/ui/Dialog";
-import { useShipping } from "../store/ShippingContext";
+import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
+import { BOSTA_PROVIDER_ID, useShipping } from "../store/ShippingContext";
 import { useToast } from "../components/ui/Toast";
 import type { DeliveryOrder } from "../types";
 import { bostaLogo } from "../assets/bosta-logo";
@@ -25,18 +26,7 @@ import {
   bostaStatus,
   translateBostaError,
 } from "../lib/shipping";
-import { formatDateTime } from "../lib/format";
-
-const PACKAGE_TYPES: Array<{
-  value: NonNullable<DeliveryOrder["packageType"]>;
-  label: string;
-}> = [
-  { value: "SMALL", label: "طرد صغير" },
-  { value: "MEDIUM", label: "طرد متوسط" },
-  { value: "LARGE", label: "طرد كبير" },
-  { value: "Light Bulky", label: "كبير خفيف" },
-  { value: "Heavy Bulky", label: "كبير ثقيل" },
-];
+import { formatDate, formatDateTime } from "../lib/format";
 
 const DEFAULT_BOSTA_WEBHOOK_URL =
   "https://api-partflow.helpers-tech.com/v1/bosta/webhook";
@@ -76,6 +66,8 @@ type TrackingTimelineItem = {
   key: string;
   label: string;
   occurredAt?: string;
+  location?: string;
+  note?: string;
 };
 
 type TrackingSummary = {
@@ -83,6 +75,10 @@ type TrackingSummary = {
   status: string;
   updatedAt?: string;
   promisedDate?: string;
+  createdAt?: string;
+  provider?: string;
+  supportPhones: string[];
+  editable?: boolean;
   attempts?: number;
   timeline: TrackingTimelineItem[];
 };
@@ -110,8 +106,48 @@ function firstText(source: unknown, paths: string[]): string | undefined {
 }
 
 function firstNumber(source: unknown, paths: string[]): number | undefined {
-  const value = Number(firstValue(source, paths));
-  return Number.isFinite(value) ? value : undefined;
+  for (const path of paths) {
+    const raw = nestedValue(source, path);
+    if (raw === undefined || raw === null || raw === "") continue;
+    const value = Number(raw);
+    if (Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function firstBoolean(source: unknown, paths: string[]): boolean | undefined {
+  const value = firstValue(source, paths);
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function stringList(source: unknown, paths: string[]): string[] {
+  const value = firstValue(source, paths);
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+}
+
+function arabicTrackingNote(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (/Postponed/i.test(value)) return "تم تأجيل التسليم بناءً على طلب العميل";
+  if (/not answering/i.test(value)) return "تعذر التواصل مع العميل";
+  if (/changed the address/i.test(value)) return "طلب العميل تغيير عنوان التسليم";
+  if (/wrong phone/i.test(value)) return "رقم هاتف العميل غير صحيح";
+  if (/outside.*coverage/i.test(value)) return "العنوان خارج نطاق التغطية";
+  if (/refus/i.test(value)) return "رفض العميل استلام الشحنة";
+  if (/not (in|at) the address/i.test(value)) return "العميل غير موجود في العنوان";
+  if (/address.*not clear/i.test(value)) return "عنوان التسليم غير واضح";
+  if (/bad weather/i.test(value)) return "تعذر التنفيذ بسبب ظروف الطقس";
+  if (/damaged/i.test(value)) return "تم تسجيل تلف في الشحنة";
+  return /[\u0600-\u06ff]/.test(value)
+    ? value
+    : "توجد ملاحظة مسجلة على محاولة التسليم";
+}
+
+function trackingProviderLabel(value: string | undefined): string {
+  if (!value || /bosta/i.test(value)) return "بوسطه";
+  return value;
 }
 
 function asIsoDate(value: unknown): string | undefined {
@@ -126,7 +162,7 @@ function asIsoDate(value: unknown): string | undefined {
 }
 
 function arabicBostaStatus(code: number | undefined): string {
-  return bostaStatus(code).label.replace(/Bosta/g, "بوسطة");
+  return bostaStatus(code).label.replace(/Bosta/g, "بوسطه");
 }
 
 function trackingSummary(data: unknown, fallback: string): TrackingSummary {
@@ -168,6 +204,10 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
         key: `${itemCode ?? "event"}-${occurredAt ?? index}`,
         label: arabicBostaStatus(itemCode),
         occurredAt,
+        location: firstText(item, ["hub", "hubName", "location"]),
+        note: arabicTrackingNote(
+          firstText(item, ["reason", "exceptionReason", "note"]),
+        ),
       };
     })
     .filter((item): item is TrackingTimelineItem => Boolean(item))
@@ -217,6 +257,17 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
         "PromisedDate",
       ]),
     ),
+    createdAt: asIsoDate(
+      firstValue(data, ["CreateDate", "createDate", "createdAt"]),
+    ),
+    provider: trackingProviderLabel(
+      firstText(data, ["provider", "Provider", "carrierName"]),
+    ),
+    supportPhones: stringList(data, [
+      "SupportPhoneNumbers",
+      "supportPhoneNumbers",
+    ]),
+    editable: firstBoolean(data, ["isEditableShipment", "editable"]),
     attempts: firstNumber(data, [
       "numberOfAttempts",
       "data.numberOfAttempts",
@@ -227,7 +278,14 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
 }
 
 export function IntegrationsPage() {
-  const { bostaConfig, saveBostaConfig, testBostaConnection } = useShipping();
+  const navigate = useNavigate();
+  const {
+    orders,
+    updateOrder,
+    bostaConfig,
+    saveBostaConfig,
+    testBostaConnection,
+  } = useShipping();
   const toast = useToast();
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(false);
@@ -243,6 +301,7 @@ export function IntegrationsPage() {
     useState<NonNullable<DeliveryOrder["packageType"]>>("SMALL");
   const [allowOpenPackage, setAllowOpenPackage] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [togglingEnabled, setTogglingEnabled] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [trackingOpen, setTrackingOpen] = useState(false);
@@ -251,11 +310,62 @@ export function IntegrationsPage() {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState("");
+  const [orderLookup, setOrderLookup] = useState("");
+  const [orderLookupError, setOrderLookupError] = useState("");
+  const [pendingLinkOrderId, setPendingLinkOrderId] = useState<string | null>(
+    null,
+  );
   const [trackingResult, setTrackingResult] =
     useState<TrackingSummary | null>(null);
   const [pickupLocations, setPickupLocations] = useState<
     Array<{ id: string; name: string }>
   >([]);
+  const trackedOrder = trackingResult
+    ? orders.find(
+        (order) =>
+          order.trackingNumber === trackingResult.trackingNumber ||
+          order.externalShipmentId === trackingResult.trackingNumber,
+      )
+    : undefined;
+  const pendingLinkOrder = pendingLinkOrderId
+    ? orders.find((order) => order.id === pendingLinkOrderId)
+    : undefined;
+
+  function findOrderForManualLink() {
+    const reference = orderLookup.trim().toLocaleLowerCase("ar-EG");
+    if (!reference) {
+      setOrderLookupError("اكتب رقم أمر التوصيل أو رقم الفاتورة أولًا");
+      return;
+    }
+    const match = orders.find(
+      (order) =>
+        order.orderNumber.toLocaleLowerCase("ar-EG") === reference ||
+        order.invoiceNumber.toLocaleLowerCase("ar-EG") === reference,
+    );
+    if (!match) {
+      setOrderLookupError("لم يتم العثور على أمر بهذا الرقم");
+      return;
+    }
+    setOrderLookupError("");
+    setPendingLinkOrderId(match.id);
+  }
+
+  function confirmManualOrderLink() {
+    if (!pendingLinkOrder || !trackingResult) return;
+    updateOrder(pendingLinkOrder.id, {
+      providerId: BOSTA_PROVIDER_ID,
+      providerName: "Bosta",
+      trackingNumber: trackingResult.trackingNumber,
+      trackingUrl: bostaPublicTrackingUrl(trackingResult.trackingNumber),
+    });
+    setPendingLinkOrderId(null);
+    setOrderLookup("");
+    setOrderLookupError("");
+    toast.success(
+      "تم ربط الشحنة بالأوردر",
+      `تم حفظ رقم التتبع على ${pendingLinkOrder.orderNumber}`,
+    );
+  }
 
   useEffect(() => {
     setEnabled(bostaConfig.enabled);
@@ -308,6 +418,57 @@ export function IntegrationsPage() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function toggleBostaEnabled() {
+    if (saving || togglingEnabled) return;
+    const nextEnabled = !enabled;
+    setEnabled(nextEnabled);
+    setTogglingEnabled(true);
+    try {
+      const result = await withTimeout(
+        saveBostaConfig({
+          apiKey: apiKey.trim() || undefined,
+          enabled: nextEnabled,
+          autoTrackingEnabled,
+          autoTrackingIntervalMinutes,
+          businessLocationId: businessLocationId.trim() || undefined,
+          webhookUrl: webhookUrl.trim() || undefined,
+          webhookHeaderName: webhookHeaderName.trim() || undefined,
+          webhookHeaderValue: webhookHeaderValue.trim() || undefined,
+          webhookPollToken: webhookPollToken.trim() || undefined,
+          defaultPackageType,
+          allowOpenPackage,
+        }),
+        15_000,
+      );
+      if (!result.ok) {
+        setEnabled(!nextEnabled);
+        toast.error(
+          nextEnabled ? "تعذر تشغيل بوسطه" : "تعذر إيقاف بوسطه",
+          integrationError(result.error),
+        );
+        return;
+      }
+      if (!nextEnabled) setBostaExpanded(false);
+      setApiKey("");
+      setWebhookHeaderValue("");
+      setWebhookPollToken("");
+      toast.success(
+        nextEnabled ? "تم تشغيل بوسطه" : "تم إيقاف بوسطه",
+        nextEnabled
+          ? "أصبحت خدمات الشحن متاحة في أوامر التوصيل"
+          : "لن تظهر بوسطه ضمن خيارات إنشاء الشحنات",
+      );
+    } catch (error) {
+      setEnabled(!nextEnabled);
+      toast.error(
+        nextEnabled ? "تعذر تشغيل بوسطه" : "تعذر إيقاف بوسطه",
+        integrationError(error instanceof Error ? error.message : undefined),
+      );
+    } finally {
+      setTogglingEnabled(false);
     }
   }
 
@@ -476,22 +637,50 @@ export function IntegrationsPage() {
       return;
     }
     const api = window.desktopAPI?.integrations?.bosta;
-    if (!api?.trackDelivery) {
-      setTrackingError(
-        "خدمة التتبع لم تبدأ بعد. أغلق التطبيق وافتحه مرة أخرى ثم أعد المحاولة.",
-      );
-      return;
-    }
     setTrackingLoading(true);
     setTrackingError("");
     setTrackingResult(null);
     try {
-      const result = await withTimeout(api.trackDelivery(clean), 25_000);
-      if (!result.ok) {
-        setTrackingError(integrationError(result.error));
+      if (/^\d{6,}$/.test(clean)) {
+        try {
+          const response = await withTimeout(
+            fetch(
+              `https://tracking.bosta.co/shipments/track/${encodeURIComponent(clean)}?lang=ar`,
+              { headers: { Accept: "application/json" } },
+            ),
+            20_000,
+          );
+          if (response.ok) {
+            const data: unknown = await response.json();
+            setTrackingResult(trackingSummary(data, clean));
+            return;
+          }
+          if (response.status === 404) {
+            setTrackingError(integrationError("tracking_not_found"));
+            return;
+          }
+          if (response.status === 429) {
+            setTrackingError(integrationError("rate_limit_exceeded"));
+            return;
+          }
+        } catch {
+          // Fall through to the protected desktop handler when the public
+          // tracking service is temporarily unreachable.
+        }
+      }
+
+      if (!api?.trackDelivery) {
+        setTrackingError(
+          "خدمة التتبع لم تبدأ بعد. أغلق التطبيق وافتحه مرة أخرى ثم أعد المحاولة.",
+        );
         return;
       }
-      setTrackingResult(trackingSummary(result.data, clean));
+      const result = await withTimeout(api.trackDelivery(clean), 25_000);
+      if (result.ok) {
+        setTrackingResult(trackingSummary(result.data, clean));
+        return;
+      }
+      setTrackingError(integrationError(result.error));
     } catch (error) {
       setTrackingError(
         integrationError(error instanceof Error ? error.message : undefined),
@@ -515,43 +704,97 @@ export function IntegrationsPage() {
             subtitle="أضف شركات الشحن وأدر إعداد كل شركة من مكان مستقل ومنظم"
           />
           <CardBody>
-            <div className={`rounded-2xl border transition-colors ${bostaExpanded ? "border-brand-500/40 bg-brand-500/5" : "border-line bg-surface-muted/20"}`}>
+            <div
+              className={`rounded-2xl border transition-all duration-200 ${
+                enabled
+                  ? bostaExpanded
+                    ? "border-brand-500/50 bg-brand-500/10"
+                    : "border-brand-500/30 bg-brand-500/5"
+                  : "border-slate-700/70 bg-slate-950/45"
+              }`}
+            >
               <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
                 <div className="flex min-w-0 flex-1 items-center gap-4">
-                  <div className="grid h-14 w-24 shrink-0 place-items-center rounded-xl border border-line bg-white px-3 dark:bg-slate-950">
-                    <img src={bostaLogo} alt="بوسطة" className="max-h-9 w-full object-contain" />
+                  <div
+                    className={`grid h-14 w-24 shrink-0 place-items-center rounded-xl border px-3 transition-colors ${
+                      enabled
+                        ? "border-line bg-white dark:bg-slate-950"
+                        : "border-slate-700 bg-slate-950"
+                    }`}
+                  >
+                    <img
+                      src={bostaLogo}
+                      alt="بوسطه"
+                      className={`max-h-9 w-full object-contain transition-all ${
+                        enabled ? "" : "opacity-75 saturate-75"
+                      }`}
+                    />
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-bold text-ink">بوسطة للشحن</h3>
-                      <Badge tone={bostaConfig.enabled && bostaConfig.configured ? "green" : "slate"}>
-                        {bostaConfig.enabled && bostaConfig.configured
-                          ? "متصل ومفعّل"
-                          : bostaConfig.configured
-                            ? "مُعدّ وغير مفعّل"
-                            : "غير مربوط"}
+                      <h3 className="text-base font-bold text-ink">بوسطه للشحن</h3>
+                      <Badge
+                        tone={
+                          bostaConfig.configured && enabled ? "green" : "slate"
+                        }
+                      >
+                        {bostaConfig.configured
+                          ? enabled
+                            ? "متصل"
+                            : "معطّل"
+                          : "غير مربوط"}
                       </Badge>
                     </div>
-                    <p className="mt-1 text-xs text-ink-muted">
+                    <p
+                      className={`mt-1 text-xs ${
+                        enabled ? "text-ink-muted" : "text-ink-faint"
+                      }`}
+                    >
                       إنشاء الشحنات والأسعار والتتبع وتحديث الحالات تلقائيًا
                     </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-ink-faint">
-                      <span className="rounded-full bg-surface px-2 py-1">أوامر الشحن</span>
-                      <span className="rounded-full bg-surface px-2 py-1">الأسعار المباشرة</span>
-                      <span className="rounded-full bg-surface px-2 py-1">التتبع والتحديث اللحظي</span>
-                    </div>
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    aria-label={enabled ? "إيقاف تكامل بوسطه" : "تشغيل تكامل بوسطه"}
+                    disabled={saving || togglingEnabled}
+                    onClick={() => void toggleBostaEnabled()}
+                    className={`relative h-7 w-16 shrink-0 rounded-full border font-bold shadow-inner transition-all disabled:cursor-wait disabled:opacity-60 ${
+                      enabled
+                        ? "border-emerald-400/60 bg-emerald-500/25 text-emerald-300"
+                        : "border-slate-600 bg-slate-900 text-slate-400"
+                    }`}
+                    dir="ltr"
+                  >
+                    <span
+                      className={`absolute top-0.5 h-5 w-5 rounded-full shadow transition-transform ${
+                        enabled
+                          ? "translate-x-10 bg-emerald-400"
+                          : "translate-x-1 bg-slate-500"
+                      } left-0`}
+                    />
+                    <span
+                      className={`absolute top-1/2 -translate-y-1/2 text-[9px] ${
+                        enabled ? "left-1.5" : "right-1"
+                      }`}
+                    >
+                      {enabled ? "تفعيل" : "تعطيل"}
+                    </span>
+                  </button>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
+                    disabled={!enabled}
                     onClick={() => {
                       setTrackingError("");
                       setTrackingResult(null);
                       setTrackingOpen(true);
                     }}
+                    title={!enabled ? "فعّل بوسطه أولًا لاستخدام التتبع" : undefined}
                   >
                     <PackageCheck className="h-4 w-4" /> تتبع شحنة
                   </Button>
@@ -559,8 +802,10 @@ export function IntegrationsPage() {
                     type="button"
                     variant={bostaExpanded ? "primary" : "outline"}
                     size="sm"
+                    disabled={!enabled || saving || togglingEnabled}
                     onClick={() => setBostaExpanded((current) => !current)}
                     aria-expanded={bostaExpanded}
+                    title={!enabled ? "فعّل بوسطه أولًا لتعديل الإعدادات" : undefined}
                   >
                     <Settings2 className="h-4 w-4" />
                     {bostaExpanded ? "إغلاق الإعداد" : "إدارة الربط"}
@@ -571,7 +816,7 @@ export function IntegrationsPage() {
             </div>
           </CardBody>
 
-          {bostaExpanded ? (
+          {bostaExpanded && enabled ? (
             <div className="border-t border-line bg-surface-muted/10">
               <CardBody className="space-y-5 py-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -631,62 +876,7 @@ export function IntegrationsPage() {
                   واختيار الفرع تلقائيًا إذا كان لديك فرع واحد.
                 </p>
               </Field>
-              <Field label="حجم الطرد الافتراضي">
-                <Select
-                  value={defaultPackageType}
-                  onChange={(event) =>
-                    setDefaultPackageType(
-                      event.target.value as NonNullable<
-                        DeliveryOrder["packageType"]
-                      >,
-                    )
-                  }
-                >
-                  {PACKAGE_TYPES.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="flex flex-col justify-end gap-2">
-                <label className="flex items-center justify-between rounded-xl border border-line bg-surface px-3 py-2.5 text-sm">
-                  <span>
-                    <span className="block font-semibold text-ink">
-                      السماح بفتح الطرد
-                    </span>
-                    <span className="text-xs text-ink-faint">
-                      يُرسل مع أمر الشحن عند التفعيل
-                    </span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={allowOpenPackage}
-                    onChange={(event) =>
-                      setAllowOpenPackage(event.target.checked)
-                    }
-                    className="h-4 w-4 accent-brand-600"
-                  />
-                </label>
-              </div>
             </div>
-
-            <label className="flex items-center justify-between rounded-xl border border-line bg-surface px-4 py-3">
-              <span>
-                <span className="block font-bold text-ink">
-                  تفعيل Bosta في أوامر الشحن
-                </span>
-                <span className="text-xs text-ink-faint">
-                  يظهر زر إرسال الشحنة والتتبع في مركز التوصيل
-                </span>
-              </span>
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
-                className="h-5 w-5 accent-brand-600"
-              />
-            </label>
 
             <div className="rounded-xl border border-line bg-surface p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -826,8 +1016,8 @@ export function IntegrationsPage() {
                 <Field
                   label={
                     bostaConfig.webhookHeaderConfigured
-                      ? "استبدال مفتاح توثيق بوسطة — Bosta Webhook Secret"
-                      : "مفتاح توثيق بوسطة — Bosta Webhook Secret"
+                      ? "استبدال مفتاح توثيق بوسطه — Bosta Webhook Secret"
+                      : "مفتاح توثيق بوسطه — Bosta Webhook Secret"
                   }
                   hint={
                     bostaConfig.webhookHeaderConfigured
@@ -978,8 +1168,43 @@ export function IntegrationsPage() {
       <Dialog
         open={trackingOpen}
         onClose={() => setTrackingOpen(false)}
-        title="تتبع شحنة بوسطة"
-        subtitle="اعرض حالة الشحنة وتحديثاتها داخل النظام"
+        title={
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div>تتبع شحنة بوسطه</div>
+              <div className="mt-0.5 text-xs font-normal text-ink-muted">
+                اعرض حالة الشحنة وتحديثاتها داخل النظام
+              </div>
+            </div>
+            <div className="w-full shrink-0 sm:w-64">
+              <label className="mb-1 block text-[11px] font-normal text-ink-faint">
+                رقم التتبع
+              </label>
+              <Input
+                value={trackingNumber}
+                onChange={(event) => {
+                  setTrackingNumber(event.target.value);
+                  setTrackingError("");
+                  setTrackingResult(null);
+                  setOrderLookup("");
+                  setOrderLookupError("");
+                }}
+                placeholder="مثال: 81209289"
+                className="h-9 font-mono"
+                dir="ltr"
+                autoFocus
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== "Enter" ||
+                    trackingNumber.trim().length < 3
+                  )
+                    return;
+                  void lookupTracking();
+                }}
+              />
+            </div>
+          </div>
+        }
         width="lg"
         footer={
           <>
@@ -997,9 +1222,27 @@ export function IntegrationsPage() {
                 );
               }}
               >
-                <ExternalLink className="h-4 w-4" /> فتح موقع بوسطة
+                <ExternalLink className="h-4 w-4" /> فتح موقع بوسطه
               </Button>
             ) : null}
+            <Button
+              variant="outline"
+              disabled={!trackedOrder}
+              title={
+                trackedOrder
+                  ? `فتح الأمر ${trackedOrder.orderNumber}`
+                  : "رقم التتبع غير مرتبط بأمر توصيل محفوظ في النظام"
+              }
+              onClick={() => {
+                if (!trackedOrder) return;
+                setTrackingOpen(false);
+                navigate("/shipping", {
+                  state: { openDeliveryOrderId: trackedOrder.id },
+                });
+              }}
+            >
+              <PackageCheck className="h-4 w-4" /> تفاصيل الطلب
+            </Button>
             <Button
               disabled={trackingLoading || trackingNumber.trim().length < 3}
               onClick={() => void lookupTracking()}
@@ -1013,25 +1256,6 @@ export function IntegrationsPage() {
         }
       >
         <div className="space-y-4">
-          <Field label="رقم الشحنة">
-            <Input
-              value={trackingNumber}
-              onChange={(event) => {
-                setTrackingNumber(event.target.value);
-                setTrackingError("");
-                setTrackingResult(null);
-              }}
-              placeholder="مثال: 81209289"
-              dir="ltr"
-              autoFocus
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" || trackingNumber.trim().length < 3)
-                  return;
-                void lookupTracking();
-              }}
-            />
-          </Field>
-
           {trackingError ? (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {trackingError}
@@ -1040,12 +1264,56 @@ export function IntegrationsPage() {
 
           {trackingResult ? (
             <div className="space-y-4">
+              {!trackedOrder ? (
+                <div className="space-y-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-xs text-amber-300">
+                  <div>
+                    هذا الرقم غير مرتبط بأمر توصيل محفوظ. يمكنك البحث عن
+                    الأوردر وربطه يدويًا إذا لم يتم الربط تلقائيًا.
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      value={orderLookup}
+                      onChange={(event) => {
+                        setOrderLookup(event.target.value);
+                        setOrderLookupError("");
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") findOrderForManualLink();
+                      }}
+                      placeholder="رقم أمر التوصيل أو الفاتورة"
+                      className="h-9 flex-1 bg-surface"
+                      dir="ltr"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={findOrderForManualLink}
+                    >
+                      <Link2 className="h-4 w-4" /> بحث وربط
+                    </Button>
+                  </div>
+                  {orderLookupError ? (
+                    <div className="text-red-300">{orderLookupError}</div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                  <span>الشحنة مرتبطة بأمر التوصيل</span>
+                  <span className="font-mono font-bold">
+                    {trackedOrder.orderNumber}
+                  </span>
+                </div>
+              )}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <TrackingFact label="الحالة الحالية" value={trackingResult.status} strong />
                 <TrackingFact
-                  label="رقم التتبع"
-                  value={trackingResult.trackingNumber}
-                  mono
+                  label="تاريخ إنشاء الشحنة"
+                  value={
+                    trackingResult.createdAt
+                      ? formatDateTime(trackingResult.createdAt)
+                      : "غير متاح"
+                  }
                 />
                 <TrackingFact
                   label="آخر تحديث"
@@ -1056,10 +1324,10 @@ export function IntegrationsPage() {
                   }
                 />
                 <TrackingFact
-                  label="موعد التسليم المتوقع"
+                  label="موعد التسليم المخطط"
                   value={
                     trackingResult.promisedDate
-                      ? formatDateTime(trackingResult.promisedDate)
+                      ? formatDate(trackingResult.promisedDate)
                       : "غير محدد"
                   }
                 />
@@ -1083,11 +1351,21 @@ export function IntegrationsPage() {
                       <span className="relative mt-1.5 h-4 w-4 shrink-0 rounded-full border-4 border-surface bg-brand-500" />
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-ink">{item.label}</div>
-                        <div className="mt-1 text-xs text-ink-faint">
+                        <div className="mt-1 whitespace-nowrap text-xs text-ink-faint">
                           {item.occurredAt
                             ? formatDateTime(item.occurredAt)
                             : "وقت التحديث غير متاح"}
                         </div>
+                        {item.location ? (
+                          <div className="mt-1 text-xs text-ink-muted">
+                            الموقع: <span dir="ltr">{item.location}</span>
+                          </div>
+                        ) : null}
+                        {item.note ? (
+                          <div className="mt-1 text-xs font-medium text-amber-400">
+                            {item.note}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -1097,6 +1375,33 @@ export function IntegrationsPage() {
           ) : null}
         </div>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(pendingLinkOrder)}
+        onClose={() => setPendingLinkOrderId(null)}
+        onConfirm={confirmManualOrderLink}
+        title="تأكيد ربط الشحنة"
+        confirmText="تأكيد الربط"
+        message={
+          pendingLinkOrder && trackingResult ? (
+            <div className="space-y-2">
+              <p>
+                سيتم ربط رقم التتبع {trackingResult.trackingNumber} بأمر
+                التوصيل {pendingLinkOrder.orderNumber} والفاتورة {" "}
+                {pendingLinkOrder.invoiceNumber}.
+              </p>
+              {pendingLinkOrder.trackingNumber &&
+              pendingLinkOrder.trackingNumber !==
+                trackingResult.trackingNumber ? (
+                <p className="font-semibold text-amber-500">
+                  تنبيه: سيتم استبدال رقم التتبع الحالي {" "}
+                  {pendingLinkOrder.trackingNumber}.
+                </p>
+              ) : null}
+            </div>
+          ) : null
+        }
+      />
     </>
   );
 }
@@ -1116,7 +1421,7 @@ function TrackingFact({
     <div className="rounded-xl border border-line bg-surface-muted/30 p-3">
       <div className="text-[11px] text-ink-faint">{label}</div>
       <div
-        className={`mt-1.5 text-sm text-ink ${strong ? "font-bold" : "font-medium"} ${mono ? "font-mono" : ""}`}
+        className={`mt-1.5 whitespace-nowrap text-sm text-ink ${strong ? "font-bold" : "font-medium"} ${mono ? "font-mono" : ""}`}
       >
         {value}
       </div>

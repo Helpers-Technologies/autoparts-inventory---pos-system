@@ -5,7 +5,7 @@ const { spawnSync } = require("node:child_process");
 const rootDir = path.resolve(__dirname, "..");
 const releaseDir = path.join(rootDir, "release");
 const winUnpackedDir = path.join(releaseDir, "win-unpacked");
-const unpackedExePath = path.join(winUnpackedDir, "AutoParts Inventory & Sales System.exe");
+const unpackedExePath = path.join(winUnpackedDir, "PartFlow.exe"); // must match package.json build.productName
 
 function assertInsideRelease(targetPath) {
   const resolvedRelease = path.resolve(releaseDir);

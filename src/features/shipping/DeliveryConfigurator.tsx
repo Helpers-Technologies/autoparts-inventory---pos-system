@@ -143,7 +143,10 @@ export function DeliveryConfigurator({
   } = useShipping();
   const customer = customers.find((item) => item.id === customerId);
   const activeProviders = providers.filter(
-    (item) => item.active && (item.kind !== "bosta" || bostaIntegrationEnabled),
+    (item) =>
+      item.active &&
+      (item.kind !== "bosta" ||
+        (bostaIntegrationEnabled && bostaConfig.enabled)),
   );
   const [editingAddress, setEditingAddress] = useState(false);
   const [addressDraft, setAddressDraft] = useState<AddressDraft>(EMPTY_ADDRESS);

@@ -53,7 +53,9 @@ export type FeatureKey =
   | "posMultiHold"
   | "employeePayroll"
   | "shippingManagement"
-  | "bostaIntegration";
+  | "bostaIntegration"
+  | "mobileCompanion"
+  | "cloudBackup";
 
 export interface FeatureDef {
   key: FeatureKey;
@@ -105,7 +107,9 @@ export const FEATURES: FeatureDef[] = [
   { key: "posMultiHold", label: "تعليق فواتير متعددة في نقطة البيع", description: "تعليق أكثر من فاتورة واحدة في نفس الوقت داخل نقطة البيع (النسخة المجانية تدعم فاتورة معلّقة واحدة فقط)", defaultEnabled: false },
   { key: "employeePayroll", label: "إدارة الموظفين والمرتبات", description: "إدارة الموظفين والسائقين بدون حساب نظام، المرتبات والمستحقات والبونص والخصومات والصرف التلقائي", defaultEnabled: false },
   { key: "shippingManagement", label: "إدارة التوصيل والشحن", description: "أوامر التوصيل بسائق الفرع وشركات الشحن، قوائم الأسعار والعناوين والتحصيل والتقارير وكشف حساب السائق", defaultEnabled: false },
-  { key: "bostaIntegration", label: "الربط المباشر مع بوسطة", description: "إنشاء الشحنات وجلب الأسعار والتتبع داخل النظام وتحديث الحالات تلقائيًا عبر واجهة بوسطة وWebhook", defaultEnabled: false },
+  { key: "bostaIntegration", label: "الربط المباشر مع بوسطه", description: "إنشاء الشحنات وجلب الأسعار والتتبع داخل النظام وتحديث الحالات تلقائيًا عبر واجهة بوسطه وWebhook", defaultEnabled: false },
+  { key: "mobileCompanion", label: "ربط تطبيق PartFlow للهاتف", description: "عرض بيانات المتجر وتحليلاته على Android وiPhone بتسجيل آمن ومصادقة ثنائية", defaultEnabled: false },
+  { key: "cloudBackup", label: "النسخة السحابية الكاملة", description: "نسخة مشفّرة من كل بيانات المتجر على السحابة، قابلة للاستعادة على أي جهاز بكلمة سرك", defaultEnabled: false },
 ];
 
 export const FEATURE_MAP: Record<FeatureKey, FeatureDef> = FEATURES.reduce(
@@ -184,6 +188,8 @@ export const FEATURE_CATEGORY_BY_KEY: Record<FeatureKey, FeatureCategoryId> = {
   employeePayroll: "finance",
   shippingManagement: "sales",
   bostaIntegration: "automation",
+  mobileCompanion: "security",
+  cloudBackup: "security",
 };
 
 export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
@@ -213,6 +219,8 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
   "employeePayroll",
   "shippingManagement",
   "bostaIntegration",
+  "mobileCompanion",
+  "cloudBackup",
 ]);
 
 /**
@@ -274,6 +282,8 @@ export const FEATURE_TIER: Record<FeatureKey, PackageTier> = {
   advancedAlerts: "full",
   darkMode: "full",
   bostaIntegration: "full",
+  mobileCompanion: "full",
+  cloudBackup: "full",
 };
 
 /**

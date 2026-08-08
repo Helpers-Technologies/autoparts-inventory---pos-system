@@ -70,7 +70,12 @@ export function AddressFields({
   }
 
   useEffect(() => {
-    if (!bostaIntegrationEnabled || !bostaConfig.configured) return;
+    if (
+      !bostaIntegrationEnabled ||
+      !bostaConfig.enabled ||
+      !bostaConfig.configured
+    )
+      return;
     let active = true;
     setCitiesLoading(true);
     void getBostaCities().then((result) => {
@@ -95,7 +100,12 @@ export function AddressFields({
     return () => {
       active = false;
     };
-  }, [bostaConfig.configured, bostaIntegrationEnabled, getBostaCities]);
+  }, [
+    bostaConfig.configured,
+    bostaConfig.enabled,
+    bostaIntegrationEnabled,
+    getBostaCities,
+  ]);
 
   const matchedCity = useMemo(
     () =>
@@ -203,7 +213,8 @@ export function AddressFields({
     });
   }
 
-  const coverageUnavailable = !bostaConfig.configured;
+  const coverageUnavailable =
+    !bostaConfig.enabled || !bostaConfig.configured;
 
   return (
     <div

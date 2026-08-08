@@ -17,6 +17,37 @@ import type {
 
 export {};
 
+// Mirrors normalizeUpdateRelease() in electron/update-policy.cjs, which is
+// fed straight from the portal's /api/public/updates/check response.
+type DesktopUpdateRelease = {
+  id: string;
+  version: string;
+  title: string;
+  notes?: string;
+  severity: "normal" | "important" | "critical" | "emergency";
+  publishedAt: string | null;
+  policy?: { message?: string; deadlineAt?: string };
+  artifactSize?: number | null;
+};
+
+// A phone/tablet/browser paired with this shop, as returned by the portal's
+// /api/v1/mobile/devices. `lastSeenAt` is stamped on every authenticated read
+// from the app, so it doubles as "last activity".
+export type LinkedMobileDevice = {
+  id: number;
+  deviceName: string;
+  platform: "android" | "ios" | "web" | "windows" | "macos" | "linux" | null;
+  appVersion: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  lastLoginAt: string | null;
+  revoked: boolean;
+  revokedAt: string | null;
+  userDisplayName: string;
+  userRole: "owner" | "supervisor";
+  activeSessions: number;
+};
+
 declare global {
   interface Window {
     desktopAPI?: {
@@ -32,6 +63,110 @@ declare global {
       license: {
         getMachineCode: () => Promise<string>;
         getStatus: () => Promise<LicenseStatus>;
+        getReferral: () => Promise<
+          | {
+              ok: true;
+              code: string;
+              url: string;
+              currency: string;
+              summary: {
+                totalReferrals: number;
+                pendingMinor: number;
+                approvedMinor: number;
+                paidMinor: number;
+                totalCommissionMinor: number;
+              };
+              history: Array<{
+                id: number;
+                referredShopName: string;
+                status: "invited" | "pending" | "approved" | "paid" | "cancelled";
+                commissionAmountMinor: number;
+                currency: string;
+                createdAt: string | null;
+                convertedAt: string | null;
+                approvedAt: string | null;
+                paidAt: string | null;
+                paymentReference: string | null;
+              }>;
+            }
+          | {
+              ok: false;
+              error:
+                | "not_authorized"
+                | "license_inactive"
+                | "online_service_unavailable"
+                | "referral_not_available"
+                | "invalid_server_response";
+            }
+        >;
+        getCommerceSyncStatus: () => Promise<
+          | {
+              ok: true;
+              lastSyncedAt: string | null;
+              lastError: { message: string; at: string } | null;
+            }
+          | { ok: false; error: "not_authorized" }
+        >;
+        getMobileLinkStatus: () => Promise<
+          | {
+              ok: true;
+              allowedRole: boolean;
+              featureLicensed: boolean;
+              twoFactorLicensed: boolean;
+              mfaEnabled: boolean;
+              role: "owner" | "supervisor";
+            }
+          | { ok: false; error: "not_authorized" }
+        >;
+        createMobilePairing: (
+          password: string,
+          verificationCode: string,
+          label?: string,
+        ) => Promise<
+          | {
+              ok: true;
+              activationCode: string;
+              expiresAt: string;
+              user: { name: string; username: string; role: "owner" | "employee" };
+            }
+          | { ok: false; error: string; remainSeconds?: number; attemptsRemaining?: number }
+        >;
+        getCloudArchiveStatus: () => Promise<
+          | {
+              ok: true;
+              featureLicensed: boolean;
+              configured: boolean;
+              lastArchivedAt: string | null;
+              lastError: { message: string; at: string } | null;
+              serviceAvailable: boolean;
+            }
+          | { ok: false; error: string }
+        >;
+        setCloudArchivePassphrase: (
+          password: string,
+          passphrase: string,
+        ) => Promise<{ ok: boolean; error?: string; keyCount?: number }>;
+        syncCloudArchiveNow: () => Promise<{ ok: boolean; error?: string; keyCount?: number; skipped?: boolean }>;
+        previewCloudArchiveRestore: (passphrase: string) => Promise<
+          | { ok: true; capturedAt: string | null; appVersion: string | null; keyCount: number }
+          | { ok: false; error: string }
+        >;
+        restoreCloudArchive: (passphrase: string) => Promise<
+          | { ok: true; keyCount: number; capturedAt: string | null; requiresReload: boolean }
+          | { ok: false; error: string }
+        >;
+        listMobileDevices: () => Promise<
+          | { ok: true; devices: LinkedMobileDevice[] }
+          | { ok: false; error: string }
+        >;
+        revokeMobileDevice: (
+          deviceId: number,
+          /** Ends the session but keeps the device paired for account + 2FA sign-in. */
+          keepTrust?: boolean,
+        ) => Promise<
+          | { ok: true; sessionsRevoked: number; trustRemoved: boolean }
+          | { ok: false; error: string }
+        >;
         activate: (
           serial: string,
         ) => Promise<{ ok: boolean; status: LicenseStatus }>;
@@ -358,6 +493,73 @@ declare global {
       app: {
         onRunCloseBackup: (cb: () => void) => () => void;
         closeBackupDone: () => void;
+      };
+      updates?: {
+        getStatus: () => Promise<{
+          ok: boolean;
+          phase: "idle" | "checking" | "available" | "downloading" | "downloaded" | "installing" | "error";
+          release: DesktopUpdateRelease | null;
+          downloadPercent: number;
+          error: string | null;
+          lastCheckAt: string | null;
+          preferences: {
+            autoCheck: boolean;
+            autoDownload: boolean;
+            autoInstallOnQuit: boolean;
+          };
+          currentVersion: string;
+          canSkip: boolean;
+          blocked: boolean;
+          persistent: boolean;
+        }>;
+        checkNow: () => Promise<{
+          ok: boolean;
+          updateAvailable?: boolean;
+          skipped?: boolean;
+          release?: DesktopUpdateRelease;
+          error?: string;
+        }>;
+        download: () => Promise<{ ok: boolean; error?: string }>;
+        cancelDownload: () => Promise<{ ok: boolean }>;
+        install: () => Promise<{ ok: boolean }>;
+        skipRelease: (releaseId: string) => Promise<{ ok: boolean; error?: string }>;
+        getPreferences: () => Promise<{
+          ok: boolean;
+          preferences: {
+            autoCheck: boolean;
+            autoDownload: boolean;
+            autoInstallOnQuit: boolean;
+          };
+        }>;
+        setPreferences: (prefs: Partial<{
+          autoCheck: boolean;
+          autoDownload: boolean;
+          autoInstallOnQuit: boolean;
+        }>) => Promise<{
+          ok: boolean;
+          preferences?: {
+            autoCheck: boolean;
+            autoDownload: boolean;
+            autoInstallOnQuit: boolean;
+          };
+          error?: string;
+        }>;
+        onStateChanged: (
+          // Mirrors broadcastUpdateState()'s payload in electron/main.cjs —
+          // these five fields are always present; only extra ad-hoc keys
+          // (e.g. from a specific event) are ever added on top.
+          cb: (state: {
+            phase: "idle" | "checking" | "available" | "downloading" | "downloaded" | "installing" | "error";
+            release: DesktopUpdateRelease | null;
+            downloadPercent: number;
+            error: string | null;
+            lastCheckAt: string | null;
+          }) => void
+        ) => () => void;
+        onAvailable: (cb: (data: { release: DesktopUpdateRelease; canSkip: boolean; persistent: boolean }) => void) => () => void;
+        onDownloadProgress: (cb: (data: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => () => void;
+        onDownloaded: (cb: (data: { release: DesktopUpdateRelease; blocked: boolean }) => void) => () => void;
+        onBlocked: (cb: (data: { release: DesktopUpdateRelease }) => void) => () => void;
       };
     };
   }

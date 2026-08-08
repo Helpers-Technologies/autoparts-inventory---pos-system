@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   BarChart3,
@@ -30,6 +30,7 @@ import { useShipping, BOSTA_PROVIDER_ID } from "../store/ShippingContext";
 import { useSettings } from "../store/SettingsContext";
 import { useToast } from "../components/ui/Toast";
 import {
+  BOSTA_STATUS,
   bostaPublicTrackingUrl,
   DELIVERY_STATUS_LABELS,
   translateBostaError,
@@ -56,6 +57,21 @@ import type {
 import { useFeatures } from "../lib/useFeatures";
 
 type Tab = "orders" | "pricing" | "reports";
+
+const PACKAGE_TYPE_LABELS: Record<
+  NonNullable<DeliveryOrder["packageType"]>,
+  string
+> = {
+  SMALL: "صغير",
+  MEDIUM: "متوسط",
+  LARGE: "كبير",
+  "Light Bulky": "ضخم خفيف",
+  "Heavy Bulky": "ضخم ثقيل",
+};
+
+function packageTypeLabel(value: DeliveryOrder["packageType"]): string {
+  return value ? PACKAGE_TYPE_LABELS[value] ?? value : "غير محدد";
+}
 
 const STATUS_TONE: Record<
   DeliveryOrderStatus,
@@ -86,19 +102,38 @@ const OPERATIONAL_STATUSES: DeliveryOrderStatus[] = [
   "cancelled",
 ];
 
+function isBostaOrder(order: DeliveryOrder): boolean {
+  return order.providerId === BOSTA_PROVIDER_ID || order.providerName === "Bosta";
+}
+
+/** For a Bosta order, explains why the live status can't be shown as a
+ * simple badge yet — or returns null once we have a real, trustworthy
+ * status from Bosta. Never lets the caller fall back to editing it
+ * manually: Bosta orders don't get a status dropdown at all. */
+function bostaStatusNote(order: DeliveryOrder): string | null {
+  if (!isBostaOrder(order)) return null;
+  if (!order.trackingNumber) return "لسه لم يتم إرسال الشحنة إلى بوسطه";
+  if (order.externalStateCode === undefined) return "لسه مفيش تحديث حالة وارد من بوسطه";
+  if (!(order.externalStateCode in BOSTA_STATUS)) {
+    return `حالة غير معروفة من بوسطه (كود ${order.externalStateCode}) — راجع الدعم لو استمرت`;
+  }
+  return null;
+}
+
 function orderTrackingUrl(order: DeliveryOrder): string | undefined {
-  const isBosta =
-    order.providerId === BOSTA_PROVIDER_ID || order.providerName === "Bosta";
-  return isBosta && order.trackingNumber
+  return isBostaOrder(order) && order.trackingNumber
     ? bostaPublicTrackingUrl(order.trackingNumber)
     : order.trackingUrl;
 }
 
 export function ShippingManagementPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const shipping = useShipping();
   const { isEnabled } = useFeatures();
   const bostaIntegrationEnabled = isEnabled("bostaIntegration");
+  const bostaOperational =
+    bostaIntegrationEnabled && shipping.bostaConfig.enabled;
   const { settings } = useSettings();
   const toast = useToast();
   const [tab, setTab] = useState<Tab>("orders");
@@ -121,12 +156,25 @@ export function ShippingManagementPage() {
   const selectedOrder = selectedOrderId
     ? shipping.orders.find((order) => order.id === selectedOrderId)
     : undefined;
+
+  useEffect(() => {
+    const incomingOrderId = (
+      location.state as { openDeliveryOrderId?: string } | null
+    )?.openDeliveryOrderId;
+    if (
+      !incomingOrderId ||
+      !shipping.orders.some((order) => order.id === incomingOrderId)
+    )
+      return;
+    setTab("orders");
+    setSelectedOrderId(incomingOrderId);
+  }, [location.state, shipping.orders]);
   const availableProviders = useMemo(
     () =>
       shipping.providers.filter(
-        (provider) => provider.kind !== "bosta" || bostaIntegrationEnabled,
+        (provider) => provider.kind !== "bosta" || bostaOperational,
       ),
-    [bostaIntegrationEnabled, shipping.providers],
+    [bostaOperational, shipping.providers],
   );
 
   const filteredOrders = useMemo(() => {
@@ -199,7 +247,7 @@ export function ShippingManagementPage() {
         return;
       }
       toast.success(
-        "تم إنشاء شحنة بوسطة",
+        "تم إنشاء شحنة بوسطه",
         "سيظهر رقم التتبع فور رجوعه من الشركة",
       );
     } catch {
@@ -455,7 +503,7 @@ export function ShippingManagementPage() {
           orders={filteredOrders}
           busyOrderId={busyOrderId}
           bostaEnabled={
-            bostaIntegrationEnabled && shipping.bostaConfig.enabled && shipping.bostaConfig.configured
+            bostaOperational && shipping.bostaConfig.configured
           }
           onSubmitBosta={submitBosta}
           onRefresh={refreshTracking}
@@ -469,8 +517,10 @@ export function ShippingManagementPage() {
         <PricingPanel
           providers={availableProviders}
           rates={shipping.rates}
-          bostaConfigured={shipping.bostaConfig.configured}
-          bostaIntegrationEnabled={bostaIntegrationEnabled}
+          bostaConfigured={
+            bostaOperational && shipping.bostaConfig.configured
+          }
+          bostaIntegrationEnabled={bostaOperational}
           getBostaPricingPlan={shipping.getBostaPricingPlan}
           onToggle={(id, active) => shipping.updateProvider(id, { active })}
           onDeleteRate={shipping.deleteRate}
@@ -599,7 +649,7 @@ function BostaSendErrorDialog({
     <Dialog
       open={Boolean(error)}
       onClose={onClose}
-      title={bundleRequired ? "لا توجد باقة شحن نشطة" : "تعذر إرسال الشحنة إلى بوسطة"}
+      title={bundleRequired ? "لا توجد باقة شحن نشطة" : "تعذر إرسال الشحنة إلى بوسطه"}
       subtitle="لم يتم إنشاء الشحنة ولم يتغير الأوردر داخل النظام"
       width="sm"
       footer={
@@ -617,7 +667,7 @@ function BostaSendErrorDialog({
                 )
               }
             >
-              فتح باقات بوسطة <ExternalLink className="h-4 w-4" />
+              فتح باقات بوسطه <ExternalLink className="h-4 w-4" />
             </Button>
           ) : null}
         </>
@@ -642,15 +692,15 @@ function BostaSendErrorDialog({
             <ol className="space-y-2 text-xs leading-5 text-ink-muted">
               <li className="flex gap-2">
                 <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white">1</span>
-                افتح حسابك في بوسطة وفعّل أو اشترِ باقة شحن.
+                افتح حسابك في بوسطه وفعّل أو اشترِ باقة شحن.
               </li>
               <li className="flex gap-2">
                 <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white">2</span>
-                إذا كانت لديك باقة بالفعل، تواصل مع دعم بوسطة لتفعيل إنشاء الطلبات عبر الربط الإلكتروني.
+                إذا كانت لديك باقة بالفعل، تواصل مع دعم بوسطه لتفعيل إنشاء الطلبات عبر الربط الإلكتروني.
               </li>
               <li className="flex gap-2">
                 <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-600 text-[10px] font-bold text-white">3</span>
-                بعد التفعيل ارجع واضغط «إرسال إلى بوسطة» مرة أخرى.
+                بعد التفعيل ارجع واضغط «إرسال إلى بوسطه» مرة أخرى.
               </li>
             </ol>
           </div>
@@ -744,16 +794,16 @@ function OrdersTable({
                       </div>
                     </td>
                     <td className="p-3">
-                      <Badge
-                        tone={
-                          order.method === "branch_driver" ? "blue" : "slate"
+                      {order.method === "branch_driver" ? (
+                        <Badge tone="blue">سائق الفرع</Badge>
+                      ) : null}
+                      <div
+                        className={
+                          order.method === "branch_driver"
+                            ? "mt-2 font-semibold text-ink"
+                            : "font-semibold text-ink"
                         }
                       >
-                        {order.method === "branch_driver"
-                          ? "سائق الفرع"
-                          : "شركة شحن"}
-                      </Badge>
-                      <div className="mt-2 font-semibold text-ink">
                         {order.driverName || order.providerName || "غير محدد"}
                       </div>
                     </td>
@@ -771,25 +821,40 @@ function OrdersTable({
                       ) : null}
                     </td>
                     <td className="p-3">
-                      <Select
-                        value={order.status}
-                        onChange={(event) =>
-                          onStatus(
-                            order.id,
-                            event.target.value as DeliveryOrderStatus,
-                          )
-                        }
-                        className="min-w-[150px]"
-                      >
-                        {OPERATIONAL_STATUSES.map((item) => (
-                          <option key={item} value={item}>
-                            {DELIVERY_STATUS_LABELS[item]}
-                          </option>
-                        ))}
-                      </Select>
-                      <Badge className="mt-2" tone={STATUS_TONE[order.status]}>
-                        {DELIVERY_STATUS_LABELS[order.status]}
-                      </Badge>
+                      {isBostaOrder(order) ? (
+                        <div className="text-xs text-ink-faint">
+                          {bostaStatusNote(order) ?? "الحالة تُحدَّث تلقائيًا من بوسطه"}
+                        </div>
+                      ) : (
+                        <Select
+                          value={order.status}
+                          onChange={(event) =>
+                            onStatus(
+                              order.id,
+                              event.target.value as DeliveryOrderStatus,
+                            )
+                          }
+                          className="min-w-[150px]"
+                        >
+                          {OPERATIONAL_STATUSES.map((item) => (
+                            <option key={item} value={item}>
+                              {DELIVERY_STATUS_LABELS[item]}
+                            </option>
+                          ))}
+                        </Select>
+                      )}
+                      {isBostaOrder(order) &&
+                      order.trackingNumber &&
+                      order.externalStateCode !== undefined &&
+                      !(order.externalStateCode in BOSTA_STATUS) ? (
+                        <Badge className="mt-2" tone="slate">
+                          حالة غير معروفة
+                        </Badge>
+                      ) : (
+                        <Badge className="mt-2" tone={STATUS_TONE[order.status]}>
+                          {DELIVERY_STATUS_LABELS[order.status]}
+                        </Badge>
+                      )}
                       {order.exceptionReason ? (
                         <div className="mt-2 max-w-[220px] text-xs text-red-600">
                           {order.exceptionReason}
@@ -828,8 +893,7 @@ function OrdersTable({
                         >
                           <Eye className="h-3.5 w-3.5" /> عرض التفاصيل
                         </Button>
-                        {order.providerId === BOSTA_PROVIDER_ID ||
-                        order.providerName === "Bosta" ? (
+                        {isBostaOrder(order) ? (
                           order.trackingNumber ? (
                             <Button
                               size="sm"
@@ -850,7 +914,7 @@ function OrdersTable({
                               }
                               onClick={() => onSubmitBosta(order)}
                             >
-                              <Truck className="h-3.5 w-3.5" /> إرسال إلى بوسطة
+                              <Truck className="h-3.5 w-3.5" /> إرسال إلى بوسطه
                             </Button>
                           )
                         ) : null}
@@ -920,7 +984,10 @@ function OrderDetails({
             {order.method === "branch_driver" ? "سائق الفرع" : "شركة شحن"} — {order.driverName || order.providerName || "غير محدد"}
           </div>
           <div className="mt-1 text-xs text-ink-muted">
-            رقم التتبع: <span className="font-mono text-ink">{order.trackingNumber || "لم يصدر بعد"}</span>
+            رقم التتبع:{" "}
+            <span className={order.trackingNumber ? "font-mono text-ink" : "text-ink"}>
+              {order.trackingNumber || "لم يصدر بعد"}
+            </span>
           </div>
           {orderTrackingUrl(order) ? (
             <a href={orderTrackingUrl(order)} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600">
@@ -938,7 +1005,7 @@ function OrderDetails({
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <DetailValue label="حجم الطرد" value={order.packageType || "غير محدد"} />
+        <DetailValue label="حجم الطرد" value={packageTypeLabel(order.packageType)} />
         <DetailValue label="عدد القطع" value={String(order.itemsCount ?? "—")} />
         <DetailValue label="فتح الطرد" value={order.allowOpenPackage ? "مسموح" : "غير مسموح"} />
         <DetailValue label="الفرع" value={order.branchName || "الفرع الرئيسي"} />
@@ -963,7 +1030,7 @@ function OrderDetails({
               </div>
               <div className="shrink-0 text-left text-[11px] text-ink-faint">
                 {formatDateTime(event.occurredAt)}
-                <div>{event.source === "bosta" ? "بوسطة" : event.source === "user" ? "المستخدم" : "النظام"}</div>
+                <div>{event.source === "bosta" ? "بوسطه" : event.source === "user" ? "المستخدم" : "النظام"}</div>
               </div>
             </div>
           )) : (
@@ -1155,7 +1222,7 @@ function PricingPanel({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-ink">
-                  {provider.kind === "bosta" ? "بوسطة" : provider.name}
+                  {provider.kind === "bosta" ? "بوسطه" : provider.name}
                 </div>
                 <div className="text-xs text-ink-faint">
                   {provider.kind === "bosta"
@@ -1178,7 +1245,7 @@ function PricingPanel({
       <div className="space-y-4">
         {bostaIntegrationEnabled ? <Card>
           <CardHeader
-            title="أسعار بوسطة المباشرة"
+            title="أسعار بوسطه المباشرة"
             subtitle="تُسحب من خطة الأسعار الرسمية عبر الربط الإلكتروني ولا تحتاج إلى إدخال يدوي"
             actions={
               <Button
@@ -1206,7 +1273,7 @@ function PricingPanel({
                     ) : null}
                   </div>
                   <div className="mt-0.5 text-[11px] text-ink-faint">
-                    «من الفرع» هي نقطة استلام بوسطة للشحنة، و«إلى العميل» هي وجهة توصيلها.
+                    «من الفرع» هي نقطة استلام بوسطه للشحنة، و«إلى العميل» هي وجهة توصيلها.
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1252,7 +1319,7 @@ function PricingPanel({
                 </Field>
                 <Field
                   label="استلام الشحنة من فرعك (من)"
-                  hint="القطاع الذي يقع فيه فرعك وتستلم منه بوسطة الشحنة"
+                  hint="القطاع الذي يقع فيه فرعك وتستلم منه بوسطه الشحنة"
                 >
                   <Select
                     value={pickupSectorId}
@@ -1380,7 +1447,7 @@ function PricingPanel({
 
             {!bostaConfigured ? (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-600">
-                اربط حساب بوسطة من مركز الربط والتكاملات أولًا لجلب أسعار حسابك.
+                اربط حساب بوسطه من مركز الربط والتكاملات أولًا لجلب أسعار حسابك.
               </div>
             ) : pricingError ? (
               <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-600">
@@ -1388,7 +1455,7 @@ function PricingPanel({
               </div>
             ) : pricingLoading && apiPrices.length === 0 ? (
               <div className="py-8 text-center text-sm text-ink-muted">
-                جارٍ جلب أسعار بوسطة…
+                جارٍ جلب أسعار بوسطه…
               </div>
             ) : apiPrices.length > 0 ? (
               <div className="space-y-3">
@@ -1438,7 +1505,7 @@ function PricingPanel({
               </div>
             ) : pricingData ? (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-600">
-                استجابت بوسطة، لكن خطة الأسعار لا تحتوي أسعارًا قابلة للعرض لهذه الباقة والمنطقة.
+                استجابت بوسطه، لكن خطة الأسعار لا تحتوي أسعارًا قابلة للعرض لهذه الباقة والمنطقة.
               </div>
             ) : null}
           </CardBody>
@@ -1454,7 +1521,7 @@ function PricingPanel({
             <EmptyState
               icon={<MapPin className="h-6 w-6" />}
               title="لا توجد أسعار يدوية"
-              description="أسعار بوسطة تُجلب أعلاه تلقائيًا. أضف هنا استثناءً فقط عند الحاجة."
+              description="أسعار بوسطه تُجلب أعلاه تلقائيًا. أضف هنا استثناءً فقط عند الحاجة."
             />
           ) : (
             <div className="overflow-auto">

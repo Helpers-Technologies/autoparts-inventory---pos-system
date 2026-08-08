@@ -67,7 +67,7 @@ export function Dialog({
       >
         {title || subtitle ? (
           <div className="flex items-start justify-between gap-4 p-4 border-b border-line">
-            <div>
+            <div className="min-w-0 flex-1">
               {title ? (
                 <div id={titleId} className="font-semibold text-ink">{title}</div>
               ) : null}

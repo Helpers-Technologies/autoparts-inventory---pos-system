@@ -72,6 +72,7 @@ const CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
 // self-heal by re-baselining, so a single bad clock read can't permanently
 // lock a paying customer out with no recovery path.
 const CLOCK_TAMPER_SELF_HEAL_MS = 365 * 24 * 60 * 60 * 1000;
+
 const MAX_TOKEN_LENGTH = 8192;
 const MAX_USERNAME_LENGTH = 80;
 const MAX_PASSWORD_LENGTH = 256;
@@ -129,6 +130,7 @@ const {
   STORE_PREFIX,
   REDACTED_PASSWORD_HASH,
   PROTECTED_KEYS,
+  isRendererStorageKey,
   safeUserForRenderer,
   safeUsersForRenderer,
 } = require("./storage-security.cjs");
@@ -152,6 +154,10 @@ const {
 // Derived keys used only inside main.cjs
 const LICENSE_TOKEN_KEY = "__license_token";
 const LICENSE_LAST_SEEN_KEY = "__license_last_seen_at";
+const COMMERCE_SYNC_HASH_KEY = "__commerce_sync_hash";
+const COMMERCE_SYNC_AT_KEY = "__commerce_sync_at";
+const COMMERCE_SYNC_SOURCE_REVISION_KEY = "__commerce_sync_source_revision";
+const COMMERCE_SYNC_ERROR_KEY = "__commerce_sync_error";
 const BRANCH_ACTIVATIONS_KEY = "__branch_license_activations";
 const BRANCH_LEGACY_SLOTS_KEY = "__branch_license_legacy_slots";
 const BRANCHES_STORAGE_KEY = `${STORE_PREFIX}branches`;
@@ -162,6 +168,41 @@ const BOSTA_WEBHOOK_HEADER_VALUE = "__integration_bosta_webhook_header_value";
 const BOSTA_WEBHOOK_POLL_TOKEN = "__integration_bosta_webhook_poll_token";
 const BOSTA_API_BASE = "https://app.bosta.co/api/v2";
 const BOSTA_TRACKING_API_BASE = "https://tracking.bosta.co";
+
+// ── Auto-update system ──────────────────────────────────────────────────
+const UPDATE_INSTALLATION_ID_KEY = "__update_installation_id";
+const UPDATE_PREFERENCES_KEY = "__update_preferences";
+const UPDATE_SKIPPED_RELEASES_KEY = "__update_skipped_releases";
+const UPDATE_LAST_CHECK_KEY = "__update_last_check";
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const {
+  DEFAULT_UPDATE_PREFERENCES,
+  normalizeUpdatePreferences,
+  normalizeUpdateRelease,
+  canSkipUpdate,
+  shouldAutoDownloadUpdate,
+  shouldBlockForUpdate,
+  shouldShowPersistentUpdate,
+} = require("./update-policy.cjs");
+
+// In-memory update state — never persisted beyond the kv_store keys above.
+let _updateState = {
+  /** @type {"idle"|"checking"|"available"|"downloading"|"downloaded"|"installing"|"error"} */
+  phase: "idle",
+  /** @type {object|null} Portal-provided release metadata (normalised). */
+  release: null,
+  /** @type {{latestYmlUrl:string, expiresAt:string}|null} */
+  feed: null,
+  /** @type {number} 0..100 */
+  downloadPercent: 0,
+  /** @type {string|null} */
+  error: null,
+  /** @type {string|null} ISO timestamp of last successful check. */
+  lastCheckAt: null,
+};
+let _updateCheckTimer = null;
+/** @type {import("builder-util-runtime").CancellationToken|null} */
+let _updateCancellationToken = null;
 
 // ── SECURITY: Login brute-force protection ──────────────────────────────
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -529,6 +570,7 @@ const {
   encryptBackupContent,
   decryptBackupContent,
   encryptBackupWithPassphrase,
+  encryptBackupWithPassphraseAsync,
   decryptBackupWithPassphrase,
   getBackupEnvelopeVersion,
 } = require("./backup-crypto.cjs");
@@ -1332,6 +1374,14 @@ function isBostaFeatureLicensed() {
   return isFeatureLicensed("bostaIntegration");
 }
 
+function isMobileCompanionFeatureLicensed() {
+  return isFeatureLicensed("mobileCompanion");
+}
+
+function isCloudBackupFeatureLicensed() {
+  return isFeatureLicensed("cloudBackup");
+}
+
 function getEffectiveMfaPolicyMode() {
   return isMfaFeatureLicensed() ? getMfaPolicyMode() : "disabled";
 }
@@ -1446,12 +1496,12 @@ function getMfaStatusForUser(user) {
 function getMfaIssuer() {
   const settings = readJsonKey(`${STORE_PREFIX}settings`, {});
   const candidate = String(
-    settings?.companyNameAr || settings?.companyName || "AutoParts Inventory",
+    settings?.companyNameAr || settings?.companyName || "PartFlow",
   )
     .replace(/:/g, "-")
     .trim()
     .slice(0, 80);
-  return candidate || "AutoParts Inventory";
+  return candidate || "PartFlow";
 }
 
 function pruneMfaChallenges(now = Date.now()) {
@@ -1691,7 +1741,7 @@ function verifyMfaProofForUser(user, code) {
           : { ...failed, error: "code_reused" };
       }
       clearMfaVerificationAttempts(user.id);
-      return { ok: true, method: "totp" };
+      return { ok: true, method: "totp", counter: accepted.counter };
     } catch {
       return recordFailedMfaVerification(user.id);
     }
@@ -2111,6 +2161,14 @@ function validateBranchStorageValue(value) {
 // existing offline signature-only validation completely unaffected — a shop
 // with no internet keeps working exactly as before this existed.
 const HEARTBEAT_BASE_URL = LICENSE_HEARTBEAT_URL?.replace(/\/$/, "") || null;
+let REFERRAL_PORTAL_ORIGIN = null;
+if (HEARTBEAT_BASE_URL) {
+  try {
+    REFERRAL_PORTAL_ORIGIN = new URL(HEARTBEAT_BASE_URL).origin;
+  } catch {
+    REFERRAL_PORTAL_ORIGIN = null;
+  }
+}
 
 async function checkLicenseOnline() {
   if (HW_E2E || !HEARTBEAT_BASE_URL) return;
@@ -2149,6 +2207,902 @@ async function checkLicenseOnline() {
     }
   } catch (err) {
     // Silent fail if offline or error
+  }
+}
+
+// ── Auto-update engine ────────────────────────────────────────────────────
+// Follows the same trust model as checkLicenseOnline: the portal's answer is
+// advisory until electron-updater verifies the downloaded artifact's SHA-512
+// and publisher certificate. Network errors never break the offline app.
+
+function getInstallationId() {
+  let id = storageGet(UPDATE_INSTALLATION_ID_KEY);
+  if (id && /^[A-Za-z0-9-]{8,128}$/.test(id)) return id;
+  id = crypto.randomUUID();
+  storageSet(UPDATE_INSTALLATION_ID_KEY, id);
+  return id;
+}
+
+function getUpdatePreferences() {
+  return normalizeUpdatePreferences(readJsonKey(UPDATE_PREFERENCES_KEY, null));
+}
+
+function setUpdatePreferencesStore(prefs) {
+  const merged = normalizeUpdatePreferences({
+    ...getUpdatePreferences(),
+    ...(prefs && typeof prefs === "object" ? prefs : {}),
+  });
+  writeJsonKey(UPDATE_PREFERENCES_KEY, merged);
+  // Apply immediately — the "تثبيت عند الإغلاق" toggle would otherwise only
+  // take effect on the next download, and never at all if none is pending.
+  try {
+    require("electron-updater").autoUpdater.autoInstallOnAppQuit = merged.autoInstallOnQuit;
+  } catch {
+    // electron-updater unavailable (dev/unpackaged) — preference still saved.
+  }
+  return merged;
+}
+
+function getSkippedReleases() {
+  const arr = readJsonKey(UPDATE_SKIPPED_RELEASES_KEY, []);
+  return Array.isArray(arr) ? arr : [];
+}
+
+function addSkippedRelease(releaseId) {
+  const list = getSkippedReleases();
+  if (!list.includes(releaseId)) {
+    list.push(releaseId);
+    // Keep a bounded window — nobody needs more than the last 50 skipped.
+    writeJsonKey(UPDATE_SKIPPED_RELEASES_KEY, list.slice(-50));
+  }
+}
+
+function broadcastUpdateState(extra) {
+  const payload = {
+    phase: _updateState.phase,
+    release: _updateState.release,
+    downloadPercent: _updateState.downloadPercent,
+    error: _updateState.error,
+    lastCheckAt: _updateState.lastCheckAt,
+    ...extra,
+  };
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send("updates:state-changed", payload);
+    }
+  });
+}
+
+async function reportUpdateEvent(eventType, extraFields) {
+  if (HW_E2E || !REFERRAL_PORTAL_ORIGIN) return;
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/public/updates/event`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        installationId: getInstallationId(),
+        clientEventId: crypto.randomUUID(),
+        eventType,
+        appVersion: app.getVersion(),
+        occurredAt: new Date().toISOString(),
+        ...extraFields,
+      }),
+      signal: controller.signal,
+    });
+  } catch {
+    // Best-effort — portal will see next check-in regardless.
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function checkForUpdateOnline(reason) {
+  if (HW_E2E || !REFERRAL_PORTAL_ORIGIN) return { updateAvailable: false };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token) return { updateAvailable: false };
+
+  const prefs = getUpdatePreferences();
+  if (!prefs.autoCheck && reason !== "manual") return { updateAvailable: false };
+
+  if (_updateState.phase === "checking") return { updateAvailable: false };
+  _updateState.phase = "checking";
+  _updateState.error = null;
+  broadcastUpdateState();
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(
+      `${REFERRAL_PORTAL_ORIGIN}/api/public/updates/check`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          installationId: getInstallationId(),
+          currentVersion: app.getVersion(),
+          machineHash: getMachineHash(),
+          platform: process.platform,
+          arch: process.arch,
+          autoCheck: prefs.autoCheck,
+          autoDownload: prefs.autoDownload,
+          reason: reason || "scheduled",
+        }),
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) {
+      _updateState.phase = "idle";
+      _updateState.lastCheckAt = new Date().toISOString();
+      broadcastUpdateState();
+      void reportUpdateEvent("check_error", {
+        errorCode: `HTTP_${response.status}`,
+        errorMessage: response.statusText,
+      });
+      return { updateAvailable: false };
+    }
+    const data = await response.json();
+    _updateState.lastCheckAt = new Date().toISOString();
+    writeJsonKey(UPDATE_LAST_CHECK_KEY, _updateState.lastCheckAt);
+
+    if (!data.updateAvailable) {
+      _updateState.phase = "idle";
+      _updateState.release = null;
+      _updateState.feed = null;
+      broadcastUpdateState();
+      return { updateAvailable: false };
+    }
+
+    const release = normalizeUpdateRelease(data.release);
+    if (!release) {
+      _updateState.phase = "idle";
+      broadcastUpdateState();
+      return { updateAvailable: false };
+    }
+
+    // Skip releases the user explicitly dismissed (only normal severity).
+    const skipped = getSkippedReleases();
+    if (canSkipUpdate(release) && skipped.includes(release.id)) {
+      _updateState.phase = "idle";
+      broadcastUpdateState();
+      return { updateAvailable: false, skipped: true };
+    }
+
+    _updateState.phase = "available";
+    _updateState.release = release;
+    _updateState.feed = data.feed || null;
+    _updateState.downloadPercent = 0;
+    broadcastUpdateState();
+
+    // Report discovery
+    void reportUpdateEvent("update_available", {
+      targetVersion: release.version,
+      fromVersion: app.getVersion(),
+    });
+
+    // Notify renderer(s)
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send("updates:available", {
+          release,
+          canSkip: canSkipUpdate(release),
+          persistent: shouldShowPersistentUpdate(release),
+        });
+      }
+    });
+
+    // Auto-download if policy allows
+    if (shouldAutoDownloadUpdate(release, prefs)) {
+      void downloadUpdate();
+    }
+
+    return { updateAvailable: true, release };
+  } catch (err) {
+    _updateState.phase = _updateState.release ? "available" : "idle";
+    _updateState.error = err?.message || "فشل الاتصال بالخادم";
+    broadcastUpdateState();
+    void reportUpdateEvent("check_error", {
+      errorCode: "NETWORK",
+      errorMessage: String(err?.message || "").slice(0, 200),
+    });
+    return { updateAvailable: false, error: _updateState.error };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function downloadUpdate() {
+  if (!_updateState.release || !_updateState.feed) return false;
+  if (_updateState.phase === "downloading" || _updateState.phase === "downloaded") return false;
+
+  _updateState.phase = "downloading";
+  _updateState.downloadPercent = 0;
+  _updateState.error = null;
+  broadcastUpdateState();
+  void reportUpdateEvent("download_started", { targetVersion: _updateState.release.version, fromVersion: app.getVersion() });
+
+  try {
+    // electron-updater's autoUpdater with a generic (custom) feed URL.
+    const { autoUpdater, CancellationToken } = require("electron-updater");
+    autoUpdater.autoDownload = false;
+    // Honour the user's "install on quit" preference instead of hardcoding it.
+    autoUpdater.autoInstallOnAppQuit = getUpdatePreferences().autoInstallOnQuit;
+    autoUpdater.allowPrerelease = false;
+    autoUpdater.forceDevUpdateConfig = !app.isPackaged;
+    // Differential (delta) downloads need a `blockMapSize` field per file in
+    // the portal's latest.yml (AppImage/Mac) or a separate <file>.blockmap
+    // upload alongside the installer (NSIS web installer) — the portal
+    // serves neither today, so electron-updater's own blockmap parser
+    // computes a NaN offset and throws mid-download. It already falls back
+    // to a full download on that failure, but disabling it up front avoids
+    // the failed attempt (and its console/log noise) entirely rather than
+    // relying on a caught exception every single update.
+    autoUpdater.disableDifferentialDownload = true;
+
+    const feedUrl = _updateState.feed.latestYmlUrl;
+    // The feed URL from the portal is relative — resolve against the portal origin.
+    const resolvedUrl = feedUrl.startsWith("http")
+      ? feedUrl
+      : new URL(feedUrl, REFERRAL_PORTAL_ORIGIN).toString();
+
+    // Generic provider: electron-updater fetches latest.yml from this URL.
+    autoUpdater.setFeedURL({
+      provider: "generic",
+      url: resolvedUrl.replace(/\/latest\.yml$/, ""),
+    });
+
+    // Wire up progress & completion events
+    autoUpdater.removeAllListeners("download-progress");
+    autoUpdater.removeAllListeners("update-downloaded");
+    autoUpdater.removeAllListeners("error");
+
+    autoUpdater.on("download-progress", (info) => {
+      _updateState.downloadPercent = Math.round(info.percent || 0);
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("updates:download-progress", {
+            percent: _updateState.downloadPercent,
+            bytesPerSecond: info.bytesPerSecond || 0,
+            transferred: info.transferred || 0,
+            total: info.total || 0,
+          });
+        }
+      });
+    });
+
+    autoUpdater.on("update-downloaded", () => {
+      _updateState.phase = "downloaded";
+      _updateState.downloadPercent = 100;
+      broadcastUpdateState();
+      void reportUpdateEvent("downloaded", { targetVersion: _updateState.release?.version, fromVersion: app.getVersion() });
+
+      // Notify renderer
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("updates:downloaded", {
+            release: _updateState.release,
+            blocked: shouldBlockForUpdate(_updateState.release, "downloaded"),
+          });
+        }
+      });
+
+      // If severity is critical/emergency, block the UI
+      if (shouldBlockForUpdate(_updateState.release, "downloaded")) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) {
+            win.webContents.send("updates:blocked", { release: _updateState.release });
+          }
+        });
+      }
+    });
+
+    autoUpdater.on("error", (err) => {
+      _updateState.phase = "error";
+      _updateState.error = err?.message || "فشل تحميل التحديث";
+      broadcastUpdateState();
+      void reportUpdateEvent("failed", {
+        targetVersion: _updateState.release?.version,
+        fromVersion: app.getVersion(),
+        errorCode: "DOWNLOAD",
+        errorMessage: String(err?.message || "").slice(0, 500),
+      });
+    });
+
+    // electron-updater refuses to download until a check has populated its
+    // internal updateInfo — calling downloadUpdate() on its own rejects with
+    // "Please check update first". autoDownload is false, so this check only
+    // resolves the feed; the download below stays under our control.
+    await autoUpdater.checkForUpdates();
+
+    // Keep the token so cancelDownload() can actually abort the transfer —
+    // autoUpdater has no public cancellationToken of its own.
+    const cancellationToken = new CancellationToken();
+    _updateCancellationToken = cancellationToken;
+    try {
+      await autoUpdater.downloadUpdate(cancellationToken);
+    } finally {
+      _updateCancellationToken = null;
+    }
+    return true;
+  } catch (err) {
+    // A user-initiated cancel surfaces here as a rejection; it already
+    // reset the phase in cancelDownload(), so don't report it as a failure.
+    if (err?.message === "cancelled" || _updateState.phase === "available") {
+      return false;
+    }
+    _updateState.phase = "error";
+    _updateState.error = err?.message || "فشل تحميل التحديث";
+    broadcastUpdateState();
+    void reportUpdateEvent("failed", {
+      targetVersion: _updateState.release?.version,
+      fromVersion: app.getVersion(),
+      errorCode: "DOWNLOAD_EXCEPTION",
+      errorMessage: String(err?.message || "").slice(0, 500),
+    });
+    return false;
+  }
+}
+
+function installUpdate() {
+  if (_updateState.phase !== "downloaded") return false;
+  _updateState.phase = "installing";
+  broadcastUpdateState();
+  void reportUpdateEvent("install_started", { targetVersion: _updateState.release?.version, fromVersion: app.getVersion() });
+  try {
+    const { autoUpdater } = require("electron-updater");
+    autoUpdater.quitAndInstall(false, true);
+    return true;
+  } catch (err) {
+    _updateState.phase = "error";
+    _updateState.error = err?.message || "فشل تثبيت التحديث";
+    broadcastUpdateState();
+    return false;
+  }
+}
+
+function cancelDownload() {
+  // The token created in downloadUpdate() is the only handle that can abort
+  // an in-flight transfer — `autoUpdater.cancellationToken` does not exist
+  // (it belongs to DownloadUpdateOptions), so reaching for it silently no-ops
+  // and leaves the download running behind a UI that claims it stopped.
+  try {
+    _updateCancellationToken?.cancel();
+  } catch {
+    // Ignore cancellation error
+  }
+  _updateCancellationToken = null;
+  _updateState.phase = "available";
+  _updateState.downloadPercent = 0;
+  _updateState.error = null;
+  broadcastUpdateState();
+  void reportUpdateEvent("deferred", { targetVersion: _updateState.release?.version });
+  return true;
+}
+
+function getUpdateStatusForRenderer() {
+  return {
+    phase: _updateState.phase,
+    release: _updateState.release,
+    downloadPercent: _updateState.downloadPercent,
+    error: _updateState.error,
+    lastCheckAt: _updateState.lastCheckAt || readJsonKey(UPDATE_LAST_CHECK_KEY, null),
+    preferences: getUpdatePreferences(),
+    currentVersion: app.getVersion(),
+    canSkip: _updateState.release ? canSkipUpdate(_updateState.release) : false,
+    blocked: _updateState.release ? shouldBlockForUpdate(_updateState.release, _updateState.phase) : false,
+    persistent: _updateState.release ? shouldShowPersistentUpdate(_updateState.release) : false,
+  };
+}
+
+async function getReferralInfoOnline() {
+  const status = getLicenseStatus();
+  if (status.state !== "active") return { ok: false, error: "license_inactive" };
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token) return { ok: false, error: "license_inactive" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(
+      `${REFERRAL_PORTAL_ORIGIN}/api/public/referral-account`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      },
+    );
+    if (response.status === 401 || response.status === 404) {
+      return { ok: false, error: "referral_not_available" };
+    }
+    if (!response.ok) return { ok: false, error: "online_service_unavailable" };
+    const data = await response.json();
+    const code = String(data?.code || "").trim().toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9-]{3,23}$/.test(code)) {
+      return { ok: false, error: "invalid_server_response" };
+    }
+    const nonNegativeMinor = (value) => {
+      const amount = Number(value);
+      return Number.isSafeInteger(amount) && amount >= 0 ? amount : 0;
+    };
+    const allowedStatuses = new Set(["invited", "pending", "approved", "paid", "cancelled"]);
+    const currency = /^[A-Z]{3}$/.test(String(data?.currency || "")) ? data.currency : "EGP";
+    const history = Array.isArray(data?.history)
+      ? data.history.slice(0, 100).map((entry) => ({
+          id: Number(entry?.id) || 0,
+          referredShopName: String(entry?.referred_shop_name || "عميل مدعو").slice(0, 160),
+          status: allowedStatuses.has(entry?.status) ? entry.status : "invited",
+          commissionAmountMinor: nonNegativeMinor(entry?.commission_amount_minor),
+          currency: /^[A-Z]{3}$/.test(String(entry?.currency || "")) ? entry.currency : currency,
+          createdAt: entry?.created_at || null,
+          convertedAt: entry?.converted_at || null,
+          approvedAt: entry?.approved_at || null,
+          paidAt: entry?.paid_at || null,
+          paymentReference: entry?.payment_reference ? String(entry.payment_reference).slice(0, 160) : null,
+        }))
+      : [];
+    return {
+      ok: true,
+      code,
+      url: new URL(`/r/${encodeURIComponent(code)}`, REFERRAL_PORTAL_ORIGIN).toString(),
+      currency,
+      summary: {
+        totalReferrals: Math.max(0, Number(data?.summary?.totalReferrals) || 0),
+        pendingMinor: nonNegativeMinor(data?.summary?.pendingMinor),
+        approvedMinor: nonNegativeMinor(data?.summary?.approvedMinor),
+        paidMinor: nonNegativeMinor(data?.summary?.paidMinor),
+        totalCommissionMinor: nonNegativeMinor(data?.summary?.totalCommissionMinor),
+      },
+      history,
+    };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function canManageMobileCompanion(user) {
+  return Boolean(
+    user &&
+      (user.role === "owner" || user.permissions?.pos?.supervisorOverride),
+  );
+}
+
+async function createMobilePairingOnline(event, payload) {
+  const user = getSessionUser(event);
+  if (!canManageMobileCompanion(user)) {
+    return { ok: false, error: "not_authorized" };
+  }
+  if (!isMobileCompanionFeatureLicensed()) {
+    return { ok: false, error: "mobile_feature_not_licensed" };
+  }
+  if (!isMfaFeatureLicensed()) {
+    return { ok: false, error: "two_factor_not_licensed" };
+  }
+  if (getLicenseStatus().state !== "active") {
+    return { ok: false, error: "license_inactive" };
+  }
+  if (!REFERRAL_PORTAL_ORIGIN) {
+    return { ok: false, error: "online_service_unavailable" };
+  }
+  if (app.isPackaged && new URL(REFERRAL_PORTAL_ORIGIN).protocol !== "https:") {
+    return { ok: false, error: "secure_connection_required" };
+  }
+  // Check the portal before consuming a time-based MFA code. A transient
+  // outage should never force the user to wait for the next Authenticator
+  // window just because the network was unavailable.
+  const healthController = new AbortController();
+  const healthTimeout = setTimeout(() => healthController.abort(), 3500);
+  try {
+    const health = await fetch(`${REFERRAL_PORTAL_ORIGIN}/healthz`, {
+      headers: { Accept: "application/json" },
+      signal: healthController.signal,
+    });
+    if (!health.ok) return { ok: false, error: "portal_unreachable" };
+  } catch {
+    return { ok: false, error: "portal_unreachable" };
+  } finally {
+    clearTimeout(healthTimeout);
+  }
+  const record = getMfaRecord(user.id);
+  if (!record?.enabled) return { ok: false, error: "mfa_not_enabled" };
+  const password = String(payload?.password || "");
+  if (!(await verifyPassword(user.passwordHash, password))) {
+    return { ok: false, error: "invalid_password" };
+  }
+  const code = String(payload?.verificationCode || "").replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(code)) return { ok: false, error: "invalid_code" };
+  const proof = verifyMfaProofForUser(user, code);
+  if (!proof.ok) return proof;
+
+  let totpSecret;
+  try {
+    totpSecret = decryptMfaSecret(record.secret_encrypted);
+  } catch {
+    return { ok: false, error: "mfa_secret_unavailable" };
+  }
+  const salt = crypto.randomBytes(16);
+  const passwordVerifier = crypto
+    .scryptSync(password.normalize("NFKC"), salt, 32, {
+      N: 16384,
+      r: 8,
+      p: 1,
+    })
+    .toString("hex");
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) {
+    return { ok: false, error: "license_inactive" };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(
+      `${REFERRAL_PORTAL_ORIGIN}/api/v1/mobile/pairing-code`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          localUserId: user.id,
+          username: user.username,
+          displayName: user.name || user.username,
+          role: user.role === "owner" ? "owner" : "supervisor",
+          passwordSalt: salt.toString("hex"),
+          passwordVerifier,
+          totpSecret,
+          totpLastCounter: proof.counter,
+          label: String(payload?.label || "تطبيق الهاتف").trim().slice(0, 80),
+        }),
+        signal: controller.signal,
+      },
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) {
+      return {
+        ok: false,
+        error: String(data?.error?.code || data?.error || "online_service_unavailable"),
+      };
+    }
+    const activationCode = String(data.activationCode || "").trim();
+    if (!/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(activationCode)) {
+      return { ok: false, error: "invalid_server_response" };
+    }
+    return {
+      ok: true,
+      activationCode,
+      expiresAt: data.expiresAt,
+      user: { name: user.name, username: user.username, role: user.role },
+    };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// --- Full encrypted cloud archive ------------------------------------------
+// The commerce snapshot above is a curated, queryable subset for the phone app.
+// This is the other half: every renderer storage key, encrypted here with the
+// owner's passphrase and stored in the portal as an opaque blob. It is what
+// makes the shop's data "local AND cloud" rather than local-only, and it is
+// restorable onto a brand-new machine with nothing but the passphrase.
+const CLOUD_ARCHIVE_PASSPHRASE_KEY = "__cloud_archive_passphrase";
+const CLOUD_ARCHIVE_AT_KEY = "__cloud_archive_at";
+const CLOUD_ARCHIVE_HASH_KEY = "__cloud_archive_hash";
+const CLOUD_ARCHIVE_ERROR_KEY = "__cloud_archive_error";
+// Matches MAX_ENVELOPE_BYTES in the portal's cloudState.js. Checked before
+// encrypting so a shop that outgrows the limit gets a clear message instead of
+// a 413 after spending seconds on scrypt.
+const CLOUD_ARCHIVE_MAX_BYTES = 48 * 1024 * 1024;
+
+/** Every renderer-owned key, i.e. the whole shop minus internal/protected ones. */
+function buildCloudArchivePayload() {
+  const rows = openDatabase()
+    .prepare("SELECT key, value, updated_at FROM kv_store ORDER BY key")
+    .all()
+    .filter((row) => isRendererStorageKey(row.key));
+  const state = {};
+  for (const row of rows) state[row.key] = row.value;
+  const plaintext = JSON.stringify({
+    archiveVersion: 1,
+    capturedAt: new Date().toISOString(),
+    appVersion: app.getVersion(),
+    state,
+  });
+  return {
+    plaintext,
+    keyCount: rows.length,
+    sourceHash: crypto.createHash("sha256").update(plaintext).digest("hex"),
+  };
+}
+
+function getCloudArchivePassphrase() {
+  const stored = storageGet(CLOUD_ARCHIVE_PASSPHRASE_KEY);
+  if (!stored) return null;
+  try {
+    return decryptMfaSecret(stored);
+  } catch {
+    return null;
+  }
+}
+
+let cloudArchiveInFlight = false;
+
+async function syncCloudArchive({ force = false } = {}) {
+  if (cloudArchiveInFlight || !REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "not_configured" };
+  if (getLicenseStatus().state !== "active") return { ok: false, error: "license_inactive" };
+  // Sold standalone like mobileCompanion — a shop without this add-on must
+  // never upload the archive even silently in the background.
+  if (!isCloudBackupFeatureLicensed()) return { ok: false, error: "cloud_backup_not_licensed" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return { ok: false, error: "license_inactive" };
+  const passphrase = getCloudArchivePassphrase();
+  // Not configured is a normal state, not an error: the owner has to choose a
+  // passphrase before anything can be uploaded, and we never invent one for
+  // them — an archive we could decrypt unaided would defeat the design.
+  if (!passphrase) return { ok: false, error: "passphrase_not_set" };
+
+  const payload = buildCloudArchivePayload();
+  if (!force && storageGet(CLOUD_ARCHIVE_HASH_KEY) === payload.sourceHash) {
+    return { ok: true, skipped: true };
+  }
+  if (Buffer.byteLength(payload.plaintext, "utf8") > CLOUD_ARCHIVE_MAX_BYTES) {
+    storageSet(CLOUD_ARCHIVE_ERROR_KEY, JSON.stringify({ message: "archive_too_large", at: new Date().toISOString() }));
+    return { ok: false, error: "archive_too_large" };
+  }
+
+  cloudArchiveInFlight = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  try {
+    const envelope = await encryptBackupWithPassphraseAsync(payload.plaintext, passphrase);
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/state`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        envelope,
+        sourceHash: payload.sourceHash,
+        keyCount: payload.keyCount,
+        appVersion: app.getVersion(),
+        machineLabel: os.hostname(),
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const message = `http_${response.status}`;
+      storageSet(CLOUD_ARCHIVE_ERROR_KEY, JSON.stringify({ message, at: new Date().toISOString() }));
+      return { ok: false, error: message };
+    }
+    storageSet(CLOUD_ARCHIVE_HASH_KEY, payload.sourceHash);
+    storageSet(CLOUD_ARCHIVE_AT_KEY, new Date().toISOString());
+    storageRemove(CLOUD_ARCHIVE_ERROR_KEY);
+    return { ok: true, keyCount: payload.keyCount };
+  } catch (e) {
+    // Offline-first, exactly like the commerce sync: a failed upload never
+    // blocks local work and the periodic job retries.
+    const message = e?.name === "AbortError" ? "timeout" : e?.message || "unknown_error";
+    storageSet(CLOUD_ARCHIVE_ERROR_KEY, JSON.stringify({ message, at: new Date().toISOString() }));
+    return { ok: false, error: message };
+  } finally {
+    clearTimeout(timeout);
+    cloudArchiveInFlight = false;
+  }
+}
+
+/** Pulls the archive back down and decrypts it, without writing anything yet. */
+async function fetchCloudArchive(passphrase) {
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "not_configured" };
+  if (!isCloudBackupFeatureLicensed()) return { ok: false, error: "cloud_backup_not_licensed" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return { ok: false, error: "license_inactive" };
+  if (typeof passphrase !== "string" || !passphrase) return { ok: false, error: "passphrase_required" };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  try {
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/state`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (response.status === 404) return { ok: false, error: "archive_not_found" };
+    if (!response.ok) return { ok: false, error: `http_${response.status}` };
+    const body = await response.json();
+    let parsed;
+    try {
+      parsed = JSON.parse(decryptBackupWithPassphrase(String(body.envelope || ""), passphrase));
+    } catch {
+      // AES-GCM cannot tell "wrong passphrase" from "tampered blob", and the
+      // honest message for the overwhelmingly likely case is the passphrase.
+      return { ok: false, error: "wrong_passphrase" };
+    }
+    if (!parsed?.state || typeof parsed.state !== "object") {
+      return { ok: false, error: "invalid_archive" };
+    }
+    return {
+      ok: true,
+      state: parsed.state,
+      capturedAt: parsed.capturedAt || null,
+      appVersion: parsed.appVersion || null,
+      keyCount: Object.keys(parsed.state).length,
+    };
+  } catch (e) {
+    return { ok: false, error: e?.name === "AbortError" ? "timeout" : "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// --- Linked mobile devices -------------------------------------------------
+// Shares the pairing route's gating exactly: the same role check, the same
+// feature checks, the same licence state. Listing or remotely signing out a
+// device is as sensitive as creating a pairing code, so it must not be reachable
+// on an install where pairing itself is refused.
+async function mobileDevicesRequest(event, path, { method = "GET", body } = {}) {
+  const user = getSessionUser(event);
+  if (!canManageMobileCompanion(user)) return { ok: false, error: "not_authorized" };
+  if (!isMobileCompanionFeatureLicensed()) return { ok: false, error: "mobile_feature_not_licensed" };
+  if (!isMfaFeatureLicensed()) return { ok: false, error: "two_factor_not_licensed" };
+  if (getLicenseStatus().state !== "active") return { ok: false, error: "license_inactive" };
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return { ok: false, error: "license_inactive" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}${path}`, {
+      method,
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      return { ok: false, error: String(data?.error?.code || "online_service_unavailable") };
+    }
+    return { ok: true, ...data };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function listMobileDevicesOnline(event) {
+  return mobileDevicesRequest(event, "/api/v1/mobile/devices");
+}
+
+function revokeMobileDeviceOnline(event, payload) {
+  const id = Number(payload?.deviceId);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return Promise.resolve({ ok: false, error: "device_not_found" });
+  }
+  return mobileDevicesRequest(event, `/api/v1/mobile/devices/${id}/revoke`, {
+    method: "POST",
+    // keepTrust ends the session but lets the phone sign back in with account
+    // + 2FA; without it the device also has to be paired again.
+    body: { keepTrust: payload?.keepTrust === true },
+  });
+}
+
+function commerceMinor(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.round(amount * 100)));
+}
+
+function commerceMilli(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.max(-Number.MAX_SAFE_INTEGER, Math.min(Number.MAX_SAFE_INTEGER, Math.round(amount * 1000)));
+}
+
+function buildCommerceSnapshot() {
+  const products = readJsonKey(`${STORE_PREFIX}products`, []);
+  const customers = readJsonKey(`${STORE_PREFIX}customers`, []);
+  const invoices = readJsonKey(`${STORE_PREFIX}salesInvoices`, []);
+  const customerStats = new Map();
+  for (const invoice of invoices) {
+    if (!invoice || invoice.cancelled) continue;
+    const id = String(invoice.customerId || "");
+    const current = customerStats.get(id) || { balanceMinor: 0, orderCount: 0, totalSpentMinor: 0 };
+    current.balanceMinor += commerceMinor(invoice.remaining);
+    current.orderCount += 1;
+    current.totalSpentMinor += commerceMinor(invoice.total);
+    customerStats.set(id, current);
+  }
+  const payload = {
+    snapshotVersion: 1,
+    products: Array.isArray(products) ? products.map((product) => ({
+      id: String(product.id || ""), code: product.code, name: product.name,
+      partNumber: product.partNumber, brand: product.partBrand, category: product.category,
+      quantityMilli: commerceMilli(product.quantity), minStockMilli: commerceMilli(product.minStock),
+      retailPriceMinor: commerceMinor(product.retailPrice), costMinor: commerceMinor(product.avgCost ?? product.purchasePrice),
+      archived: Boolean(product.archived),
+    })) : [],
+    customers: Array.isArray(customers) ? customers.map((customer) => {
+      const stats = customerStats.get(String(customer.id || "")) || { balanceMinor: 0, orderCount: 0, totalSpentMinor: 0 };
+      return { id: String(customer.id || ""), code: customer.code, name: customer.name, phone: customer.phone,
+        archived: Boolean(customer.archived), createdAt: customer.createdAt, ...stats };
+    }) : [],
+    orders: Array.isArray(invoices) ? invoices.map((invoice) => {
+      const lines = Array.isArray(invoice.lines) ? invoice.lines.map((line) => ({
+        productId: String(line.productId || ""), productName: line.productName,
+        quantityMilli: commerceMilli(line.quantity), priceMinor: commerceMinor(line.price), costMinor: commerceMinor(line.costPrice),
+      })) : [];
+      const costMinor = lines.reduce((sum, line) => sum + Math.round(line.costMinor * line.quantityMilli / 1000), 0);
+      return { id: String(invoice.id || ""), invoiceNumber: invoice.invoiceNumber, date: invoice.date,
+        customerId: String(invoice.customerId || ""), customerName: invoice.customerName || "عميل نقدي",
+        branchName: invoice.branchName, status: invoice.status || "unknown", paymentType: invoice.paymentType,
+        totalMinor: commerceMinor(invoice.total), receivedMinor: commerceMinor(invoice.amountReceived),
+        remainingMinor: commerceMinor(invoice.remaining), discountMinor: commerceMinor(invoice.discount), costMinor,
+        itemCount: lines.reduce((sum, line) => sum + Math.max(0, Math.round(line.quantityMilli / 1000)), 0),
+        cancelled: Boolean(invoice.cancelled), lines, createdAt: invoice.createdAt };
+    }) : [],
+  };
+  const serialized = JSON.stringify(payload);
+  return { ...payload, datasetHash: crypto.createHash("sha256").update(serialized).digest("hex") };
+}
+
+let commerceSyncInFlight = false;
+function commerceSourceRevision() {
+  const keys = [`${STORE_PREFIX}products`, `${STORE_PREFIX}customers`, `${STORE_PREFIX}salesInvoices`];
+  const rows = openDatabase().prepare("SELECT key, updated_at FROM kv_store WHERE key IN (?, ?, ?) ORDER BY key").all(...keys);
+  return crypto.createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+}
+
+async function syncCommerceOnline({ force = false } = {}) {
+  if (commerceSyncInFlight || !REFERRAL_PORTAL_ORIGIN) return;
+  if (getLicenseStatus().state !== "active") return;
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token?.startsWith("APLIC.")) return;
+  const lastAt = Date.parse(storageGet(COMMERCE_SYNC_AT_KEY) || "");
+  const sourceRevision = commerceSourceRevision();
+  if (!force && storageGet(COMMERCE_SYNC_SOURCE_REVISION_KEY) === sourceRevision &&
+      Number.isFinite(lastAt) && Date.now() - lastAt < 24 * 60 * 60 * 1000) return;
+  const snapshot = buildCommerceSnapshot();
+  commerceSyncInFlight = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/snapshot`, {
+      method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(snapshot), signal: controller.signal,
+    });
+    if (response.ok) {
+      storageSet(COMMERCE_SYNC_HASH_KEY, snapshot.datasetHash);
+      storageSet(COMMERCE_SYNC_SOURCE_REVISION_KEY, sourceRevision);
+      storageSet(COMMERCE_SYNC_AT_KEY, new Date().toISOString());
+      storageRemove(COMMERCE_SYNC_ERROR_KEY);
+    } else {
+      const message = `http_${response.status}`;
+      console.error(`[electron] commerce sync rejected by portal: ${message}`);
+      storageSet(COMMERCE_SYNC_ERROR_KEY, JSON.stringify({ message, at: new Date().toISOString() }));
+    }
+  } catch (e) {
+    // Offline-first: failure never blocks local sales; the periodic job retries.
+    const message = e?.name === "AbortError" ? "timeout" : e?.message || "unknown_error";
+    console.error(`[electron] commerce sync failed: ${message}`);
+    storageSet(COMMERCE_SYNC_ERROR_KEY, JSON.stringify({ message, at: new Date().toISOString() }));
+  } finally {
+    clearTimeout(timeout);
+    commerceSyncInFlight = false;
   }
 }
 
@@ -2777,7 +3731,7 @@ function createWindow() {
     height: 860,
     minWidth: 1100,
     minHeight: 720,
-    title: "AutoParts Inventory & Sales System",
+    title: "PartFlow — By Helpers Tech",
     icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
@@ -4132,6 +5086,128 @@ function registerIpc() {
 
   ipcMain.handle("license:get-machine-code", () => getMachineCode());
   ipcMain.handle("license:get-status", () => getLicenseStatus());
+  ipcMain.handle("license:get-referral", (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    return getReferralInfoOnline();
+  });
+  ipcMain.handle("license:get-commerce-sync-status", (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    const lastError = storageGet(COMMERCE_SYNC_ERROR_KEY);
+    return {
+      ok: true,
+      lastSyncedAt: storageGet(COMMERCE_SYNC_AT_KEY),
+      lastError: lastError ? JSON.parse(lastError) : null,
+    };
+  });
+  ipcMain.handle("license:get-mobile-link-status", (event) => {
+    const user = getSessionUser(event);
+    if (!user) return { ok: false, error: "not_authorized" };
+    return {
+      ok: true,
+      allowedRole: canManageMobileCompanion(user),
+      featureLicensed: isMobileCompanionFeatureLicensed(),
+      twoFactorLicensed: isMfaFeatureLicensed(),
+      mfaEnabled: Boolean(getMfaRecord(user.id)?.enabled),
+      role: user.role === "owner" ? "owner" : "supervisor",
+    };
+  });
+  ipcMain.handle("license:create-mobile-pairing", (event, payload) =>
+    createMobilePairingOnline(event, payload),
+  );
+  // ── Cloud archive ────────────────────────────────────────────────────
+  // Owner-only throughout: the passphrase is the single thing standing between
+  // the archive and anyone who obtains it, and a restore replaces every record
+  // in the shop.
+  ipcMain.handle("cloud-archive:get-status", (event) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    const lastError = storageGet(CLOUD_ARCHIVE_ERROR_KEY);
+    return {
+      ok: true,
+      featureLicensed: isCloudBackupFeatureLicensed(),
+      configured: Boolean(getCloudArchivePassphrase()),
+      lastArchivedAt: storageGet(CLOUD_ARCHIVE_AT_KEY),
+      lastError: lastError ? JSON.parse(lastError) : null,
+      serviceAvailable: Boolean(REFERRAL_PORTAL_ORIGIN),
+    };
+  });
+
+  ipcMain.handle("cloud-archive:set-passphrase", async (event, payload) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    if (!isCloudBackupFeatureLicensed()) return { ok: false, error: "cloud_backup_not_licensed" };
+    const passphrase = String(payload?.passphrase || "");
+    // scrypt makes short passphrases expensive to brute-force but not safe;
+    // this is the only secret protecting a full copy of the shop.
+    if (passphrase.length < 12) return { ok: false, error: "passphrase_too_short" };
+    if (!(await verifyPassword(user.passwordHash, String(payload?.password || "")))) {
+      return { ok: false, error: "invalid_password" };
+    }
+    storageSet(CLOUD_ARCHIVE_PASSPHRASE_KEY, encryptMfaSecret(passphrase));
+    // The old archive was sealed with the previous passphrase, so force a
+    // fresh upload rather than leaving an entry the owner can no longer open.
+    storageRemove(CLOUD_ARCHIVE_HASH_KEY);
+    return syncCloudArchive({ force: true });
+  });
+
+  ipcMain.handle("cloud-archive:sync-now", (event) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    return syncCloudArchive({ force: true });
+  });
+
+  ipcMain.handle("cloud-archive:preview-restore", async (event, payload) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    const result = await fetchCloudArchive(String(payload?.passphrase || ""));
+    // Never hand the renderer the actual records for a preview — it only needs
+    // to know what it is about to overwrite itself with.
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      capturedAt: result.capturedAt,
+      appVersion: result.appVersion,
+      keyCount: result.keyCount,
+    };
+  });
+
+  ipcMain.handle("cloud-archive:restore", async (event, payload) => {
+    const user = getSessionUser(event);
+    if (user?.role !== "owner") return { ok: false, error: "not_authorized" };
+    const archive = await fetchCloudArchive(String(payload?.passphrase || ""));
+    if (!archive.ok) return archive;
+    // Same write path and same key filter as storage:import, so a crafted
+    // archive can no more reach a protected key than a crafted backup file.
+    const insert = openDatabase().prepare(
+      "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    );
+    let restored = 0;
+    const now = new Date().toISOString();
+    openDatabase().transaction(() => {
+      for (const [key, value] of Object.entries(archive.state)) {
+        if (typeof key !== "string" || typeof value !== "string") continue;
+        if (!isRendererStorageKey(key)) continue;
+        insert.run(key, normalizeRendererStorageValue(key, value), now);
+        restored += 1;
+      }
+    })();
+    // The audit log lives in the renderer's own store (autoparts_inventory_v1::
+    // auditLogs) and has just been overwritten by the archive, so there is no
+    // durable place to record this from here — the renderer writes the entry
+    // after it reloads.
+    console.log(JSON.stringify({
+      event: "cloud_archive_restored", keyCount: restored, capturedAt: archive.capturedAt,
+    }));
+    // The renderer holds the old state in memory; only a reload is honest.
+    return { ok: true, keyCount: restored, capturedAt: archive.capturedAt, requiresReload: true };
+  });
+
+  ipcMain.handle("license:list-mobile-devices", (event) =>
+    listMobileDevicesOnline(event),
+  );
+  ipcMain.handle("license:revoke-mobile-device", (event, payload) =>
+    revokeMobileDeviceOnline(event, payload),
+  );
   ipcMain.handle("license:activate", (_event, serial) => {
     const status = evaluateLicense(serial, false);
     if (status.state !== "active") {
@@ -4824,15 +5900,69 @@ function registerIpc() {
       return { ok: false, error: "decrypt_failed" };
     }
   });
+
+  // ── Auto-update IPC handlers ──────────────────────────────────────────
+  ipcMain.handle("updates:get-status", () => {
+    return { ok: true, ...getUpdateStatusForRenderer() };
+  });
+  ipcMain.handle("updates:check-now", async () => {
+    try {
+      const result = await checkForUpdateOnline("manual");
+      return { ok: true, ...result };
+    } catch {
+      return { ok: false, error: "check_failed" };
+    }
+  });
+  ipcMain.handle("updates:download", async () => {
+    try {
+      const ok = await downloadUpdate();
+      return { ok };
+    } catch {
+      return { ok: false, error: "download_failed" };
+    }
+  });
+  ipcMain.handle("updates:install", () => {
+    return { ok: installUpdate() };
+  });
+  ipcMain.handle("updates:cancel-download", () => {
+    return { ok: cancelDownload() };
+  });
+  ipcMain.handle("updates:skip-release", (_event, releaseId) => {
+    if (!releaseId || typeof releaseId !== "string") return { ok: false };
+    if (
+      _updateState.release &&
+      canSkipUpdate(_updateState.release) &&
+      _updateState.release.id === releaseId
+    ) {
+      addSkippedRelease(releaseId);
+      void reportUpdateEvent("skipped", {
+        targetVersion: _updateState.release?.version,
+      });
+      _updateState.phase = "idle";
+      _updateState.release = null;
+      _updateState.feed = null;
+      broadcastUpdateState();
+      return { ok: true };
+    }
+    return { ok: false, error: "cannot_skip" };
+  });
+  ipcMain.handle("updates:get-preferences", () => {
+    return { ok: true, preferences: getUpdatePreferences() };
+  });
+  ipcMain.handle("updates:set-preferences", (event, prefs) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
+    return { ok: true, preferences: setUpdatePreferencesStore(prefs) };
+  });
 }
 
 app.whenReady().then(() => {
   // ── SECURITY: Set Content Security Policy ──────────────────────────
   const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const portalSrc = REFERRAL_PORTAL_ORIGIN ? ` ${REFERRAL_PORTAL_ORIGIN}` : "";
     const cspDirectives = isDev
-      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://app.bosta.co;"
-      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://app.bosta.co; object-src 'none'; base-uri 'self'; form-action 'self';";
+      ? `default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://app.bosta.co https://tracking.bosta.co${portalSrc};`
+      : `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://app.bosta.co https://tracking.bosta.co${portalSrc}; object-src 'none'; base-uri 'self'; form-action 'self';`;
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -4857,6 +5987,22 @@ app.whenReady().then(() => {
   setInterval(() => {
     void checkLicenseOnline();
   }, 30 * 1000);
+  setTimeout(() => void syncCommerceOnline({ force: true }), 15 * 1000);
+  setInterval(() => void syncCommerceOnline(), 2 * 60 * 1000);
+
+  // Cloud archive — much heavier than the commerce snapshot (scrypt plus the
+  // whole store), so it runs on a slower cadence and skips unchanged state via
+  // its own content hash. A no-op costs one hash of the kv_store.
+  setTimeout(() => void syncCloudArchive(), 90 * 1000);
+  setInterval(() => void syncCloudArchive(), 30 * 60 * 1000);
+
+  // Auto-update check — first check after 30 s, then every 5 min.
+  setTimeout(() => {
+    void checkForUpdateOnline("startup");
+    _updateCheckTimer = setInterval(() => {
+      void checkForUpdateOnline("scheduled");
+    }, UPDATE_CHECK_INTERVAL_MS);
+  }, 30 * 1000);
 
   if (isSmokeTestRun()) {
     // SECURITY: Removed console.log of license status
@@ -4876,6 +6022,14 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  // Install-on-quit: if a downloaded update is pending and the user opted in,
+  // trigger the installer now so the machine restarts into the new version.
+  if (_updateState.phase === "downloaded" && getUpdatePreferences().autoInstallOnQuit) {
+    try {
+      const { autoUpdater } = require("electron-updater");
+      autoUpdater.quitAndInstall(false, true);
+    } catch { /* best-effort */ }
+  }
   try {
     db?.pragma("wal_checkpoint(TRUNCATE)");
   } catch {

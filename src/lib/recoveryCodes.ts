@@ -1,7 +1,7 @@
 export function downloadRecoveryCodes(codes: string[], username: string): void {
   const safeUsername = username.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "account";
   const content = [
-    "AutoParts Inventory & Sales System",
+    "PartFlow — By Helpers Tech",
     `Recovery codes for: ${username}`,
     "Each code can be used once. Keep this file outside the application device.",
     "",

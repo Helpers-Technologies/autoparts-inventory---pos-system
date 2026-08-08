@@ -77,7 +77,10 @@ describe("formatDateTime", () => {
 
   it("includes date and HH:MM time portion", () => {
     const result = formatDateTime("2026-05-28T14:07:00.000Z");
-    // Date portion must be present; time portion format is HH:MM
-    expect(result).toMatch(/\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}/);
+    // Date/time are joined by an intentional U+00A0 non-breaking space (kept
+    // next to each other inside a bidi isolate so RTL layouts can't split
+    // them apart — see formatDateTime's own comment), not a plain " ", so
+    // match on \s rather than a literal space.
+    expect(result).toMatch(/\d{2}\/\d{2}\/\d{4}\s\d{2}:\d{2}/);
   });
 });

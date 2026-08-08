@@ -1,11 +1,11 @@
-# AutoParts Inventory & Sales System
+# PartFlow
 
 This is a standalone desktop edition for automotive spare-parts stores.
 
 - Windows application ID: `com.helperstechnologies.autoparts`
 - Local database: `autoparts-inventory.secure.sqlite`
 - Local storage namespace: `autoparts_inventory_v1::`
-- Product name: `AutoParts Inventory & Sales System`
+- Product name: `PartFlow`
 - Device code: `APW-…`
 - License and support codes: `APLIC.…` and `APSUP.…`
 

@@ -77,33 +77,115 @@ jobs:
         id: find_installer
         shell: pwsh
         run: |
-          $installer = Get-ChildItem -Path release -Filter *.exe -Recurse | Select-Object -First 1
-          if (-not $installer) { throw "No .exe artifact found under release/" }
+          $version = node -p "require('./package.json').version"
+          $expectedPath = Join-Path $PWD "release/PartFlow-$version-Setup.exe"
+          if (-not (Test-Path -LiteralPath $expectedPath -PathType Leaf)) {
+            throw "Expected NSIS installer was not produced: $expectedPath"
+          }
+          $installer = Get-Item -LiteralPath $expectedPath
           echo "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
           echo "name=$($installer.Name)" >> $env:GITHUB_OUTPUT
+
+      # Kept even though the check below now accepts the self-signed cert too:
+      # it's a second, independent way to retrieve the exe if the trust check
+      # is ever tightened again later (e.g. after switching to a real CA cert
+      # with stricter pinning), without that future change silently losing
+      # artifact availability.
+      - name: Upload build artifact (always, pre-trust-check)
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-installer-unverified
+          path: ${{ steps.find_installer.outputs.path }}
+          retention-days: 14
+
+      # Distribution here is manual install, not electron-updater's silent
+      # background flow — confirmed with the business owner 2026-08-07 — so a
+      # self-signed certificate is a deliberate, accepted choice, not a defect
+      # to work around. A self-signed cert can never chain to a trusted root on
+      # ANY machine (that's what "self-signed" means), so this step accepts
+      # exactly that one specific failure shape instead of demanding trust it
+      # structurally cannot have.
+      #
+      # Still hard-fails on anything else — wrong signer, no signature, a
+      # tampered file, or a missing timestamp — so this stays a real integrity
+      # check, not a rubber stamp. The subject is pinned to the one certificate
+      # this project actually uses: a different self-signed identity (e.g. from
+      # a compromised signing secret) does NOT pass.
+      - name: Verify Authenticode signature (self-signed cert accepted)
+        shell: pwsh
+        run: |
+          $expectedSigner = "E=info@helpers-tech.com, CN=Helpers Technologies Self-Signed Code Signing"
+          $signature = Get-AuthenticodeSignature -LiteralPath "${{ steps.find_installer.outputs.path }}"
+          # Issuer/subject of a code-signing cert are public — they ship inside
+          # every signed binary already — so logging them unconditionally (pass
+          # or fail) costs nothing and turns any future failure here into a
+          # one-look diagnosis instead of a guessing game.
+          "Signer: $($signature.SignerCertificate.Subject)"
+          "Issuer: $($signature.SignerCertificate.Issuer)"
+          "Status: $($signature.Status) — $($signature.StatusMessage)"
+
+          $isKnownSelfSignedRootFailure =
+            $signature.Status -eq [System.Management.Automation.SignatureStatus]::UnknownError `
+            -and $signature.SignerCertificate.Subject -eq $expectedSigner `
+            -and $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer `
+            -and $signature.StatusMessage -match 'root certificate which is not trusted'
+
+          if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -and -not $isKnownSelfSignedRootFailure) {
+            throw "Installer Authenticode signature is not acceptable: $($signature.Status) — $($signature.StatusMessage)"
+          }
+          if (-not $signature.TimeStamperCertificate) {
+            throw "Installer signature has no RFC-3161 timestamp; refusing to publish an update artifact."
+          }
+          if ($isKnownSelfSignedRootFailure) {
+            "Accepted self-signed publisher (manual-install distribution, no public CA chain): $($signature.SignerCertificate.Subject)"
+          } else {
+            "Verified publisher: $($signature.SignerCertificate.Subject)"
+          }
+
+      - name: Generate portal update metadata
+        id: update_metadata
+        shell: pwsh
+        run: |
+          node scripts/generate-update-metadata.cjs --file "release/${{ steps.find_installer.outputs.name }}"
+          $version = node -p "require('./package.json').version"
+          $metadata = Join-Path $PWD "release/PartFlow-$version-update.json"
+          if (-not (Test-Path -LiteralPath $metadata -PathType Leaf)) {
+            throw "Update metadata was not generated: $metadata"
+          }
+          echo "path=$metadata" >> $env:GITHUB_OUTPUT
 
       - name: Upload installer as workflow artifact
         uses: actions/upload-artifact@v5
         with:
           name: windows-installer
-          path: ${{ steps.find_installer.outputs.path }}
+          path: |
+            ${{ steps.find_installer.outputs.path }}
+            ${{ steps.update_metadata.outputs.path }}
           retention-days: 90
 
       - name: Create GitHub Release with installer attached
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ci-build-${{ github.run_number }}
-          name: "Build #${{ github.run_number }} — signed, real license key"
+          name: "Build #${{ github.run_number }} — signed (self-signed cert), real license key"
           body: |
             Automated CI build from commit ${{ github.sha }}.
 
-            Signed with the Helpers Technologies code-signing certificate and
-            verifies real production license serials.
+            Signed with the Helpers Technologies **self-signed** code-signing
+            certificate (not issued by a public CA — a deliberate choice for
+            manual-install distribution) and verifies real production license
+            serials.
 
-            ⚠️ The certificate is **self-signed** (not issued by a public CA),
-            so Windows SmartScreen will still show an "unknown publisher"
-            prompt on first run regardless of signing — that only goes away
-            with a CA-issued certificate. Functionally, this build is
-            equivalent to a local `npm run dist:win` release.
+            Windows SmartScreen will show an "Unknown Publisher" prompt on
+            first run — expected with a self-signed certificate, not a build
+            problem. Click "More info" → "Run anyway" to proceed.
+
+            The workflow still refuses to publish on a missing/tampered
+            signature, a wrong signer identity, or a missing RFC-3161
+            timestamp — only the public-CA trust-chain requirement is relaxed.
+            Upload this exact installer through the PartFlow license portal to
+            distribute it as an update.
           prerelease: true
-          files: ${{ steps.find_installer.outputs.path }}
+          files: |
+            ${{ steps.find_installer.outputs.path }}
+            ${{ steps.update_metadata.outputs.path }}

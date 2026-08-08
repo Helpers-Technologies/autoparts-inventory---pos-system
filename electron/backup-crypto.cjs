@@ -176,10 +176,59 @@ function decryptBackupWithPassphrase(encryptedStr, passphrase) {
   return decipher.update(data) + decipher.final("utf8");
 }
 
+/**
+ * Async twin of {@link encryptBackupWithPassphrase}, byte-for-byte compatible.
+ *
+ * Exists for the periodic cloud archive, which runs unattended on Electron's
+ * main thread: scryptSync with N=16384 and a 64 MB maxmem holds that thread for
+ * ~100 ms, and every storage IPC from the renderer waits behind it. A manual
+ * export can afford the sync version because the user is already waiting on a
+ * dialog; a background job cannot.
+ *
+ * @param {string} plaintext
+ * @param {string} passphrase - non-empty user secret
+ * @returns {Promise<string>}
+ */
+function encryptBackupWithPassphraseAsync(plaintext, passphrase) {
+  if (typeof passphrase !== "string" || passphrase.length === 0) {
+    return Promise.reject(new Error("passphrase_required"));
+  }
+  const salt = crypto.randomBytes(16);
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(
+      Buffer.from(String(passphrase), "utf8"),
+      salt,
+      SCRYPT_PARAMS.keylen,
+      { N: SCRYPT_PARAMS.N, r: SCRYPT_PARAMS.r, p: SCRYPT_PARAMS.p, maxmem: SCRYPT_MAXMEM },
+      (error, key) => {
+        if (error) return reject(error);
+        try {
+          const iv = crypto.randomBytes(12);
+          const cipher = crypto.createCipheriv(ALGO, key, iv);
+          const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+          resolve(JSON.stringify({
+            v: PASSPHRASE_ENVELOPE_VERSION,
+            enc: ALGO,
+            kdf: "scrypt",
+            kdfParams: { N: SCRYPT_PARAMS.N, r: SCRYPT_PARAMS.r, p: SCRYPT_PARAMS.p, keylen: SCRYPT_PARAMS.keylen },
+            salt: salt.toString("base64"),
+            iv: iv.toString("base64"),
+            tag: cipher.getAuthTag().toString("base64"),
+            data: encrypted.toString("base64"),
+          }));
+        } catch (cipherError) {
+          reject(cipherError);
+        }
+      },
+    );
+  });
+}
+
 module.exports = {
   encryptBackupContent,
   decryptBackupContent,
   encryptBackupWithPassphrase,
+  encryptBackupWithPassphraseAsync,
   decryptBackupWithPassphrase,
   isEncryptedBackup,
   getBackupEnvelopeVersion,

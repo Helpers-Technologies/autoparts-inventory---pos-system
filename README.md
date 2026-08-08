@@ -1,10 +1,12 @@
-# AutoParts Inventory & Sales System
+# PartFlow
+
+Desktop inventory and sales management system for auto-parts stores.
 
 [![CI](https://github.com/amrhanygomaa/Inv_system/actions/workflows/ci.yml/badge.svg)](https://github.com/amrhanygomaa/Inv_system/actions/workflows/ci.yml)
 
 تطبيق Windows Desktop مستقل لمحلات وتجار قطع غيار السيارات. يدير كتالوج السيارات وتوافق القطع والبدائل والمخزون والفواتير، ويعمل أوفلاين بقاعدة SQLite محلية مشفرة.
 
-**Package version:** `6.0.2`
+**Package version:** `6.1.1`
 
 ## نظرة عامة
 
@@ -35,6 +37,7 @@
 | المستخدمون | مالك وموظفون، صلاحيات تفصيلية، عمولات وتارجت شهري |
 | النسخ الاحتياطي | نسخ يدوية وتلقائية ومشفرة بصيغة `.hwbak`، واستعادة آمنة |
 | التراخيص | سيريال موقّع مرتبط بالجهاز، باقات مميزات، وتجديد أو ترقية من داخل التطبيق |
+| دعوة صديق | كود تلقائي لكل عميل، مشاركة وواتساب، ورصيد وسجل عمولة 5% على أول شراء مُحال |
 
 ## المميزات القابلة للترخيص
 
@@ -146,7 +149,7 @@ release/
 اسم المثبت يعتمد على `productName` و `version` في `package.json`:
 
 ```text
-AutoParts Inventory & Sales System-6.0.2-Setup.exe
+AutoParts Inventory & Sales System-6.1.1-Setup.exe
 ```
 
 البناء يستخدم:
