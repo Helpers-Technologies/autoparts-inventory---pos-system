@@ -53,6 +53,11 @@ profile "${executable}" "/opt/${sanitizedProductName}/${executable}" flags=(atta
   /run/user/*/** rwkl,
 
   # System status and devices
+  # `/ r` is the root directory listing glycin (GTK's image loader) asks for
+  # when it sets up its own sandbox; without it every launch logs an alarming
+  # ERROR about being unable to read /, which is neither fatal nor a real
+  # permission problem worth teaching support staff to ignore.
+  / r,
   /sys/bus/pci/devices/ r,
   /sys/devices/** r,
   /proc/** r,
@@ -107,6 +112,37 @@ profile "${executable}" "/opt/${sanitizedProductName}/${executable}" flags=(atta
   @{PROC}/** r,
   @{PROC}/*/ r,
   @{PROC}/*/task/ r,
+  # Chromium lowers the OOM score of its renderers so the kernel kills a tab
+  # rather than the browser when memory runs out, and writes setgroups while
+  # building the sandbox user namespace. Read access is not enough for either.
+  owner @{PROC}/*/oom_score_adj w,
+  owner @{PROC}/*/oom_adj w,
+  owner @{PROC}/*/setgroups w,
+  @{PROC}/*/oom_score_adj w,
+  @{PROC}/*/oom_adj w,
+
+  # Opening a file, folder or link in the user's own applications goes through
+  # xdg-open, which is a shell script. Without this, "open containing folder"
+  # and every external link in the app silently do nothing.
+  /usr/bin/dash rix,
+  /bin/dash rix,
+  /usr/bin/xdg-open rix,
+  /usr/bin/** rix,
+  /bin/** rix,
+  # The app reads the machine id by shelling out to `head`, and that value is
+  # what its database encryption key is derived from. On a distribution that
+  # ships uutils, `head` lives under /usr/lib rather than /usr/bin, so a rule
+  # covering only /usr/bin let the exec fail — node-machine-id then fell back
+  # to a hostname-derived id, the app computed a *different* key, and the
+  # database it had written the day before came back as "file is not a
+  # database". Nothing announced a permission problem; it looked exactly like
+  # total data loss. Read access alone is not enough here: it has to execute.
+  /usr/lib/** rix,
+  /usr/libexec/** rix,
+
+  # GTK reads the desktop's settings (theme, fonts, scaling) from dconf.
+  owner @{HOME}/.config/dconf/user rw,
+  owner /run/user/*/dconf/user rw,
 
   # Site-specific additions and overrides
   include if exists <local/${executable}>
