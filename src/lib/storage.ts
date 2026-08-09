@@ -235,14 +235,29 @@ const _lastChunkCount = new Map<string, number>();
  *  app already has in state, so it costs one pointer per record, not a copy. */
 const _lastArray = new Map<string, readonly unknown[]>();
 
-/** True when [start,end) is element-for-element the same in both arrays. */
+/**
+ * True when the chunk at [start,end) would serialize to exactly what is already
+ * stored — same elements AND same length.
+ *
+ * The length check is not redundant. A collection that shrinks keeps its
+ * leading elements identical, so comparing only those said "unchanged" and
+ * skipped the write, leaving the chunk on disk at its old, longer size while
+ * the manifest recorded the new count. The read then found more records than
+ * the manifest promised, correctly refused to serve a shop it could not
+ * verify, and the collection came back as the empty fallback.
+ *
+ * Found by the property tests, not by hand: it needs a shrink that lands
+ * inside a chunk rather than removing whole chunks, which is a narrow target
+ * to aim at deliberately.
+ */
 function unchangedRange(
   previous: readonly unknown[],
   next: readonly unknown[],
   start: number,
   end: number,
 ): boolean {
-  if (previous.length < end) return false;
+  const previousEnd = Math.min(start + CHUNK_SIZE, previous.length);
+  if (previousEnd !== end) return false;
   for (let i = start; i < end; i++) {
     if (previous[i] !== next[i]) return false;
   }
