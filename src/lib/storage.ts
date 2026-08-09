@@ -223,6 +223,185 @@ export function lsGet<T>(key: string, fallback: T): T {
   }
 }
 
+/**
+ * How many records a chunked collection holds, without reading any of them.
+ *
+ * Reads one small manifest row. Screens use this to show a count and decide on
+ * paging before committing to loading anything.
+ */
+export function lsCount(key: string): number {
+  if (!CHUNKED_KEYS.has(key)) {
+    const raw = readRow(PREFIX + key);
+    if (raw === null) return 0;
+    try {
+      const value = JSON.parse(raw);
+      return Array.isArray(value) ? value.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+  const legacy = readRow(PREFIX + key);
+  if (legacy !== null && legacy !== CHUNKED_TOMBSTONE) {
+    try {
+      const value = JSON.parse(legacy);
+      return Array.isArray(value) ? value.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+  const rawMeta = readRow(metaKey(key));
+  if (rawMeta === null) return 0;
+  try {
+    const total = Number(JSON.parse(rawMeta)?.total);
+    return Number.isInteger(total) && total >= 0 ? total : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Appends to a chunked collection WITHOUT loading it.
+ *
+ * This is what lets an append-only log — stock movements, audit entries — stay
+ * out of memory entirely. Only the last chunk and the manifest are touched, so
+ * the cost is the size of one chunk, not the size of the history: recording a
+ * movement against 300,000 existing ones costs the same as against 30.
+ *
+ * Returns false when the collection is not in chunked form (an un-migrated shop,
+ * or a restored pre-chunking backup), so the caller can fall back to the
+ * load-modify-save path rather than silently dropping the record. Losing a
+ * stock movement means the inventory ledger no longer reconciles.
+ */
+export function lsAppend<T>(key: string, items: readonly T[]): boolean {
+  if (!CHUNKED_KEYS.has(key) || items.length === 0) return false;
+
+  const legacy = readRow(PREFIX + key);
+  // Not chunked yet: the caller must migrate it the normal way first.
+  if (legacy !== null && legacy !== CHUNKED_TOMBSTONE) return false;
+
+  const rawMeta = readRow(metaKey(key));
+  if (rawMeta === null) return false;
+  let meta: { chunks?: number; total?: number };
+  try {
+    meta = JSON.parse(rawMeta);
+  } catch {
+    return false;
+  }
+  let chunkCount = Number(meta?.chunks);
+  let total = Number(meta?.total);
+  if (!Number.isInteger(chunkCount) || chunkCount < 0) return false;
+  if (!Number.isInteger(total) || total < 0) return false;
+
+  const batch: Record<string, string> = {};
+  // Start from the last chunk if it has room; otherwise begin a new one.
+  let index = chunkCount === 0 ? 0 : chunkCount - 1;
+  let current: T[] = [];
+  if (chunkCount > 0) {
+    const raw = readRow(chunkKey(key, index));
+    if (raw === null) return false;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return false;
+      current = parsed as T[];
+    } catch {
+      return false;
+    }
+    if (current.length >= CHUNK_SIZE) {
+      index = chunkCount;
+      current = [];
+    }
+  }
+
+  for (const item of items) {
+    if (current.length >= CHUNK_SIZE) {
+      batch[chunkKey(key, index)] = JSON.stringify(current);
+      index += 1;
+      current = [];
+    }
+    current.push(item);
+  }
+  batch[chunkKey(key, index)] = JSON.stringify(current);
+
+  chunkCount = index + 1;
+  total += items.length;
+  batch[metaKey(key)] = JSON.stringify({ chunks: chunkCount, size: CHUNK_SIZE, total });
+
+  for (const [rowKey, rowJson] of Object.entries(batch)) _cache.set(rowKey, rowJson);
+  _lastChunkCount.set(key, chunkCount);
+  // The in-memory array is no longer what is on disk, and this path does not
+  // hold one. Dropping it stops a later full-array flush from skipping chunks
+  // by comparing against a snapshot that predates these appends.
+  _lastArray.delete(key);
+  _lastFlushedRef.delete(key);
+
+  if (window.desktopAPI?.storage?.setBatch) {
+    window.desktopAPI.storage.setBatch(batch);
+  } else if (window.desktopAPI?.storage) {
+    for (const [rowKey, rowJson] of Object.entries(batch)) {
+      window.desktopAPI.storage.set(rowKey, rowJson);
+    }
+  } else {
+    for (const [rowKey, rowJson] of Object.entries(batch)) {
+      localStorage.setItem(rowKey, rowJson);
+    }
+  }
+  return true;
+}
+
+/**
+ * Reads a chunked collection newest-first, at most `limit` records, skipping
+ * `offset` — without parsing chunks outside that window.
+ *
+ * Records are appended in chronological order, so a screen showing the most
+ * recent movements reads the LAST chunks. Walking backwards means the common
+ * case (first page) parses one chunk instead of six hundred.
+ */
+export function lsSliceReversed<T>(key: string, offset: number, limit: number): T[] {
+  if (!CHUNKED_KEYS.has(key) || limit <= 0) return [];
+
+  const legacy = readRow(PREFIX + key);
+  if (legacy !== null && legacy !== CHUNKED_TOMBSTONE) {
+    try {
+      const value = JSON.parse(legacy);
+      if (!Array.isArray(value)) return [];
+      return value.slice().reverse().slice(offset, offset + limit) as T[];
+    } catch {
+      return [];
+    }
+  }
+
+  const rawMeta = readRow(metaKey(key));
+  if (rawMeta === null) return [];
+  let chunkCount = 0;
+  try {
+    chunkCount = Number(JSON.parse(rawMeta)?.chunks) || 0;
+  } catch {
+    return [];
+  }
+
+  const out: T[] = [];
+  let skipped = 0;
+  for (let i = chunkCount - 1; i >= 0 && out.length < limit; i--) {
+    const raw = readRow(chunkKey(key, i));
+    if (raw === null) continue;
+    let part: unknown;
+    try {
+      part = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(part)) continue;
+    for (let j = part.length - 1; j >= 0 && out.length < limit; j--) {
+      if (skipped < offset) {
+        skipped += 1;
+        continue;
+      }
+      out.push(part[j] as T);
+    }
+  }
+  return out;
+}
+
 export function lsSet<T>(key: string, value: T): void {
   const fullKey = PREFIX + key;
   try {
