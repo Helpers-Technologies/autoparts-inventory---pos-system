@@ -49,6 +49,9 @@ const CHUNK_SIZE = 500;
  *  IPC round-trip landing. */
 const CHUNKED_TOMBSTONE = '"__partflow_chunked__"';
 
+/** Value of the `#order` marker once a collection has been reordered. */
+const ORDER_OLDEST_FIRST = '"oldest-first"';
+
 const metaKey = (key: string) => `${PREFIX}${key}#meta`;
 const chunkKey = (key: string, index: number) =>
   `${PREFIX}${key}#${String(index).padStart(4, "0")}`;
@@ -220,6 +223,91 @@ export function lsGet<T>(key: string, fallback: T): T {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
+  }
+}
+
+/**
+ * Puts a collection into oldest-first order once, and records that it is done.
+ *
+ * The ledger has always been kept newest-first in memory: every new movement
+ * was put at the front. That is the one order an append-only chunked store
+ * cannot maintain cheaply — prepending shifts every record and dirties every
+ * chunk, which is exactly the cost being removed here. So the on-disk order
+ * becomes oldest-first, and readers reverse.
+ *
+ * Runs at most once per shop. The marker is written in the SAME batch as the
+ * reordered data, so a crash midway leaves the old order and the migration
+ * simply runs again — never a half-reversed ledger.
+ *
+ * Returns the records in oldest-first order, or null if there was nothing to
+ * do and the caller should read normally.
+ */
+export function lsMigrateToOldestFirst<T>(key: string): T[] | null {
+  if (!CHUNKED_KEYS.has(key)) return null;
+  const markerKey = `${PREFIX}${key}#order`;
+  if (readRow(markerKey) === ORDER_OLDEST_FIRST) return null;
+
+  // Read whatever is there, in whichever form.
+  const legacy = readRow(PREFIX + key);
+  let existing: T[] | null = null;
+  if (legacy !== null && legacy !== CHUNKED_TOMBSTONE) {
+    try {
+      const parsed = JSON.parse(legacy);
+      existing = Array.isArray(parsed) ? (parsed as T[]) : null;
+    } catch {
+      existing = null;
+    }
+  } else {
+    existing = readChunked<T>(key);
+  }
+  // Nothing readable: mark it done so a brand-new shop does not retry forever,
+  // but do not invent data.
+  if (existing === null) {
+    writeRows({ [markerKey]: ORDER_OLDEST_FIRST });
+    return null;
+  }
+
+  const reordered = existing.slice().reverse();
+
+  const rows: Record<string, string> = {};
+  const chunks = Math.ceil(reordered.length / CHUNK_SIZE);
+  for (let i = 0; i < chunks; i++) {
+    rows[chunkKey(key, i)] = JSON.stringify(reordered.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
+  }
+  rows[metaKey(key)] = JSON.stringify({ chunks, size: CHUNK_SIZE, total: reordered.length });
+  rows[PREFIX + key] = CHUNKED_TOMBSTONE;
+  // Blank any chunk left over from a longer previous layout.
+  const previousChunks = Math.max(_lastChunkCount.get(key) ?? 0, chunks);
+  for (let i = chunks; i < previousChunks; i++) rows[chunkKey(key, i)] = "[]";
+  rows[markerKey] = ORDER_OLDEST_FIRST;
+
+  writeRows(rows);
+  _lastChunkCount.set(key, chunks);
+  _lastArray.delete(key);
+  _lastFlushedRef.delete(key);
+  return reordered;
+}
+
+/** True once {@link lsMigrateToOldestFirst} has run for this collection. */
+export function lsIsOldestFirst(key: string): boolean {
+  return readRow(`${PREFIX}${key}#order`) === ORDER_OLDEST_FIRST;
+}
+
+/** Writes rows to the cache and through to storage in one batch. */
+function writeRows(rows: Record<string, string>): void {
+  for (const [rowKey, rowJson] of Object.entries(rows)) _cache.set(rowKey, rowJson);
+  if (window.desktopAPI?.storage?.setBatch) {
+    window.desktopAPI.storage.setBatch(rows);
+    return;
+  }
+  if (window.desktopAPI?.storage) {
+    for (const [rowKey, rowJson] of Object.entries(rows)) {
+      window.desktopAPI.storage.set(rowKey, rowJson);
+    }
+    return;
+  }
+  for (const [rowKey, rowJson] of Object.entries(rows)) {
+    localStorage.setItem(rowKey, rowJson);
   }
 }
 
@@ -397,6 +485,138 @@ export function lsSliceReversed<T>(key: string, offset: number, limit: number): 
         continue;
       }
       out.push(part[j] as T);
+    }
+  }
+  return out;
+}
+
+/**
+ * Removes every record matching `predicate`, rewriting only the chunks that
+ * actually contained one, and returns what was removed.
+ *
+ * Returning the removed records is what lets a caller take an undo snapshot
+ * without a second full scan — deleting an invoice has to record the exact
+ * movements it erased so the delete can be reversed.
+ *
+ * Chunks are left under-full rather than re-packed. Re-packing would shift
+ * every following record and turn a one-invoice delete back into a rewrite of
+ * the whole ledger, which is the cost this design exists to avoid. Readers
+ * concatenate chunks and never assume a fixed length, so gaps are harmless.
+ *
+ * Returns null — changing nothing — when the collection is not in chunked
+ * form, so the caller can fall back rather than believe a delete happened.
+ */
+export function lsRemoveWhere<T>(
+  key: string,
+  predicate: (item: T) => boolean,
+): T[] | null {
+  if (!CHUNKED_KEYS.has(key)) return null;
+
+  const legacy = readRow(PREFIX + key);
+  if (legacy !== null && legacy !== CHUNKED_TOMBSTONE) return null;
+
+  const rawMeta = readRow(metaKey(key));
+  if (rawMeta === null) return null;
+  let chunkCount = 0;
+  let total = 0;
+  try {
+    const meta = JSON.parse(rawMeta);
+    chunkCount = Number(meta?.chunks);
+    total = Number(meta?.total);
+  } catch {
+    return null;
+  }
+  if (!Number.isInteger(chunkCount) || !Number.isInteger(total)) return null;
+
+  const removed: T[] = [];
+  const batch: Record<string, string> = {};
+  for (let i = 0; i < chunkCount; i++) {
+    const raw = readRow(chunkKey(key, i));
+    if (raw === null) return null;
+    let part: unknown;
+    try {
+      part = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(part)) return null;
+
+    const kept: T[] = [];
+    let touched = false;
+    for (const item of part as T[]) {
+      if (predicate(item)) {
+        removed.push(item);
+        touched = true;
+      } else {
+        kept.push(item);
+      }
+    }
+    if (touched) batch[chunkKey(key, i)] = JSON.stringify(kept);
+  }
+
+  if (removed.length === 0) return [];
+
+  batch[metaKey(key)] = JSON.stringify({
+    chunks: chunkCount,
+    size: CHUNK_SIZE,
+    total: total - removed.length,
+  });
+
+  for (const [rowKey, rowJson] of Object.entries(batch)) _cache.set(rowKey, rowJson);
+  _lastArray.delete(key);
+  _lastFlushedRef.delete(key);
+
+  if (window.desktopAPI?.storage?.setBatch) {
+    window.desktopAPI.storage.setBatch(batch);
+  } else if (window.desktopAPI?.storage) {
+    for (const [rowKey, rowJson] of Object.entries(batch)) {
+      window.desktopAPI.storage.set(rowKey, rowJson);
+    }
+  } else {
+    for (const [rowKey, rowJson] of Object.entries(batch)) {
+      localStorage.setItem(rowKey, rowJson);
+    }
+  }
+  return removed;
+}
+
+/**
+ * Walks a chunked collection one chunk at a time, keeping only what `select`
+ * returns — so a screen can filter three hundred thousand records without ever
+ * holding them all at once.
+ */
+export function lsFilterChunked<T>(key: string, select: (item: T) => boolean): T[] {
+  if (!CHUNKED_KEYS.has(key)) return [];
+
+  const legacy = readRow(PREFIX + key);
+  if (legacy !== null && legacy !== CHUNKED_TOMBSTONE) {
+    try {
+      const value = JSON.parse(legacy);
+      return Array.isArray(value) ? (value as T[]).filter(select) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  const rawMeta = readRow(metaKey(key));
+  if (rawMeta === null) return [];
+  let chunkCount = 0;
+  try {
+    chunkCount = Number(JSON.parse(rawMeta)?.chunks) || 0;
+  } catch {
+    return [];
+  }
+
+  const out: T[] = [];
+  for (let i = 0; i < chunkCount; i++) {
+    const raw = readRow(chunkKey(key, i));
+    if (raw === null) continue;
+    try {
+      const part = JSON.parse(raw);
+      if (!Array.isArray(part)) continue;
+      for (const item of part as T[]) if (select(item)) out.push(item);
+    } catch {
+      /* a damaged chunk is skipped rather than failing the whole screen */
     }
   }
   return out;
