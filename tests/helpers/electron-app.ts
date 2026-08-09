@@ -33,10 +33,8 @@ export async function launchElectron(): Promise<ElectronHandle> {
   delete env.ELECTRON_RUN_AS_NODE;
 
   const app = await electron.launch({
-    args: process.platform === "linux"
-      ? ["--no-sandbox", path.resolve("electron/main.cjs")]
-      : [path.resolve("electron/main.cjs")],
-    env,
+    args: [path.resolve("electron/main.cjs")],
+    env: env as Record<string, string>,
   });
 
   const window = await app.firstWindow();

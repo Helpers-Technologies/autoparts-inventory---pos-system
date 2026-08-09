@@ -102,13 +102,20 @@ describe("migrating an existing shop to oldest-first", () => {
     expect(desktop.rows.get(`${PREFIX}stockMovements`)).toBe(TOMBSTONE);
   });
 
-  it("marks an empty shop done without inventing records", async () => {
-    expect(storage.lsMigrateToOldestFirst<Mv>("stockMovements")).toBeNull();
+  it("establishes the empty chunked form on a brand-new shop", async () => {
+    // Writing only the marker here was a real bug: without a manifest the very
+    // first append has nothing to extend, refuses, and the movement is lost —
+    // while the invoice that caused it is filed as normal.
+    expect(storage.lsMigrateToOldestFirst<Mv>("stockMovements")).toEqual([]);
     expect(storage.lsIsOldestFirst("stockMovements")).toBe(true);
     expect(storage.lsGet<Mv[]>("stockMovements", [])).toEqual([]);
+
+    expect(storage.lsAppend("stockMovements", [mv(0)])).toBe(true);
+    await storage.reloadStorageCache();
+    expect(storage.lsGet<Mv[]>("stockMovements", [])).toHaveLength(1);
   });
 
-  it("loses nothing at any size", async () => {
+  it("loses nothing at any size", { timeout: 120_000 }, async () => {
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 0, max: 2600 }), async (size) => {
         await freshModule();
@@ -244,7 +251,7 @@ describe("scanning without loading everything", () => {
     expect(forProduct.every((m) => m.productId === "p-3")).toBe(true);
   });
 
-  it("agrees with filtering the fully-loaded array", async () => {
+  it("agrees with filtering the fully-loaded array", { timeout: 120_000 }, async () => {
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 0, max: 2200 }), async (size) => {
         await freshModule();

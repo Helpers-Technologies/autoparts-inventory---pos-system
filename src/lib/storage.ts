@@ -260,11 +260,17 @@ export function lsMigrateToOldestFirst<T>(key: string): T[] | null {
   } else {
     existing = readChunked<T>(key);
   }
-  // Nothing readable: mark it done so a brand-new shop does not retry forever,
-  // but do not invent data.
+  // Nothing readable — a brand-new shop. Establish the empty chunked form
+  // (manifest and tombstone), not just the marker: without a manifest the very
+  // first append has nothing to extend, refuses, and the record is lost.
   if (existing === null) {
-    writeRows({ [markerKey]: ORDER_OLDEST_FIRST });
-    return null;
+    writeRows({
+      [metaKey(key)]: JSON.stringify({ chunks: 0, size: CHUNK_SIZE, total: 0 }),
+      [PREFIX + key]: CHUNKED_TOMBSTONE,
+      [markerKey]: ORDER_OLDEST_FIRST,
+    });
+    _lastChunkCount.set(key, 0);
+    return [];
   }
 
   const reordered = existing.slice().reverse();

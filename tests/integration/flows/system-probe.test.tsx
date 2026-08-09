@@ -618,7 +618,12 @@ describe("PROBE-N — audit-log invoice restore", () => {
     expect(result.current.salesInvoices.some((i) => i.id === invId)).toBe(true);
     expect(result.current.products.find((p) => p.id === prodId)?.quantity).toBe(90);
     expect(result.current.currentCashBalance()).toBe(openingCash + 500);
-    expect(result.current.stockMovements.some((m) => m.referenceId === invId)).toBe(true);
+    // The ledger is no longer held in memory at startup, so read it the way a
+    // screen does. Asserting on `stockMovements` directly would only prove the
+    // cache is populated, not that the movements were actually restored.
+    let restoredLedger: ReturnType<typeof result.current.hydrateStockMovements> = [];
+    act(() => { restoredLedger = result.current.hydrateStockMovements(); });
+    expect(restoredLedger.some((m) => m.referenceId === invId)).toBe(true);
     expect(result.current.auditLogs.some((a) => a.action === "invoice_restored")).toBe(true);
 
     // snapshot consumed — restoring twice must be rejected without side effects

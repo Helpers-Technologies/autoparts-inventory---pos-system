@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowRight,
@@ -63,7 +63,14 @@ export function ProductDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { products, suppliers } = useCatalog();
-  const { stockMovements, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns } = useInvoicing();
+  const { stockMovements, stockMovementsHydrated, hydrateStockMovements, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns } = useInvoicing();
+
+  // The ledger is not loaded at startup — it is 316,000 records on a large
+  // shop and only these two screens read it. Pull it in when one of them
+  // actually opens.
+  useEffect(() => {
+    if (!stockMovementsHydrated) hydrateStockMovements();
+  }, [stockMovementsHydrated, hydrateStockMovements]);
   const { settings } = useSettings();
   const { currentUser } = useAuth();
   const pro = useAutoPartsPro();

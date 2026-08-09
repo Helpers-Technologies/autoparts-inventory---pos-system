@@ -84,7 +84,14 @@ function loadInventoryColumns(): Record<InventoryColumnKey, boolean> {
 
 export function InventoryPage() {
   const { products, suppliers, adjustStock } = useCatalog();
-  const { stockMovements, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns } = useInvoicing();
+  const { stockMovements, stockMovementsHydrated, hydrateStockMovements, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns } = useInvoicing();
+
+  // The ledger is not loaded at startup — it is 316,000 records on a large
+  // shop and only these two screens read it. Pull it in when one of them
+  // actually opens.
+  useEffect(() => {
+    if (!stockMovementsHydrated) hydrateStockMovements();
+  }, [stockMovementsHydrated, hydrateStockMovements]);
   const { currentUser } = useAuth();
   const { settings } = useSettings();
   const { isEnabled } = useFeatures();

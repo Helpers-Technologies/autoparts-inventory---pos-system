@@ -55,7 +55,11 @@ export interface InvoicingContextValue {
   salesReturns: SalesReturn[];
   purchaseReturns: PurchaseReturn[];
   cashEntries: CashEntry[];
+  /** Cached ledger — empty until `hydrateStockMovements` is called. */
   stockMovements: StockMovement[];
+  stockMovementsHydrated: boolean;
+  hydrateStockMovements: () => StockMovement[];
+  stockMovementCount: () => number;
   shifts: CashierShift[];
   activeShift: CashierShift | null;
   openShift: (opts: { openingCash: number; note?: string; branchId?: string; branchName?: string }) => CashierShift;

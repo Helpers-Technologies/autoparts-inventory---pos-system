@@ -272,7 +272,9 @@ describe("lsSliceReversed", () => {
 });
 
 describe("property: append then read back, whatever the shape", () => {
-  it("preserves every record in order across arbitrary append bursts", async () => {
+  // Generating hundreds of multi-thousand-record ledgers is genuinely slow;
+  // the budget matches the work, not the default.
+  it("preserves every record in order across arbitrary append bursts", { timeout: 120_000 }, async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.integer({ min: 0, max: 900 }),

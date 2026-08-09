@@ -38,7 +38,7 @@ import type {
   OfflineEmployeeTransactionType,
   CashierShift,
 } from "../types";
-import { lsClearAll, lsGet, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, reloadStorageCache, pruneStorageMemoryCache } from "../lib/storage";
+import { lsClearAll, lsGet, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, reloadStorageCache, pruneStorageMemoryCache, lsAppend, lsRemoveWhere, lsCount, lsMigrateToOldestFirst, lsIsOldestFirst } from "../lib/storage";
 import { hashPassword, verifyFallbackPassword } from "../lib/auth";
 import { normalizeUser } from "../lib/permissions";
 import { FEATURES, isAllowedByLicense, isFeatureEnabled } from "../lib/features";
@@ -103,7 +103,19 @@ interface AppState {
   customers: Customer[];
   purchaseInvoices: PurchaseInvoice[];
   salesInvoices: SalesInvoice[];
+  /**
+   * The stock-movement ledger AS CURRENTLY CACHED — empty until a screen calls
+   * `hydrateStockMovements`. It is not loaded at startup: at 316,000 records
+   * it is over half of what the renderer would otherwise pull across IPC
+   * before it can paint, to serve two screens.
+   */
   stockMovements: StockMovement[];
+  /** True once the ledger has been loaded into `stockMovements`. */
+  stockMovementsHydrated: boolean;
+  /** Loads the whole ledger, newest-first, and returns it. */
+  hydrateStockMovements: () => StockMovement[];
+  /** How many movements exist, without reading any of them. */
+  stockMovementCount: () => number;
   cashEntries: CashEntry[];
   nextProductCode: number;
   nextSupplierCode: number;
@@ -524,9 +536,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       normalizeSalesInvoice
     )
   );
-  const [stockMovements, setStockMovements] = useState<StockMovement[]>(() =>
-    lsGet<StockMovement[]>("stockMovements", seedStockMovements)
-  );
+  // The stock-movement ledger is NOT loaded at startup.
+  //
+  // It is the largest collection by a wide margin — 316,000 records on a
+  // five-year shop, over half of everything the renderer would otherwise pull
+  // across IPC before it can paint — and it is read by exactly two screens.
+  // Holding it in state cost every user several seconds of every launch to
+  // serve a page almost none of them open.
+  //
+  // So this array is a CACHE of the ledger, empty until a screen asks for it.
+  // Writes go to storage through the ledger helpers below and only touch this
+  // array when it happens to be populated. Nothing reads it directly expecting
+  // the full history — `hydrateStockMovements` is how you get that.
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+  const [stockMovementsHydrated, setStockMovementsHydrated] = useState(false);
   const [cashEntries, setCashEntries] = useState<CashEntry[]>(() =>
     lsGet<CashEntry[]>("cashEntries", seedCashEntries)
   );
@@ -606,7 +629,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         normalizeSalesInvoice
       )
     );
-    setStockMovements(lsGet<StockMovement[]>("stockMovements", seedStockMovements));
+    // The ledger is loaded on demand, not at startup — see the state declaration.
+    setStockMovements([]);
+    setStockMovementsHydrated(false);
     setCashEntries(lsGet<CashEntry[]>("cashEntries", seedCashEntries));
     setNextProductCode(lsGet<number>("nextProductCode", 1000));
     setNextSupplierCode(
@@ -659,7 +684,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!window.desktopAPI?.license) return;
     void refreshLicenseStatus();
-    
+
     const unsubscribeRevoked = window.desktopAPI.license.onRevoked(() => {
       void refreshLicenseStatus();
     });
@@ -671,7 +696,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const timer = window.setInterval(() => {
       void refreshLicenseStatus();
     }, 60_000);
-    
+
     return () => {
       unsubscribeRevoked();
       unsubscribeRestored();
@@ -707,6 +732,115 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // lets the shutdown handler skip its synchronous full-state write when
   // everything is already persisted.
   const unflushedChangesRef = useRef(false);
+
+  // ── Stock-movement ledger ────────────────────────────────────────────
+  //
+  // Append-only in practice, with deletions only when an invoice is removed.
+  // Every write goes straight to storage — touching one chunk, not the whole
+  // history — and updates the in-memory cache only when a screen has it open.
+  //
+  // Each helper falls back to the old whole-array path if storage reports the
+  // ledger is not in chunked form (a shop that has not migrated, or one where
+  // a pre-chunking backup was just restored). Silently doing nothing there
+  // would drop a movement, and a ledger that stops matching its invoices is
+  // not discovered until a stocktake months later.
+
+  // Mirrors the cached ledger for code that must read it synchronously — a
+  // state updater runs after its caller has returned, so a value captured
+  // inside one is not available to the caller that needs it.
+  const stockMovementsRef = useRef<StockMovement[]>([]);
+  useEffect(() => { stockMovementsRef.current = stockMovements; }, [stockMovements]);
+
+  /**
+   * Puts the ledger into chunked, oldest-first form if it is not already.
+   *
+   * Every write goes through this first. The ledger is no longer part of the
+   * debounced flush, so a write that falls back to "just update React state"
+   * would never reach disk at all — the movement would exist until the app
+   * closed and then be gone, with the invoice that caused it still on file.
+   */
+  const ensureLedgerReady = useCallback((): boolean => {
+    if (lsIsOldestFirst("stockMovements")) return true;
+    lsMigrateToOldestFirst<StockMovement>("stockMovements");
+    return lsIsOldestFirst("stockMovements");
+  }, []);
+
+  const appendStockMovements = useCallback((movements: StockMovement[]) => {
+    if (movements.length === 0) return;
+    ensureLedgerReady();
+    const written = lsAppend("stockMovements", movements);
+    setStockMovements((list) => {
+      if (!written) return [...movements, ...list];
+      // The cache is newest-first for the screens; storage is oldest-first.
+      return list.length > 0 ? [...movements.slice().reverse(), ...list] : list;
+    });
+    if (!written) unflushedChangesRef.current = true;
+  }, [ensureLedgerReady]);
+
+  /** Removes an invoice's movements and returns them, for the undo snapshot. */
+  const removeStockMovementsByReference = useCallback(
+    (referenceId: string): StockMovement[] => {
+      ensureLedgerReady();
+      const removed = lsRemoveWhere<StockMovement>(
+        "stockMovements",
+        (m) => m.referenceId === referenceId,
+      );
+      if (removed === null) {
+        // Legacy path: the array in state is authoritative. Read it from the
+        // ref rather than from inside the state updater — the updater runs
+        // after this function has already returned, so anything captured there
+        // would be handed back empty, and the undo snapshot would silently
+        // record no movements to restore.
+        const taken = stockMovementsRef.current.filter((m) => m.referenceId === referenceId);
+        setStockMovements((list) => list.filter((m) => m.referenceId !== referenceId));
+        unflushedChangesRef.current = true;
+        return taken;
+      }
+      setStockMovements((list) =>
+        list.length > 0 ? list.filter((m) => m.referenceId !== referenceId) : list,
+      );
+      return removed;
+    },
+    [ensureLedgerReady],
+  );
+
+  /**
+   * Swaps one invoice's movements for a new set — what editing an invoice
+   * does. Remove then append, so only the chunks that held the old records and
+   * the chunk being appended to are rewritten.
+   */
+  const replaceStockMovementsForReference = useCallback(
+    (
+      referenceId: string,
+      matches: (m: StockMovement) => boolean,
+      next: StockMovement[],
+    ) => {
+      ensureLedgerReady();
+      const removed = lsRemoveWhere<StockMovement>("stockMovements", matches);
+      if (removed === null) {
+        // Legacy whole-array path.
+        setStockMovements((list) => [...list.filter((m) => !matches(m)), ...next]);
+        unflushedChangesRef.current = true;
+        return;
+      }
+      setStockMovements((list) => (list.length > 0 ? list.filter((m) => !matches(m)) : list));
+      appendStockMovements(next);
+      void referenceId;
+    },
+    [appendStockMovements, ensureLedgerReady],
+  );
+
+  /** Loads the whole ledger for the screens that show it. */
+  const hydrateStockMovements = useCallback((): StockMovement[] => {
+    const all = lsGet<StockMovement[]>("stockMovements", []);
+    // Storage keeps oldest-first so appends are cheap; screens want newest.
+    const newestFirst = all.slice().reverse();
+    setStockMovements(newestFirst);
+    setStockMovementsHydrated(true);
+    return newestFirst;
+  }, []);
+
+  const stockMovementCount = useCallback(() => lsCount("stockMovements"), []);
   useEffect(() => {
     liveStateRef.current = {
       settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
@@ -856,7 +990,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         customers,
         purchaseInvoices,
         salesInvoices,
-        stockMovements,
+        // stockMovements is deliberately absent: the ledger is written
+        // directly by its own helpers, one chunk at a time. Including it here
+        // would flush the in-memory CACHE — empty on most launches — straight
+        // over the real ledger on disk.
         cashEntries,
         nextProductCode,
         nextSupplierCode,
@@ -881,6 +1018,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // A main-process session exists only after every required authentication
     // factor succeeds. Reload renderer data at that point and never before it.
     await reloadStorageCache();
+    // The ledger has to be in oldest-first order before anything appends to
+    // it. Checking costs one small row, so an already-migrated shop — which is
+    // every shop after the first launch — pays nothing. The shop that has not
+    // migrated pays once, here, where a wait after sign-in is expected.
+    if (!lsIsOldestFirst("stockMovements")) {
+      lsMigrateToOldestFirst<StockMovement>("stockMovements");
+    }
     loadStoredStateFromDesktop();
     const updatedUser = normalizeUser(user);
     setUsers((list) =>
@@ -1310,7 +1454,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         referenceType: "manual",
         date: todayISO(),
       };
-      setStockMovements((l) => [mv, ...l]);
+      appendStockMovements([mv]);
       const looseNote =
         looseDelta !== undefined && looseDelta !== 0
           ? ` و${looseDelta > 0 ? "+" : ""}${looseDelta} قطعة`
@@ -1555,7 +1699,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       referenceType: "purchase",
       date: inv.date,
     }));
-    setStockMovements((list) => [...movements, ...list]);
+    appendStockMovements(movements);
 
     // cash entry if paid
     if (inv.amountPaid > 0) {
@@ -1608,9 +1752,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
     // Replace stock movements
-    setStockMovements((list) => {
-      const kept = list.filter((m) => !(m.referenceId === id && m.type === "purchase"));
-      const next: StockMovement[] = patch.lines.map((l, i) => ({
+    // Replace this invoice's purchase movements: drop the old ones, then
+    // append the new. Two ledger operations rather than one array rewrite, so
+    // only the chunks that actually held them are touched.
+    replaceStockMovementsForReference(
+      id,
+      (m) => m.referenceId === id && m.type === "purchase",
+      patch.lines.map((l, i) => ({
         id: uid(`mov_upd_p_${i}`),
         productId: l.productId,
         productName: l.productName,
@@ -1620,9 +1768,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         referenceId: id,
         referenceType: "purchase",
         date: patch.date,
-      }));
-      return [...kept, ...next];
-    });
+      })),
+    );
 
     // Carry the full amount paid so far (incl. any prior supplier credit) and
     // re-split against the new total — otherwise editing an invoice that has an
@@ -1638,16 +1785,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       list.map((i) =>
         i.id === id
           ? {
-              ...i,
-              lines: patch.lines,
-              total: fin.total,
-              date: patch.date,
-              notes: patch.notes,
-              amountPaid: fin.amountPaid,
-              remaining: fin.remaining,
-              status: fin.status,
-              overpayment: fin.overpayment > 0 ? fin.overpayment : undefined,
-            }
+            ...i,
+            lines: patch.lines,
+            total: fin.total,
+            date: patch.date,
+            notes: patch.notes,
+            amountPaid: fin.amountPaid,
+            remaining: fin.remaining,
+            status: fin.status,
+            overpayment: fin.overpayment > 0 ? fin.overpayment : undefined,
+          }
           : i
       )
     );
@@ -1724,7 +1871,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     );
     setPurchaseInvoices((list) => list.filter((i) => i.id !== id));
-    setStockMovements((list) => list.filter((m) => m.referenceId !== id));
+    const removedMovements = removeStockMovementsByReference(id);
     setCashEntries((list) => list.filter((c) => c.referenceId !== id));
     logAudit(
       "invoice_purchase_deleted",
@@ -1734,7 +1881,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         kind: "purchase-invoice",
         invoice: inv,
         cashEntries: cashEntries.filter((c) => c.referenceId === id),
-        stockMovements: stockMovements.filter((m) => m.referenceId === id),
+        // Comes from the ledger removal itself. Filtering the in-memory cache
+        // would produce an empty snapshot whenever the ledger has not been
+        // hydrated — and the undo would then silently restore no movements.
+        stockMovements: removedMovements,
       }
     );
     return true;
@@ -1816,7 +1966,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       referenceType: "sale",
       date: inv.date,
     }));
-    setStockMovements((list) => [...movements, ...list]);
+    appendStockMovements(movements);
 
     const totalCashReceived =
       full.amountReceived + (full.overpayment ?? 0);
@@ -1963,9 +2113,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
     // Replace stock movements for this invoice
-    setStockMovements((list) => {
-      const kept = list.filter((m) => !(m.referenceId === id && m.type === "sale"));
-      const next: StockMovement[] = patch.lines.map((l, i) => ({
+    replaceStockMovementsForReference(
+      id,
+      (m) => m.referenceId === id && m.type === "sale",
+      patch.lines.map((l, i) => ({
         id: uid(`mov_upd_${i}`),
         productId: l.productId,
         productName: l.productName,
@@ -1975,9 +2126,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         referenceType: "sale" as const,
         date: patch.date,
         reason: `فاتورة مبيعات ${inv.invoiceNumber}`,
-      }));
-      return [...kept, ...next];
-    });
+      })),
+    );
 
     const linesTotal = patch.lines.reduce((a, l) => a + l.subtotal, 0);
     // Returns already applied to this invoice reduce what is owed; fold them into
@@ -2012,14 +2162,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       list.map((s) =>
         s.id === id
           ? {
-              ...s, ...patch,
-              paymentLog: s.paymentLog,
-              amountReceived: fin.amountReceived,
-              total: fin.total,
-              remaining: fin.remaining,
-              status: fin.status,
-              overpayment: fin.overpayment > 0 ? fin.overpayment : undefined,
-            }
+            ...s, ...patch,
+            paymentLog: s.paymentLog,
+            amountReceived: fin.amountReceived,
+            total: fin.total,
+            remaining: fin.remaining,
+            status: fin.status,
+            overpayment: fin.overpayment > 0 ? fin.overpayment : undefined,
+          }
           : s
       )
     );
@@ -2085,7 +2235,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       referenceType: "sale" as const,
       date: cancelDate,
     }));
-    setStockMovements((list) => [...cancelMovements, ...list]);
+    appendStockMovements(cancelMovements);
   };
   const deleteSalesInvoice: AppActions["deleteSalesInvoice"] = (id) => {
     const inv = salesInvoices.find((i) => i.id === id);
@@ -2103,7 +2253,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
     }
     setSalesInvoices((list) => list.filter((i) => i.id !== id));
-    setStockMovements((list) => list.filter((m) => m.referenceId !== id));
+    const removedMovements = removeStockMovementsByReference(id);
     setCashEntries((list) => list.filter((c) => c.referenceId !== id));
     logAudit(
       "invoice_sale_deleted",
@@ -2113,7 +2263,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         kind: "sales-invoice",
         invoice: inv,
         cashEntries: cashEntries.filter((c) => c.referenceId === id),
-        stockMovements: stockMovements.filter((m) => m.referenceId === id),
+        // Comes from the ledger removal itself. Filtering the in-memory cache
+        // would produce an empty snapshot whenever the ledger has not been
+        // hydrated — and the undo would then silently restore no movements.
+        stockMovements: removedMovements,
       }
     );
     return true;
@@ -2158,7 +2311,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
     }
     setCashEntries((list) => [...snap.cashEntries, ...list]);
-    setStockMovements((list) => [...snap.stockMovements, ...list]);
+    appendStockMovements(snap.stockMovements);
     setAuditLogs((list) =>
       list.map((a) => (a.id === auditId ? { ...a, snapshot: undefined } : a))
     );
@@ -2351,7 +2504,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       date: r.date,
       reason: `مرتجع مبيعات ${num}`,
     }));
-    setStockMovements((l) => [...movements, ...l]);
+    appendStockMovements(movements);
 
     // FIX-02 + FIX-04: Compute cashRefund and update the invoice inside a
     // single setSalesInvoices callback to avoid stale closures and to pass
@@ -2448,7 +2601,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       date: r.date,
       reason: `مرتجع توريد ${num}`,
     }));
-    setStockMovements((l) => [...movements, ...l]);
+    appendStockMovements(movements);
 
     // FIX-03: Settle the invoice AND create a cash entry if the return
     // creates overpayment (i.e. supplier owes us money back).
@@ -2911,7 +3064,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const commissionEarned = (totalCollected * commissionPct) / 100;
       const salary = employee?.monthlySalary ?? 0;
 
-      const MONTH_NAMES = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+      const MONTH_NAMES = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
       return {
         totalCollected,
         commissionEarned,
@@ -2935,7 +3088,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const mon = parseInt(monStr, 10);
       const monthStart = localISODate(new Date(year, mon - 1, 1));
       const monthEnd = localISODate(new Date(year, mon, 0));
-      const MONTH_NAMES = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+      const MONTH_NAMES = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
       const monthLabel = `${MONTH_NAMES[mon - 1]} ${year}`;
 
       const collectedByUser = employeeCollectedCashBatch(
@@ -2982,7 +3135,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       state: {
         settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
         autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-        stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users: safeUsers, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
+        // Read from STORAGE, not the in-memory cache. The cache is empty on
+        // most launches, so exporting it would produce a backup with no stock
+        // ledger at all — a file that looks complete and restores a shop whose
+        // inventory no longer reconciles with its own invoices.
+        // Exported newest-first, the order backups have always used.
+        stockMovements: lsGet<StockMovement[]>("stockMovements", []).slice().reverse(),
+        cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users: safeUsers, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
         offlineEmployees, offlineTransactions,
         vehicleCatalogSchemaVersion: lsGet<number>("vehicleCatalogSchemaVersion", 1),
         vehicleCatalogPreferences: lsGet("vehicleCatalogPreferences", {
@@ -3139,7 +3298,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (Array.isArray(s.salesInvoices)) {
         setSalesInvoices(s.salesInvoices.map(normalizeSalesInvoice));
       }
-      if (Array.isArray(s.stockMovements)) setStockMovements(s.stockMovements);
+      // The ledger is not put into the in-memory cache here — the batch write
+      // below is what restores it, and screens hydrate from storage on demand.
+      setStockMovements([]);
+      setStockMovementsHydrated(false);
       if (Array.isArray(s.cashEntries)) setCashEntries(s.cashEntries);
       const importedProducts: Product[] = Array.isArray(s.products) ? s.products : [];
       if (typeof s.nextProductCode === "number") {
@@ -3192,7 +3354,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (Array.isArray(s.customers)) batchFlush.customers = s.customers;
       if (Array.isArray(s.purchaseInvoices)) batchFlush.purchaseInvoices = s.purchaseInvoices;
       if (Array.isArray(s.salesInvoices)) batchFlush.salesInvoices = s.salesInvoices.map(normalizeSalesInvoice);
-      if (Array.isArray(s.stockMovements)) batchFlush.stockMovements = s.stockMovements;
+      // A backup holds the ledger newest-first, the order it was exported in.
+      // Storage keeps it oldest-first so appends stay cheap, so reverse on the
+      // way in — otherwise every movement recorded after a restore would be
+      // filed at the wrong end of history.
+      if (Array.isArray(s.stockMovements)) {
+        batchFlush.stockMovements = s.stockMovements.slice().reverse();
+      }
       if (Array.isArray(s.cashEntries)) batchFlush.cashEntries = s.cashEntries;
       if (Array.isArray(s.salesReturns)) batchFlush.salesReturns = s.salesReturns;
       if (Array.isArray(s.purchaseReturns)) batchFlush.purchaseReturns = s.purchaseReturns;
@@ -3235,14 +3403,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const _npc = typeof s.nextProductCode === "number"
         ? s.nextProductCode
         : _ip.length > 0 ? _ip.reduce((mx, p) => { const n = Number(String(p.code ?? "").trim()); return Number.isInteger(n) ? Math.max(mx, n) : mx; }, 999) + 1
-        : nextProductCode;
+          : nextProductCode;
       const _nsc = typeof s.nextSupplierCode === "number"
         ? Math.max(s.nextSupplierCode, nextSupplierCodeFromExisting(_is))
         : _is.length > 0 ? nextSupplierCodeFromExisting(_is) : nextSupplierCode;
       const _ncc = typeof s.nextCustomerCode === "number"
         ? s.nextCustomerCode
         : _ic.length > 0 ? _ic.reduce((mx: number, c: Record<string, unknown>) => { const m = /^CUS-(\d+)$/i.exec(String(c.code ?? "").trim()); return m ? Math.max(mx, Number(m[1])) : mx; }, 0) + 1
-        : nextCustomerCode;
+          : nextCustomerCode;
       batchFlush.nextProductCode = _npc;
       batchFlush.nextSupplierCode = _nsc;
       batchFlush.nextCustomerCode = _ncc;
@@ -3373,6 +3541,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       purchaseInvoices,
       salesInvoices,
       stockMovements,
+      stockMovementsHydrated,
+      hydrateStockMovements,
+      stockMovementCount,
       cashEntries,
       nextProductCode,
       nextSupplierCode,
@@ -3567,6 +3738,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => ({
       quotations, addQuotation, updateQuotation, convertQuotation, deleteQuotation,
       salesInvoices, purchaseInvoices, salesReturns, purchaseReturns, cashEntries, stockMovements,
+      stockMovementsHydrated, hydrateStockMovements, stockMovementCount,
       shifts, activeShift, openShift, closeShift, getShiftSummary,
       addSalesInvoice, updateSalesInvoice, recordSalesReceipt, cancelSalesInvoice,
       deleteSalesInvoice, applyCustomerCredit, settleAllDues, settleSupplierDues,
@@ -3579,7 +3751,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // (Cashbox "الرصيد الحالي", Dashboard) holding a stale balance closure until the next
     // cash entry or a restart. Other actions are plain functions and stay omitted by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [quotations, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns, cashEntries, stockMovements, shifts, activeShift, currentCashBalance]
+    [quotations, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns, cashEntries, stockMovements, stockMovementsHydrated, hydrateStockMovements, stockMovementCount, shifts, activeShift, currentCashBalance]
   );
 
   // F3-6: Catalog slice — products / suppliers / customers / drivers + their CRUD actions.
