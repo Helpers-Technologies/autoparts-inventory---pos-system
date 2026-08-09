@@ -1,7 +1,7 @@
 {
   "name": "autoparts-inventory-system",
   "private": true,
-  "version": "9.0.0",
+  "version": "10.0.0",
   "description": "PartFlow — protected desktop auto parts inventory and sales management system. By Helpers Tech.",
   "author": {
     "name": "Helpers Technologies",
