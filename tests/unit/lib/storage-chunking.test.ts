@@ -378,6 +378,54 @@ describe("surviving a restart", () => {
   });
 });
 
+describe("startup does not rewrite what it just read", () => {
+  it("writes nothing when the loaded array is flushed back unchanged", async () => {
+    storage.lsSetBatch({ salesInvoices: invoices(2300) });
+    const onDisk = new Map(desktop.rows);
+
+    // Cold start: read the collection the way AppContext does on mount.
+    await freshModule();
+    for (const [k, v] of onDisk) desktop.rows.set(k, v);
+    await storage.reloadStorageCache();
+    const loaded = storage.lsGet<Array<unknown>>("salesInvoices", []);
+    expect(loaded).toHaveLength(2300);
+
+    const writes: string[] = [];
+    desktop.api.storage.setBatch = async (batch: Record<string, string>) => {
+      writes.push(...Object.keys(batch));
+      for (const [k, v] of Object.entries(batch)) desktop.rows.set(k, v);
+      return true;
+    };
+
+    // The debounced flush fires with exactly what was loaded. Re-serializing
+    // and re-writing all of it — 185 MB on a real five-year shop — is pure
+    // waste, and it lands right after sign-in when the owner is waiting.
+    storage.lsSetBatch({ salesInvoices: loaded });
+    expect(writes).toEqual([]);
+  });
+
+  it("still writes when the loaded array is genuinely modified first", async () => {
+    storage.lsSetBatch({ salesInvoices: invoices(2300) });
+    const onDisk = new Map(desktop.rows);
+
+    await freshModule();
+    for (const [k, v] of onDisk) desktop.rows.set(k, v);
+    await storage.reloadStorageCache();
+    const loaded = storage.lsGet<Array<{ id: string }>>("salesInvoices", []);
+
+    const writes: string[] = [];
+    desktop.api.storage.setBatch = async (batch: Record<string, string>) => {
+      writes.push(...Object.keys(batch));
+      for (const [k, v] of Object.entries(batch)) desktop.rows.set(k, v);
+      return true;
+    };
+
+    storage.lsSetBatch({ salesInvoices: [...loaded, { id: "inv-new" }] });
+    expect(writes).toContain(`${PREFIX}salesInvoices#0004`);
+    expect(writes).toContain(`${PREFIX}salesInvoices#meta`);
+  });
+});
+
 describe("the durable flush used on quit and restore", () => {
   it("writes every chunk, not only the changed ones", async () => {
     storage.lsSetBatch({ salesInvoices: invoices(1250) });

@@ -124,6 +124,13 @@ function rememberChunkCounts(): void {
   }
 }
 
+/** Records an array as the currently-persisted state of `key`, so a later flush
+ *  can skip chunks whose elements are still the very same objects. */
+function rememberPersistedArray(key: string, value: readonly unknown[]): void {
+  _lastArray.set(key, value);
+  _lastChunkCount.set(key, Math.ceil(value.length / CHUNK_SIZE));
+}
+
 /** Reads one physical row, cache first, then sync IPC / localStorage. */
 function readRow(fullKey: string): string | null {
   if (_cacheReady && _cache.has(fullKey)) return _cache.get(fullKey)!;
@@ -186,7 +193,23 @@ export function lsGet<T>(key: string, fallback: T): T {
         return JSON.parse(legacy) as T;
       }
       const chunked = readChunked<unknown>(key);
-      if (chunked !== null) return chunked as unknown as T;
+      if (chunked !== null) {
+        // Remember what was just handed out, so the first flush after startup
+        // can tell that nothing has changed.
+        //
+        // Without this, a fresh process knows nothing about the previous array
+        // and therefore treats every chunk as dirty: measured on a five-year
+        // shop, the first debounced flush after signing in re-serialized
+        // 185 MB across 953 rows and wrote all of it back, several seconds of
+        // work to persist data identical to what was just read off disk.
+        //
+        // Only helps where the caller uses the array as handed out. Collections
+        // that get mapped on load (products, salesInvoices — normalised through
+        // .map) produce new element objects and are legitimately rewritten;
+        // the large append-only ones like stockMovements are not.
+        rememberPersistedArray(key, chunked);
+        return chunked as unknown as T;
+      }
       // Tombstone present but chunks unreadable: refuse to invent data.
       if (legacy === CHUNKED_TOMBSTONE) return fallback;
       return fallback;
