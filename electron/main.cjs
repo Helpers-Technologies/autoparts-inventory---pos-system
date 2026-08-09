@@ -133,6 +133,8 @@ const {
   isRendererStorageKey,
   safeUserForRenderer,
   safeUsersForRenderer,
+  readChunkedCollection,
+  isChunkedTombstone,
 } = require("./storage-security.cjs");
 
 // ── Mobile push: what to say, and whether to say it again ────────────────
@@ -800,6 +802,16 @@ function storageClearPrefix(prefix) {
 function readJsonKey(key, fallback) {
   const raw = storageGet(key);
   if (!raw) return fallback;
+  // Large collections are stored as chunks with the base row left as a
+  // tombstone. Reassemble here rather than at each call site: this function is
+  // how the main process reads shop data, and a caller that forgot would get
+  // the fallback — an empty array — with nothing to indicate anything was
+  // wrong. That is exactly how the commerce snapshot came to upload an empty
+  // shop to the portal.
+  if (isChunkedTombstone(raw)) {
+    const rebuilt = readChunkedCollection(key, (rowKey) => storageGet(rowKey));
+    return rebuilt === null ? fallback : rebuilt;
+  }
   try {
     return JSON.parse(raw);
   } catch {
@@ -3187,8 +3199,21 @@ function buildCommerceSnapshot() {
 
 let commerceSyncInFlight = false;
 function commerceSourceRevision() {
-  const keys = [`${STORE_PREFIX}products`, `${STORE_PREFIX}customers`, `${STORE_PREFIX}salesInvoices`];
-  const rows = openDatabase().prepare("SELECT key, updated_at FROM kv_store WHERE key IN (?, ?, ?) ORDER BY key").all(...keys);
+  // Matches the base row AND its chunk rows. Watching only the base row was
+  // correct while each collection was one blob, but a chunked collection's
+  // base row is a tombstone that is written once and never touched again — so
+  // this hash would have frozen on the day of the upgrade and the phone would
+  // have stopped receiving new sales, with the 24-hour forced sync as the only
+  // thing still moving data.
+  const patterns = ["products", "customers", "salesInvoices"].flatMap((name) => [
+    `${STORE_PREFIX}${name}`,
+    `${STORE_PREFIX}${name}#%`,
+  ]);
+  const rows = openDatabase()
+    .prepare(
+      "SELECT key, updated_at FROM kv_store WHERE key = ? OR key LIKE ? OR key = ? OR key LIKE ? OR key = ? OR key LIKE ? ORDER BY key",
+    )
+    .all(...patterns);
   return crypto.createHash("sha256").update(JSON.stringify(rows)).digest("hex");
 }
 

@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import { webcrypto } from "node:crypto";
 import { AppProvider, useApp } from "../../../src/store/AppContext";
 import type { InvoiceLine, Product } from "../../../src/types";
-import { lsClearAll } from "../../../src/lib/storage";
+import { lsClearAll, lsGet } from "../../../src/lib/storage";
 import { hashPassword } from "../../../src/lib/auth";
 
 // jsdom lacks SubtleCrypto — hashPassword needs it for the fallback login used
@@ -500,9 +500,12 @@ describe("PROBE-I — importBackup", () => {
     let ok = false;
     await act(async () => { ok = await result.current.importBackup(fileOf(JSON.stringify(backup))); });
     expect(ok).toBe(true);
-    // Read storage directly (what a reload would re-hydrate from), NOT React state.
-    const persisted = JSON.parse(localStorage.getItem("autoparts_inventory_v1::products") ?? "[]");
-    expect(persisted.map((p: { id: string }) => p.id)).toContain("prd_persist");
+    // Re-hydrate the way a reload actually does — through lsGet, NOT React
+    // state and NOT by parsing one raw row. Large collections are persisted as
+    // chunks now, so reading the base row directly would only ever find the
+    // tombstone and would prove nothing about durability either way.
+    const persisted = lsGet<Array<{ id: string }>>("products", []);
+    expect(persisted.map((p) => p.id)).toContain("prd_persist");
   });
 });
 

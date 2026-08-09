@@ -26,6 +26,72 @@ function isRendererStorageKey(key) {
   return cleanKey.startsWith(STORE_PREFIX) && !PROTECTED_KEYS.has(cleanKey);
 }
 
+// ── Chunked collections ───────────────────────────────────────────────────
+//
+// Large collections are stored as `<key>#0000`, `#0001`, ... plus a `#meta`
+// manifest, so appending a record does not rewrite the shop's whole history.
+// The base row is left holding CHUNKED_TOMBSTONE to mark it superseded.
+//
+// This lives here, next to isRendererStorageKey, because BOTH sides need it:
+// the renderer writes the format (src/lib/storage.ts) and the main process
+// reads it directly when building the commerce snapshot. When only the
+// renderer knew, the snapshot silently read the tombstone, failed to parse it
+// as an array, and uploaded an empty shop to the portal — the phone showed no
+// products, no customers and no orders, with nothing logged anywhere.
+const CHUNKED_TOMBSTONE = '"__partflow_chunked__"';
+
+/** Reassembles a chunked collection, or null if `key` is not stored in chunks.
+ *  `readRow` takes a full storage key and returns the raw string or null. */
+function readChunkedCollection(key, readRow) {
+  const rawMeta = readRow(`${key}#meta`);
+  if (rawMeta === null || rawMeta === undefined) return null;
+  let meta;
+  try {
+    meta = JSON.parse(rawMeta);
+  } catch {
+    return null;
+  }
+  const count = Number(meta && meta.chunks);
+  if (!Number.isInteger(count) || count < 0) return null;
+
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const raw = readRow(`${key}#${String(i).padStart(4, "0")}`);
+    if (raw === null || raw === undefined) return null;
+    let part;
+    try {
+      part = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(part)) return null;
+    for (const item of part) out.push(item);
+  }
+  // A short chunk must not pass as a complete collection.
+  if (Number.isInteger(meta.total) && meta.total !== out.length) return null;
+  return out;
+}
+
+/** True when the base row says the real data lives in chunks. */
+function isChunkedTombstone(value) {
+  return value === CHUNKED_TOMBSTONE;
+}
+
+/** Every physical row that makes up `key`, for change detection. */
+function chunkRowKeys(key, readRow) {
+  const rawMeta = readRow(`${key}#meta`);
+  if (rawMeta === null || rawMeta === undefined) return [];
+  let count = 0;
+  try {
+    count = Number(JSON.parse(rawMeta).chunks) || 0;
+  } catch {
+    return [];
+  }
+  const keys = [`${key}#meta`];
+  for (let i = 0; i < count; i++) keys.push(`${key}#${String(i).padStart(4, "0")}`);
+  return keys;
+}
+
 /** Replaces the passwordHash on a single user object with the redaction sentinel. */
 function safeUserForRenderer(user) {
   if (!user || typeof user !== "object") return user;
@@ -92,7 +158,11 @@ module.exports = {
   STORE_PREFIX,
   REDACTED_PASSWORD_HASH,
   PROTECTED_KEYS,
+  CHUNKED_TOMBSTONE,
   isRendererStorageKey,
+  readChunkedCollection,
+  isChunkedTombstone,
+  chunkRowKeys,
   safeUserForRenderer,
   safeUsersForRenderer,
   redactUsersForExport,
