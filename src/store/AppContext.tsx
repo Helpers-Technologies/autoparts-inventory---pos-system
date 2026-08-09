@@ -38,7 +38,7 @@ import type {
   OfflineEmployeeTransactionType,
   CashierShift,
 } from "../types";
-import { lsClearAll, lsGet, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, reloadStorageCache, pruneStorageMemoryCache, lsAppend, lsRemoveWhere, lsCount, lsMigrateToOldestFirst, lsIsOldestFirst } from "../lib/storage";
+import { lsClearAll, lsGet, lsLoadCollection, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, reloadStorageCache, pruneStorageMemoryCache, lsAppend, lsRemoveWhere, lsCount, lsMigrateToOldestFirst, lsIsOldestFirst } from "../lib/storage";
 import { hashPassword, verifyFallbackPassword } from "../lib/auth";
 import { normalizeUser } from "../lib/permissions";
 import { FEATURES, isAllowedByLicense, isFeatureEnabled } from "../lib/features";
@@ -113,7 +113,7 @@ interface AppState {
   /** True once the ledger has been loaded into `stockMovements`. */
   stockMovementsHydrated: boolean;
   /** Loads the whole ledger, newest-first, and returns it. */
-  hydrateStockMovements: () => StockMovement[];
+  hydrateStockMovements: () => Promise<StockMovement[]>;
   /** How many movements exist, without reading any of them. */
   stockMovementCount: () => number;
   cashEntries: CashEntry[];
@@ -830,8 +830,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [appendStockMovements, ensureLedgerReady],
   );
 
-  /** Loads the whole ledger for the screens that show it. */
-  const hydrateStockMovements = useCallback((): StockMovement[] => {
+  /**
+   * Loads the whole ledger for the screens that show it.
+   *
+   * Async because the ledger's chunks are held back from the startup payload
+   * and have to be fetched — in one call, not one per chunk.
+   */
+  const hydrateStockMovements = useCallback(async (): Promise<StockMovement[]> => {
+    await lsLoadCollection("stockMovements");
     const all = lsGet<StockMovement[]>("stockMovements", []);
     // Storage keeps oldest-first so appends are cheap; screens want newest.
     const newestFirst = all.slice().reverse();

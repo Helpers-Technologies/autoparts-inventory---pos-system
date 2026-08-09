@@ -127,6 +127,26 @@ function rememberChunkCounts(): void {
   }
 }
 
+/**
+ * Pulls one collection's rows into the cache in a single call.
+ *
+ * Collections held back from the startup payload have none of their chunks
+ * cached, and reading them through the per-row fallback would mean one
+ * synchronous IPC round-trip per chunk — 633 of them on a five-year ledger,
+ * which costs more than loading it at startup ever did.
+ */
+export async function lsLoadCollection(key: string): Promise<void> {
+  const getCollection = window.desktopAPI?.storage?.getCollection;
+  if (!getCollection) return;
+  try {
+    const rows = await getCollection(key);
+    for (const [rowKey, value] of Object.entries(rows)) _cache.set(rowKey, value);
+    rememberChunkCounts();
+  } catch {
+    // Leave the cache as it was; the per-row fallback still works.
+  }
+}
+
 /** Records an array as the currently-persisted state of `key`, so a later flush
  *  can skip chunks whose elements are still the very same objects. */
 function rememberPersistedArray(key: string, value: readonly unknown[]): void {

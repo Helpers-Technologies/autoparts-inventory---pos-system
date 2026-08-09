@@ -137,6 +137,9 @@ contextBridge.exposeInMainWorld("desktopAPI", {
     export: () => ipcRenderer.invoke("storage:export"),
     import: (payload) => ipcRenderer.invoke("storage:import", payload),
     getBatch: () => ipcRenderer.invoke("storage:get-batch"),
+    // One call for a whole collection, used for the collections held back from
+    // the startup payload.
+    getCollection: (name) => ipcRenderer.invoke("storage:get-collection", name),
     setBatch: (entries) => ipcRenderer.invoke("storage:set-batch", entries),
   },
   backup: {

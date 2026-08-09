@@ -621,8 +621,8 @@ describe("PROBE-N — audit-log invoice restore", () => {
     // The ledger is no longer held in memory at startup, so read it the way a
     // screen does. Asserting on `stockMovements` directly would only prove the
     // cache is populated, not that the movements were actually restored.
-    let restoredLedger: ReturnType<typeof result.current.hydrateStockMovements> = [];
-    act(() => { restoredLedger = result.current.hydrateStockMovements(); });
+    let restoredLedger: Awaited<ReturnType<typeof result.current.hydrateStockMovements>> = [];
+    await act(async () => { restoredLedger = await result.current.hydrateStockMovements(); });
     expect(restoredLedger.some((m) => m.referenceId === invId)).toBe(true);
     expect(result.current.auditLogs.some((a) => a.action === "invoice_restored")).toBe(true);
 

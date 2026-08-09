@@ -58,7 +58,7 @@ export interface InvoicingContextValue {
   /** Cached ledger — empty until `hydrateStockMovements` is called. */
   stockMovements: StockMovement[];
   stockMovementsHydrated: boolean;
-  hydrateStockMovements: () => StockMovement[];
+  hydrateStockMovements: () => Promise<StockMovement[]>;
   stockMovementCount: () => number;
   shifts: CashierShift[];
   activeShift: CashierShift | null;

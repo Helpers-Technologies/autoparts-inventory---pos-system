@@ -5153,11 +5153,46 @@ function registerIpc() {
   });
 
   // ── Batch operations — eliminates per-key sync IPC bottleneck ────────
+  // Collections excluded from the startup payload because the renderer does
+  // not hold them: the stock ledger is 316,000 records on a five-year shop —
+  // more than half of everything crossing this boundary — and is read by two
+  // screens, which fetch its chunks individually when they open.
+  //
+  // Excluding it here is what actually saves the time. Not parsing it in the
+  // renderer helps, but the rows still had to be read out of SQLCipher and
+  // structure-cloned across IPC before anything could paint.
+  const LAZY_COLLECTION_PREFIXES = [`${STORE_PREFIX}stockMovements#`];
+
   ipcMain.handle("storage:get-batch", (event) => {
     if (!canReadRendererStorage(event)) return {};
     const rows = openDatabase()
       .prepare("SELECT key, value FROM kv_store WHERE key LIKE ?")
       .all(`${STORE_PREFIX}%`);
+    const result = {};
+    for (const row of rows) {
+      if (!isRendererStorageKey(row.key)) continue;
+      // The manifest and the tombstone still travel — they are two small rows
+      // and the renderer needs them to know the ledger exists and how big it
+      // is. Only the chunks holding the records are held back.
+      if (LAZY_COLLECTION_PREFIXES.some((p) => row.key.startsWith(p) && !row.key.endsWith("#meta") && !row.key.endsWith("#order"))) {
+        continue;
+      }
+      result[row.key] = storageValueForRenderer(row.key, row.value);
+    }
+    return result;
+  });
+
+  // Fetches every row of one collection in a single call. Without this the
+  // renderer would pull a chunked ledger back one synchronous IPC round-trip
+  // per chunk — 633 of them on a five-year shop — which is slower than the
+  // startup cost this whole arrangement removes.
+  ipcMain.handle("storage:get-collection", (event, name) => {
+    if (!canReadRendererStorage(event)) return {};
+    const base = `${STORE_PREFIX}${String(name || "")}`;
+    if (!isRendererStorageKey(base)) return {};
+    const rows = openDatabase()
+      .prepare("SELECT key, value FROM kv_store WHERE key = ? OR key LIKE ?")
+      .all(base, `${base}#%`);
     const result = {};
     for (const row of rows) {
       if (!isRendererStorageKey(row.key)) continue;

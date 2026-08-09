@@ -52,14 +52,21 @@ console.log(`1. open + unlock database                 ${ms(t).toFixed(0).padSta
 
 // ── storage:get-batch, exactly as the main process runs it ──────────────
 t = process.hrtime.bigint();
-const rows = db.prepare("SELECT key, value FROM kv_store WHERE key LIKE ?").all(`${STORE_PREFIX}%`);
+// Mirrors the exclusion the shipped storage:get-batch applies: the ledger's
+// chunks never cross to the renderer at startup.
+const LAZY_PREFIX = `${STORE_PREFIX}stockMovements#`;
+const isLazyChunk = (k) =>
+  k.startsWith(LAZY_PREFIX) && !k.endsWith("#meta") && !k.endsWith("#order");
+
+const rows = db.prepare("SELECT key, value FROM kv_store WHERE key LIKE ? AND key NOT LIKE ?")
+  .all(`${STORE_PREFIX}%`, `${LAZY_PREFIX}%`);
 const readMs = ms(t);
 
 t = process.hrtime.bigint();
 const batch = {};
 let bytes = 0;
 for (const row of rows) {
-  if (!isRendererStorageKey(row.key)) continue;
+  if (!isRendererStorageKey(row.key) || isLazyChunk(row.key)) continue;
   batch[row.key] = row.value;
   bytes += row.value.length;
 }
@@ -81,9 +88,13 @@ console.log(`5. renderer receives + deserializes        ${ms(t).toFixed(0).padSt
 // ── lsGet per collection ────────────────────────────────────────────────
 const cache = new Map(Object.entries(batch));
 const readRow = (k) => (cache.has(k) ? cache.get(k) : null);
+// What the renderer actually loads at startup. stockMovements is deliberately
+// absent: the ledger is read on demand by the two screens that show it, which
+// is the single largest saving available here.
 const COLLECTIONS = ["products", "customers", "salesInvoices", "purchaseInvoices",
-  "stockMovements", "salesReturns", "purchaseReturns", "shifts", "cashEntries",
+  "salesReturns", "purchaseReturns", "shifts", "cashEntries",
   "auditLogs", "quotations"];
+const LAZY = ["stockMovements"];
 
 console.log(`\n6. renderer parses each collection back into arrays\n`);
 let totalParse = 0;
@@ -123,6 +134,24 @@ for (const name of COLLECTIONS) {
   }
 }
 console.log(`   re-serializes everything            ${ms(t).toFixed(0).padStart(7)} ms   (${rewriteRows} rows, ${mb(rewriteBytes)})`);
-console.log(`   ...because nothing is yet known to be unchanged on a fresh start.\n`);
+console.log(`   ...unless lsGet has already handed those arrays out, in which`);
+console.log(`   case the identity check recognises them and nothing is written.\n`);
+
+console.log(`8. WHAT IS NO LONGER LOADED AT STARTUP\n`);
+const lazyRows = new Map(db.prepare("SELECT key, value FROM kv_store WHERE key LIKE ?")
+  .all(`${STORE_PREFIX}stockMovements%`).map((r) => [r.key, r.value]));
+const readLazy = (k) => (lazyRows.has(k) ? lazyRows.get(k) : null);
+for (const name of LAZY) {
+  const full = `${STORE_PREFIX}${name}`;
+  const raw = readLazy(full);
+  if (raw === null) continue;
+  t = process.hrtime.bigint();
+  const value = isChunkedTombstone(raw) ? readChunkedCollection(full, readLazy) : JSON.parse(raw);
+  const took = ms(t);
+  const bytes = JSON.stringify(value || []).length;
+  console.log(`   ${name.padEnd(20)} ${String(Array.isArray(value) ? value.length : 0).padStart(8)} records  ` +
+    `${took.toFixed(0).padStart(6)} ms  ${mb(bytes)}`);
+  console.log(`   deferred until the inventory or product screen opens.\n`);
+}
 
 db.close();
