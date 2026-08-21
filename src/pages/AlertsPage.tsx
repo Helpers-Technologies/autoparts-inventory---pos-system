@@ -29,7 +29,6 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Dialog } from "../components/ui/Dialog";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
-import { useReporting } from "../store/ReportingContext";
 import { useSettings } from "../store/SettingsContext";
 import { formatCurrency, formatDate } from "../lib/format";
 import { daysUntil, isExpired, isExpiringSoon } from "../lib/utils";
@@ -93,9 +92,36 @@ function saveOrder(key: string, order: CardKey[]) {
 export function AlertsPage() {
   const { products, customers, suppliers } = useCatalog();
   const { purchaseInvoices, salesInvoices } = useInvoicing();
-  const { customerBalance, customerCredit, supplierBalance } = useReporting();
   const { settings } = useSettings();
   const navigate = useNavigate();
+
+  /**
+   * Opens a purchase invoice already carrying the part that raised the alert.
+   *
+   * The button used to be a bare link to /purchases/new, so the one thing the
+   * user had just identified — which part ran out — was thrown away and they
+   * had to search the catalogue for it again. The suggested quantity is the
+   * product's own reorder quantity when it has one, otherwise enough to clear
+   * the minimum with the same headroom the purchasing assistant uses.
+   */
+  function supplyProduct(product: Product) {
+    const suggested =
+      product.reorderQuantity ??
+      Math.max(1, product.minStock * 2 - Math.max(0, product.quantity));
+    navigate("/purchases/new", {
+      state: {
+        supplierId: product.supplierId ?? "",
+        lines: [
+          {
+            productId: product.id,
+            quantity: suggested,
+            price: product.purchasePrice,
+            expiryDate: product.expiryDate,
+          },
+        ],
+      },
+    });
+  }
 
   const [statsVisible, setStatsVisible] = useState<Set<CardKey>>(() => loadVisible("alerts-stats-visible"));
   const [statsOrder, setStatsOrder] = useState<CardKey[]>(() => loadOrder("alerts-stats-order"));
@@ -223,32 +249,73 @@ export function AlertsPage() {
   const filteredExpiringSoon = useMemo(() => expiringSoon.filter(matchesSearch), [expiringSoon, searchQuery]);
   const filteredExpired = useMemo(() => expired.filter(matchesSearch), [expired, searchQuery]);
 
+  // Everything the debtor/credit panels need, gathered in ONE pass over the
+  // invoices instead of a whole-history scan per customer. The two lists below
+  // used to cost customers x invoices EACH — on a five-year shop (25,000
+  // customers, 48,483 invoices) that is billions of iterations, and this page
+  // simply never finished loading.
+  const customerMoney = useMemo(() => {
+    const totals = new Map<string, { grossRemaining: number; balance: number; credit: number }>();
+    const entryFor = (id: string) => {
+      let entry = totals.get(id);
+      if (!entry) {
+        entry = { grossRemaining: 0, balance: 0, credit: 0 };
+        totals.set(id, entry);
+      }
+      return entry;
+    };
+    for (const invoice of salesInvoices) {
+      const entry = entryFor(invoice.customerId);
+      // customerCredit counts overpayment on every invoice, cancelled included.
+      entry.credit += invoice.overpayment ?? 0;
+      if (invoice.cancelled) continue;
+      if (invoice.remaining > 0) entry.grossRemaining += invoice.remaining;
+      // Mirrors calculateCustomerAccountBalance.
+      if (!invoice.collectOnDelivery) {
+        entry.balance += invoice.remaining - (invoice.overpayment ?? 0);
+      }
+    }
+    return totals;
+  }, [salesInvoices]);
+
+  const supplierMoney = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const invoice of purchaseInvoices) {
+      totals.set(
+        invoice.supplierId,
+        (totals.get(invoice.supplierId) ?? 0) + invoice.remaining - (invoice.overpayment ?? 0),
+      );
+    }
+    return totals;
+  }, [purchaseInvoices]);
+
   const unpaidCustomers = useMemo(() => {
     return customers
       .map((c) => {
-        const grossRemaining = salesInvoices
-          .filter((s) => s.customerId === c.id && !s.cancelled && s.remaining > 0)
-          .reduce((a, s) => a + s.remaining, 0);
-        const credit = Math.max(0, -customerBalance(c.id));
-        return { c, bal: grossRemaining, credit };
+        const money = customerMoney.get(c.id);
+        return {
+          c,
+          bal: money?.grossRemaining ?? 0,
+          credit: Math.max(0, -(money?.balance ?? 0)),
+        };
       })
       .filter((x) => x.bal > 0)
       .sort((a, b) => b.bal - a.bal);
-  }, [customers, salesInvoices, customerBalance]);
+  }, [customers, customerMoney]);
 
   const customersWithCredit = useMemo(() => {
     return customers
-      .map((c) => ({ c, credit: customerCredit(c.id) }))
+      .map((c) => ({ c, credit: customerMoney.get(c.id)?.credit ?? 0 }))
       .filter((x) => x.credit > 0)
       .sort((a, b) => b.credit - a.credit);
-  }, [customers, customerCredit]);
+  }, [customers, customerMoney]);
 
   const suppliersWithCredit = useMemo(() => {
     return suppliers
-      .map((s) => ({ s, credit: Math.max(0, -supplierBalance(s.id)) }))
+      .map((s) => ({ s, credit: Math.max(0, -(supplierMoney.get(s.id) ?? 0)) }))
       .filter((x) => x.credit > 0)
       .sort((a, b) => b.credit - a.credit);
-  }, [suppliers, supplierBalance]);
+  }, [suppliers, supplierMoney]);
 
   const accountDueInvoices = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -483,11 +550,15 @@ export function AlertsPage() {
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <Badge tone="red">نفد المخزون</Badge>
-                          <Link to="/purchases/new">
-                            <Button variant="outline" size="sm" className="h-8 text-xs">
-                              توريد
-                            </Button>
-                          </Link>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={() => supplyProduct(p)}
+                            title={`فتح فاتورة شراء وفيها ${p.name}`}
+                          >
+                            توريد
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -543,11 +614,15 @@ export function AlertsPage() {
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <Badge tone="amber">منخفض ({p.quantity})</Badge>
-                          <Link to="/purchases/new">
-                            <Button variant="outline" size="sm" className="h-8 text-xs">
-                              توريد
-                            </Button>
-                          </Link>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={() => supplyProduct(p)}
+                            title={`فتح فاتورة شراء وفيها ${p.name}`}
+                          >
+                            توريد
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"

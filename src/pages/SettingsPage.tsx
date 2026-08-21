@@ -2,6 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { cn, isValidEgyptianMobile, normalizePhoneInput } from "../lib/utils";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
+import { useCatalog } from "../store/CatalogContext";
+import { ManageOptionsDialog } from "../components/ui/ManagedOptionSelect";
+import {
+  PRODUCT_OPTION_TITLES,
+  resolveProductOptions,
+  type ProductOptionList,
+} from "../lib/productOptions";
+
+/** The three shop-editable product lists, in the order the form asks for them. */
+const PRODUCT_OPTION_LISTS: { list: ProductOptionList; description: string }[] = [
+  { list: "qualityGrades", description: "أصلي توكيل، OEM، بديل ممتاز... وأي درجة تانية بتتعامل بيها" },
+  { list: "conditions", description: "جديدة، مستعملة، مجددة — وأي حالة بتبيع بيها" },
+  { list: "warranties", description: "مدد الضمان اللي بتديها؛ النظام بيحسب تاريخ الانتهاء منها" },
+];
 import { Button } from "../components/ui/Button";
 import { Field, Input, Select, Textarea } from "../components/ui/Input";
 import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
@@ -10,7 +24,7 @@ import { useAuditLog } from "../store/AuditLogContext";
 import { useToast } from "../components/ui/Toast";
 import { lsGet } from "../lib/storage";
 import { FEATURES, FEATURE_CATEGORIES, FEATURE_CATEGORY_BY_KEY, defaultFeatureState, isAllowedByLicense, type FeatureDef, type FeatureKey } from "../lib/features";
-import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ChevronDown, ChevronUp, Gift, RefreshCw, Smartphone, ShieldAlert, CheckCircle2, LogOut, Link2Off, Laptop, Globe, TabletSmartphone, CloudUpload, CloudDownload } from "lucide-react";
+import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ListChecks, ChevronDown, ChevronUp, Gift, RefreshCw, Smartphone, ShieldAlert, CheckCircle2, LogOut, Link2Off, Laptop, Globe, TabletSmartphone, CloudUpload, CloudDownload } from "lucide-react";
 import type { LinkedMobileDevice } from "../types/desktop";
 import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import {
@@ -238,6 +252,18 @@ export function SettingsPage() {
   const [form, setForm] = useState(settings);
   const [clearLogsDialogOpen, setClearLogsDialogOpen] = useState(false);
   const [clearLogsDays, setClearLogsDays] = useState<number>(0);
+  const [productOptionList, setProductOptionList] = useState<ProductOptionList | null>(null);
+  const { products } = useCatalog();
+  /**
+   * How many parts carry a given option, so the manage dialog can refuse a
+   * delete that would leave those parts pointing at nothing.
+   */
+  function productOptionUsage(list: ProductOptionList | null, value: string): number {
+    if (!list) return 0;
+    if (list === "qualityGrades") return products.filter((p) => p.qualityGrade === value).length;
+    if (list === "conditions") return products.filter((p) => p.condition === value).length;
+    return products.filter((p) => String(p.warrantyMonths ?? 0) === value).length;
+  }
   const [licenseDialogOpen, setLicenseDialogOpen] = useState(false);
   const [newSerial, setNewSerial] = useState("");
   const [applyingSerial, setApplyingSerial] = useState(false);
@@ -1159,6 +1185,39 @@ export function SettingsPage() {
                 </div>
               </>
             )}
+          </CardBody>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="قوائم بيانات المنتجات"
+            subtitle="الاختيارات اللي بتظهر في فورم إضافة المنتج — عدّل الأسماء زي ما بتتقال عندك أو أضف اختيارات جديدة"
+          />
+          <CardBody className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {PRODUCT_OPTION_LISTS.map(({ list, description }) => {
+              const count = resolveProductOptions(list, settings.productOptions).length;
+              return (
+                <button
+                  key={list}
+                  type="button"
+                  onClick={() => setProductOptionList(list)}
+                  className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 text-start transition hover:border-brand-400 hover:bg-surface-muted"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-muted text-ink-muted">
+                    <ListChecks className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-ink">
+                      {PRODUCT_OPTION_TITLES[list]}
+                    </span>
+                    <span className="block text-[11px] leading-relaxed text-ink-muted">{description}</span>
+                    <span className="mt-1 block text-[11px] font-semibold text-brand-600 dark:text-brand-400">
+                      {count} اختيار
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
           </CardBody>
         </Card>
 
@@ -2503,6 +2562,17 @@ export function SettingsPage() {
           }
         }}
       />
+
+      {/* Same dialog the product form opens from its "gear" button, so a
+          rename made here and a rename made there are the one list. */}
+      {productOptionList ? (
+        <ManageOptionsDialog
+          list={productOptionList}
+          open
+          onClose={() => setProductOptionList(null)}
+          usageCount={(value) => productOptionUsage(productOptionList, value)}
+        />
+      ) : null}
 
       <Dialog
         open={clearLogsDialogOpen}

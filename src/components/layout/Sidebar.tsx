@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import type { ComponentType } from "react";
 import {
@@ -36,6 +36,8 @@ import {
   Megaphone,
   Clock,
   PanelRightClose,
+  Search,
+  X,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { lsGet, lsSet } from "../../lib/storage";
@@ -44,6 +46,7 @@ import { useSettings } from "../../store/SettingsContext";
 import type { AppUser, UserPermissions } from "../../types";
 import { hasPermission } from "../../lib/permissions";
 import { useFeatures } from "../../lib/useFeatures";
+import { isFuzzyMatch } from "../../lib/fuzzySearch";
 import type { FeatureKey } from "../../lib/features";
 
 type NavItem = {
@@ -59,6 +62,8 @@ type NavItem = {
 type NavGroup = {
   id: string;
   label: string;
+  /** Shown on the group header so a collapsed sidebar still reads as a map. */
+  icon: ComponentType<{ className?: string }>;
   items: NavItem[];
 };
 
@@ -70,6 +75,7 @@ const GROUPS: NavGroup[] = [
   {
     id: "sales",
     label: "المبيعات والكاشير",
+    icon: Receipt,
     items: [
       {
         to: "/pos",
@@ -132,6 +138,7 @@ const GROUPS: NavGroup[] = [
   {
     id: "catalog",
     label: "الكتالوج وقطع الغيار",
+    icon: Package,
     items: [
       {
         to: "/products",
@@ -180,6 +187,7 @@ const GROUPS: NavGroup[] = [
   {
     id: "purchases",
     label: "المشتريات والتوريد",
+    icon: ShoppingBag,
     items: [
       {
         to: "/purchases",
@@ -220,6 +228,7 @@ const GROUPS: NavGroup[] = [
   {
     id: "crm",
     label: "العملاء والموردون",
+    icon: Users,
     items: [
       {
         to: "/customers",
@@ -254,6 +263,7 @@ const GROUPS: NavGroup[] = [
   {
     id: "finance",
     label: "المالية والتقارير",
+    icon: Wallet,
     items: [
       {
         to: "/cashbox",
@@ -309,6 +319,7 @@ const GROUPS: NavGroup[] = [
   {
     id: "admin",
     label: "إدارة النظام",
+    icon: Shield,
     items: [
       {
         to: "/users",
@@ -388,24 +399,28 @@ export function Sidebar({
   const { isEnabled } = useFeatures();
   const { pathname } = useLocation();
 
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
-    lsGet("sidebarOpenGroups", {}),
+  // One group open at a time. Every group used to default to open, which put
+  // 35 links in a column taller than the window — the list the shop described
+  // as "طويلة جدًا" and easy to get lost in. An accordion keeps the sidebar to
+  // six headers plus the section actually being worked in.
+  const [openGroup, setOpenGroup] = useState<string | null>(() =>
+    lsGet<string | null>("sidebarOpenGroup", null),
   );
   useEffect(() => {
-    lsSet("sidebarOpenGroups", openGroups);
-  }, [openGroups]);
+    lsSet("sidebarOpenGroup", openGroup);
+  }, [openGroup]);
 
-  // Keep the group that contains the current page open so the active item is
-  // never hidden behind a collapsed group.
+  // The group holding the current page is the one that should be open, so
+  // navigating from anywhere (search, a link, a redirect) leaves the sidebar
+  // showing where you are.
   useEffect(() => {
     const activeGroup = GROUPS.find((g) =>
       g.items.some((i) => itemMatchesPath(i, pathname)),
     );
-    if (activeGroup && openGroups[activeGroup.id] === false) {
-      setOpenGroups((prev) => ({ ...prev, [activeGroup.id]: true }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (activeGroup) setOpenGroup(activeGroup.id);
   }, [pathname]);
+
+  const [query, setQuery] = useState("");
 
   const topItems = TOP_ITEMS.filter((i) => canSee(i, currentUser, isEnabled));
   const groups = GROUPS.map((g) => ({
@@ -415,6 +430,21 @@ export function Sidebar({
   const bottomItems = BOTTOM_ITEMS.filter((i) =>
     canSee(i, currentUser, isEnabled),
   );
+
+  // Typing beats remembering which of six groups a screen lives under. While
+  // there is a query the groups are set aside entirely and the matches are
+  // listed flat, each labelled with the group it came from.
+  const searchResults = useMemo(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return null;
+    const all = [
+      ...topItems.map((item) => ({ item, group: "" })),
+      ...groups.flatMap((group) => group.items.map((item) => ({ item, group: group.label }))),
+      ...bottomItems.map((item) => ({ item, group: "" })),
+    ];
+    return all.filter(({ item, group }) => isFuzzyMatch(trimmed, [item.label, group]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, currentUser, isEnabled]);
 
   const renderItem = (item: NavItem, indented = false) => {
     const Icon = item.icon;
@@ -496,6 +526,30 @@ export function Sidebar({
           </button>
         ) : null}
       </div>
+      {!collapsed ? (
+        <div className="px-2 pt-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute end-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="ابحث عن صفحة..."
+              aria-label="ابحث عن صفحة"
+              className="h-8 w-full rounded-lg border border-line bg-surface-muted/50 px-2.5 pe-8 text-xs text-ink outline-none transition placeholder:text-ink-faint focus:border-brand-500 focus:bg-surface focus:ring-2 focus:ring-brand-500/20"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="مسح البحث"
+                className="absolute start-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-faint transition hover:text-ink"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <nav
         className={cn("p-2 flex-1 overflow-y-auto", collapsed && "space-y-1")}
       >
@@ -504,30 +558,60 @@ export function Sidebar({
           [...topItems, ...groups.flatMap((g) => g.items), ...bottomItems].map(
             (item) => renderItem(item),
           )
+        ) : searchResults ? (
+          searchResults.length === 0 ? (
+            <p className="px-3 py-6 text-center text-xs text-ink-faint">
+              مفيش صفحة بالاسم ده
+            </p>
+          ) : (
+            <div className="space-y-0.5">
+              {searchResults.map(({ item, group }) => (
+                <div key={item.to}>
+                  {renderItem(item)}
+                  {group ? (
+                    <div className="px-3 pb-1 text-[10px] text-ink-faint">{group}</div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )
         ) : (
           <>
             {topItems.map((item) => renderItem(item))}
             {groups.map((group) => {
-              const open = openGroups[group.id] ?? true;
+              const open = openGroup === group.id;
+              const GroupIcon = group.icon;
+              const hasActive = group.items.some((item) => itemMatchesPath(item, pathname));
               return (
                 <div key={group.id} className="mt-1">
                   <button
                     type="button"
-                    onClick={() =>
-                      setOpenGroups((prev) => ({ ...prev, [group.id]: !open }))
-                    }
-                    className="w-full flex items-center justify-between px-3 h-8 text-[11px] font-bold text-ink-faint hover:text-ink-muted uppercase tracking-wide"
+                    aria-expanded={open}
+                    onClick={() => setOpenGroup(open ? null : group.id)}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 h-9 rounded-lg text-[11px] font-bold tracking-wide transition-colors",
+                      open || hasActive
+                        ? "text-ink bg-surface-muted/60"
+                        : "text-ink-faint hover:bg-surface-muted/40 hover:text-ink-muted",
+                    )}
                   >
-                    <span>{group.label}</span>
+                    <GroupIcon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="flex-1 text-start">{group.label}</span>
+                    {!open && hasActive ? (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+                    ) : null}
+                    <span className="text-[10px] font-semibold text-ink-faint">
+                      {group.items.length}
+                    </span>
                     <ChevronDown
                       className={cn(
-                        "w-3.5 h-3.5 transition-transform",
+                        "w-3.5 h-3.5 shrink-0 transition-transform",
                         !open && "-rotate-90",
                       )}
                     />
                   </button>
                   {open ? (
-                    <div className="space-y-0.5">
+                    <div className="mt-0.5 space-y-0.5 border-e-2 border-line pe-1">
                       {group.items.map((item) => renderItem(item, true))}
                     </div>
                   ) : null}
@@ -535,7 +619,7 @@ export function Sidebar({
               );
             })}
             {bottomItems.length > 0 ? (
-              <div className="mt-1 pt-1 border-t border-line">
+              <div className="mt-2 pt-2 border-t border-line">
                 {bottomItems.map((item) => renderItem(item))}
               </div>
             ) : null}

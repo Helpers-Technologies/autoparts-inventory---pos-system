@@ -94,28 +94,12 @@ describe("adjustStockCartonDelta — integer movement quantity", () => {
 });
 
 // ─── الإصلاح 3: paymentLog — initPaid يشمل الفائض ──────────────────────────
-describe("initPaid for paymentLog includes overpayment", () => {
-  function computeInitPaid(amountReceived: number, overpayment?: number): number {
-    return amountReceived + (overpayment ?? 0);
-  }
+//
+// This block used to define `computeInitPaid` locally, three lines above the
+// assertions, and then assert that the local one-liner added correctly. It
+// could not fail no matter what the production code did. The real rule lives
+// in addSalesInvoice, which is exercised end to end by
+// tests/integration/flows/sales-invoice-lifecycle.test.ts — the assertions
+// that actually cover initPaid belong there, against the real store, and are
+// not restated here.
 
-  it("بلا فائض: initPaid = amountReceived", () => {
-    expect(computeInitPaid(500)).toBe(500);
-    expect(computeInitPaid(500, 0)).toBe(500);
-  });
-
-  it("مع فائض: initPaid = amountReceived + overpayment", () => {
-    // فاتورة بمجموع 500، العميل دفع 600 → amountReceived=500, overpayment=100
-    expect(computeInitPaid(500, 100)).toBe(600);
-  });
-
-  it("مدفوع صفر: initPaid = 0 (لا سجل يُنشأ)", () => {
-    expect(computeInitPaid(0, 0)).toBe(0);
-    expect(computeInitPaid(0)).toBe(0);
-  });
-
-  it("فائض فقط (total=0, amountReceived=0, overpayment=50)", () => {
-    // هذا سيناريو إعادة تحصيل لا يحدث في الإنشاء عادةً، لكن الكود يتعامل معه
-    expect(computeInitPaid(0, 50)).toBe(50);
-  });
-});

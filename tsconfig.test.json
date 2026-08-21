@@ -1,0 +1,33 @@
+{
+  /*
+   * The test tree, typechecked.
+   *
+   * `tsc -b` covered only `src`, so nothing under `tests/` was ever
+   * typechecked — vitest and Playwright transpile without checking. Every
+   * mistake in a test therefore surfaced as a RUNTIME failure that read like a
+   * bug in the application: a mistyped locator, a helper called with the wrong
+   * shape, a variable renamed in one line and not the next. Several rounds of
+   * "the app is broken" turned out to be exactly that.
+   *
+   * Same strictness as the app, minus the two rules that fight the way tests
+   * are written: a fixture often declares more than one case uses, and a
+   * spec's callback signature is fixed by the framework.
+   */
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "types": ["vite/client", "node"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    /* The electron/*.cjs modules under test ship no declarations. */
+    "allowJs": true,
+    "checkJs": false,
+    /* Page objects use TypeScript parameter properties, which the app's
+       erasable-only setting forbids but which never reach the bundler. */
+    "erasableSyntaxOnly": false,
+    /* Playwright specs are ESM-resolved by its own loader, not the bundler. */
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": ["tests", "src"]
+}

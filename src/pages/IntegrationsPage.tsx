@@ -424,6 +424,18 @@ export function IntegrationsPage() {
   async function toggleBostaEnabled() {
     if (saving || togglingEnabled) return;
     const nextEnabled = !enabled;
+    // Switching on without a key stored, and without one typed into the panel,
+    // can only come back as `api_key_missing`. Open the panel on the key field
+    // instead of bouncing the owner off an error toast that does not say where
+    // the key goes.
+    if (nextEnabled && !bostaConfig.configured && !apiKey.trim()) {
+      setBostaExpanded(true);
+      toast.info(
+        "أدخل مفتاح API أولًا",
+        "الصق مفتاح Bosta في خانة «مفتاح API» بالأسفل واضغط «حفظ الإعداد»، ثم شغّل الربط.",
+      );
+      return;
+    }
     setEnabled(nextEnabled);
     setTogglingEnabled(true);
     try {
@@ -781,7 +793,7 @@ export function IntegrationsPage() {
                         enabled ? "left-1.5" : "right-1"
                       }`}
                     >
-                      {enabled ? "تفعيل" : "تعطيل"}
+                      {enabled ? "مفعّل" : "معطّل"}
                     </span>
                   </button>
                   <Button
@@ -802,10 +814,14 @@ export function IntegrationsPage() {
                     type="button"
                     variant={bostaExpanded ? "primary" : "outline"}
                     size="sm"
-                    disabled={!enabled || saving || togglingEnabled}
+                    // Reachable while the integration is OFF on purpose: the
+                    // API key lives in this panel, and the backend refuses to
+                    // switch Bosta on until a key is stored. Gating the panel
+                    // on `enabled` made the two requirements block each other
+                    // and left a fresh install with no way in at all.
+                    disabled={saving || togglingEnabled}
                     onClick={() => setBostaExpanded((current) => !current)}
                     aria-expanded={bostaExpanded}
-                    title={!enabled ? "فعّل بوسطه أولًا لتعديل الإعدادات" : undefined}
                   >
                     <Settings2 className="h-4 w-4" />
                     {bostaExpanded ? "إغلاق الإعداد" : "إدارة الربط"}
@@ -816,9 +832,17 @@ export function IntegrationsPage() {
             </div>
           </CardBody>
 
-          {bostaExpanded && enabled ? (
+          {bostaExpanded ? (
             <div className="border-t border-line bg-surface-muted/10">
               <CardBody className="space-y-5 py-5">
+            {!enabled ? (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+                <span className="font-bold">الربط متوقف حاليًا.</span>{" "}
+                {bostaConfig.configured
+                  ? "الإعدادات محفوظة — شغّل المفتاح بالأعلى لبدء إرسال الشحنات."
+                  : "الصق مفتاح API واضغط «حفظ الإعداد»، ثم شغّل المفتاح بالأعلى."}
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field
                 label={

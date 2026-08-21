@@ -9,11 +9,17 @@ const REDACTED_PASSWORD_HASH = "[REDACTED]";
 
 const LICENSE_TOKEN_KEY = "__license_token";
 const LICENSE_LAST_SEEN_KEY = "__license_last_seen_at";
+const LICENSE_BOUND_HASHES_KEY = "__license_bound_hashes";
+const FINGERPRINT_PROBE_CACHE_KEY = "__fingerprint_probes";
 const AUTH_STATE_KEY = `${STORE_PREFIX}auth`;
 
+// The fingerprint rows decide which machine this install claims to be, so the
+// renderer must never be able to read or rewrite them.
 const PROTECTED_KEYS = new Set([
   LICENSE_TOKEN_KEY,
   LICENSE_LAST_SEEN_KEY,
+  LICENSE_BOUND_HASHES_KEY,
+  FINGERPRINT_PROBE_CACHE_KEY,
   AUTH_STATE_KEY,
 ]);
 

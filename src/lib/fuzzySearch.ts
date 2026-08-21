@@ -185,12 +185,19 @@ export function isFuzzyMatch(query: string, candidateTexts: (string | undefined 
       }
     }
 
-    // 4. Subsequence match for queries of length >= 3
+    // 4. Cross-script match: Arabic query against a Latin-only catalogue name
+    //    (or the reverse). See isCrossScriptMatch for why skeletons, not
+    //    letters. Placed before the loose strategies because it is precise.
+    if (isCrossScriptMatch(query, rawCandidate)) {
+      return true;
+    }
+
+    // 5. Subsequence match for queries of length >= 3
     if (strippedQuery.length >= 3 && isSubsequence(strippedQuery, strippedCandidate)) {
       return true;
     }
 
-    // 5. Levenshtein edit distance for typo tolerance
+    // 6. Levenshtein edit distance for typo tolerance
     // Max allowed distance depends on query length:
     // 3-4 chars: max 1 typo
     // 5+ chars: max 2 typos
@@ -210,4 +217,128 @@ export function isFuzzyMatch(query: string, candidateTexts: (string | undefined 
   }
 
   return false;
+}
+
+// ── Cross-script matching: Arabic query ↔ Latin catalogue ────────────────
+//
+// The vehicle catalogue carries 3,058 models and not one of them has an
+// Arabic name — they arrive from NHTSA vPIC as "Lancer", "Corolla", "Accent".
+// An Egyptian shop types the model the way it is said: "لانسر", "كورولا",
+// "اكسنت". Letter-by-letter comparison cannot bridge that, and an alias table
+// would have to be maintained per model forever.
+//
+// What both scripts DO agree on is the consonant skeleton. Arabic does not
+// write short vowels at all, and English vowels carry no information here, so
+// dropping them from both sides leaves the part that actually matches:
+//
+//   "Lancer"  → l n s r      "لانسر"  → l n s r
+//   "Corolla" → k r l        "كورولا" → k r l
+//   "Volvo"   → f l f        "فولفو"  → f l f
+//
+// English spelling is resolved phonetically first (c before e/i/y is /s/, not
+// /k/), and letters that Arabic writes with a single character are folded to
+// one class on both sides: v and p have no Arabic letter, so ف/ب stand in for
+// them; ق and ك are both /k/; ج is /g/ in Egyptian Arabic.
+//
+// This runs ONLY when the query and the candidate are in different scripts,
+// so same-script searches keep their existing behaviour exactly.
+
+const LATIN_VOWELS = /[aeiouwy]/g;
+
+/** Reduces a Latin string to the consonant skeleton Arabic would share. */
+function latinSkeleton(text: string): string {
+  let s = text.toLowerCase().replace(/[^a-z]/g, "");
+  if (!s) return "";
+  // Digraphs first: each is one sound and Arabic writes it with one letter.
+  s = s
+    .replace(/sh/g, "\u0001") // ش
+    .replace(/ch/g, "\u0001") // شيري / Chery — Arabic writes ش
+    .replace(/ph/g, "f")
+    .replace(/gh/g, "g")
+    .replace(/kh/g, "k")
+    .replace(/th/g, "t")
+    .replace(/ck/g, "k");
+  // "c" is /s/ before e, i, y and /k/ everywhere else — Lancer vs Corolla.
+  s = s.replace(/c(?=[eiy])/g, "s").replace(/c/g, "k");
+  s = s
+    .replace(/x/g, "ks")
+    .replace(/q/g, "k")
+    .replace(/v/g, "f") // no Arabic ⟨v⟩: فولفو
+    .replace(/p/g, "b") // no Arabic ⟨p⟩: بيجو
+    .replace(/j/g, "g"); // ج is /g/ in Egyptian Arabic
+  s = s.replace(LATIN_VOWELS, "");
+  return collapseRuns(s);
+}
+
+const ARABIC_TO_CLASS: Record<string, string> = {
+  "ا": "", "أ": "", "إ": "", "آ": "", "ى": "", "ء": "", "ؤ": "", "ئ": "",
+  "ة": "", "و": "", "ي": "", "ع": "",
+  "ب": "b", "پ": "b",
+  "ت": "t", "ط": "t", "ث": "t",
+  "س": "s", "ص": "s",
+  "ج": "g", "غ": "g",
+  "چ": "\u0001", "ش": "\u0001",
+  "ح": "h", "ه": "h",
+  "د": "d", "ض": "d", "ذ": "d",
+  "ر": "r",
+  "ز": "z", "ظ": "z",
+  "ف": "f", "ڤ": "f",
+  "ق": "k", "ك": "k", "خ": "k",
+  "ل": "l", "م": "m", "ن": "n",
+};
+
+/** Reduces an Arabic string to the same consonant skeleton as {@link latinSkeleton}. */
+function arabicSkeleton(text: string): string {
+  const normalized = normalizeArabicAndEnglish(text);
+  let out = "";
+  for (const ch of normalized) {
+    const mapped = ARABIC_TO_CLASS[ch];
+    if (mapped !== undefined) out += mapped;
+    else if (/[a-z0-9]/.test(ch)) out += ch; // mixed strings keep their Latin part
+  }
+  return collapseRuns(out);
+}
+
+/** "lancerr" → "lancer"; doubles are an orthographic accident, not a sound. */
+function collapseRuns(text: string): string {
+  let out = "";
+  for (const ch of text) if (ch !== out[out.length - 1]) out += ch;
+  return out;
+}
+
+const HAS_ARABIC = /[\u0621-\u064A]/;
+const HAS_LATIN = /[A-Za-z]/;
+
+/** The skeleton of `text`, chosen by the script it is written in. */
+export function scriptSkeleton(text: string): string {
+  return HAS_ARABIC.test(text) ? arabicSkeleton(text) : latinSkeleton(text);
+}
+
+/**
+ * True when an Arabic query names the same thing as a Latin candidate (or the
+ * reverse). Returns false for same-script pairs — those are already handled by
+ * the substring, alias and edit-distance strategies in {@link isFuzzyMatch}.
+ */
+export function isCrossScriptMatch(query: string, candidate: string): boolean {
+  const queryIsArabic = HAS_ARABIC.test(query);
+  const candidateIsArabic = HAS_ARABIC.test(candidate);
+  if (queryIsArabic === candidateIsArabic) return false;
+  // A candidate has to actually carry the other script to be comparable.
+  if (queryIsArabic ? !HAS_LATIN.test(candidate) : !HAS_ARABIC.test(candidate)) {
+    return false;
+  }
+
+  const q = scriptSkeleton(query);
+  const c = scriptSkeleton(candidate);
+  if (q.length < 2 || c.length === 0) return false;
+
+  // Two consonants carry little information ("تيجو" → "tg"), so they only
+  // match at the start of a name; longer skeletons may match anywhere.
+  if (q.length === 2) return c.startsWith(q);
+  if (c.includes(q)) return true;
+  // One sound of slack, which absorbs the letters the two scripts genuinely
+  // disagree on: "توسان" → "tsn" against Tucson's "tksn". Anchoring on the
+  // first consonant keeps that from turning into a wildcard — a name has to
+  // at least start with the same sound to be reachable by a typo.
+  return q[0] === c[0] && levenshteinDistance(q, c) <= 1;
 }

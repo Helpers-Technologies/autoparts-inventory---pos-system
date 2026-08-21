@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Minus, Wallet, HandCoins, Factory, NotebookPen, Search, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Minus, Wallet, HandCoins, Factory, NotebookPen, Search, ChevronDown, ChevronUp, PieChart, Banknote, CreditCard, Landmark, Smartphone, MoreHorizontal } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -19,6 +19,7 @@ import { useToast } from "../components/ui/Toast";
 import { todayISO, uid } from "../lib/utils";
 import type { CashEntryType, PaymentMethod } from "../types";
 import { formatCurrency, formatDate, PAYMENT_METHOD_LABELS } from "../lib/format";
+import { cashBalanceByMethod, drawerCashFrom } from "../lib/cashBalance";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
 
@@ -42,6 +43,7 @@ export function CashboxPage() {
   const driversEnabled = useFeatures().isEnabled("drivers");
 
   const [open, setOpen] = useState(false);
+  const [balanceBreakdownOpen, setBalanceBreakdownOpen] = useState(false);
   const [entryType, setEntryType] = useState<CashEntryType>("manual-add");
   const [amount, setAmount] = useState(0);
   const [desc, setDesc] = useState("");
@@ -293,6 +295,15 @@ export function CashboxPage() {
     [suppliers, supplierBalance]
   );
 
+  // Split by how the money arrived, so the shop can reconcile the drawer
+  // against the drawer instead of against a total that also contains last
+  // week's Visa settlement. See lib/cashBalance.
+  const balanceByMethod = useMemo(
+    () => cashBalanceByMethod(cashEntries, settings.openingBalance),
+    [cashEntries, settings.openingBalance],
+  );
+  const drawerCash = drawerCashFrom(balanceByMethod);
+
   function submit() {
     if (entryType === "manual-remove" && payoutTarget !== "general" && !payrollReference) {
       toast.error("اختر الموظف أولًا");
@@ -389,7 +400,15 @@ export function CashboxPage() {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Stat icon={<Wallet className="w-5 h-5" />} label="الرصيد الحالي" value={formatCurrency(currentCashBalance(), settings.currency)} tone="green" />
+        <Stat
+          icon={<Wallet className="w-5 h-5" />}
+          label="الرصيد الحالي"
+          value={formatCurrency(currentCashBalance(), settings.currency)}
+          tone="green"
+          hint={`منها ${formatCurrency(drawerCash, settings.currency)} في الدرج`}
+          onDetails={() => setBalanceBreakdownOpen(true)}
+          detailsLabel="تفاصيل الرصيد حسب طريقة الدفع"
+        />
         <Stat icon={<HandCoins className="w-5 h-5" />} label="إجمالي المحصل" value={formatCurrency(totalReceived, settings.currency)} tone="blue" />
         <Stat icon={<Factory className="w-5 h-5" />} label="مدفوعات الموردين" value={formatCurrency(totalPurchasePayments, settings.currency)} tone="amber" />
       </div>
@@ -681,6 +700,72 @@ export function CashboxPage() {
       </Dialog>
 
       <Dialog
+        open={balanceBreakdownOpen}
+        onClose={() => setBalanceBreakdownOpen(false)}
+        title="تفاصيل الرصيد الحالي"
+        subtitle="الرصيد موزّع على طرق الدفع اللي دخلت أو خرجت بيها الفلوس"
+        width="lg"
+        footer={<Button variant="outline" onClick={() => setBalanceBreakdownOpen(false)}>إغلاق</Button>}
+      >
+        <div className="space-y-3">
+          {balanceByMethod.length === 0 ? (
+            <EmptyState icon={<PieChart className="h-5 w-5" />} title="لا توجد حركات بعد" />
+          ) : (
+            <>
+              <div className="overflow-x-auto rounded-xl border border-line">
+                <Table>
+                  <THead>
+                    <TR>
+                      <TH>طريقة الدفع</TH>
+                      <TH className="text-end">داخل</TH>
+                      <TH className="text-end">خارج</TH>
+                      <TH className="text-end">الصافي</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {balanceByMethod.map((row) => (
+                      <TR key={row.method}>
+                        <TD>
+                          <span className="flex items-center gap-2 font-semibold text-ink">
+                            <span className="grid h-7 w-7 place-items-center rounded-lg bg-surface-muted text-ink-muted">
+                              {PAYMENT_METHOD_ICONS[row.method] ?? <MoreHorizontal className="h-3.5 w-3.5" />}
+                            </span>
+                            {PAYMENT_METHOD_LABELS[row.method] ?? row.method}
+                            {row.method === "cash" ? (
+                              <span className="text-[10px] text-ink-faint">(شامل الرصيد الافتتاحي)</span>
+                            ) : null}
+                          </span>
+                        </TD>
+                        <TD className="text-end text-emerald-600 dark:text-emerald-400">
+                          {formatCurrency(row.inflow, settings.currency)}
+                        </TD>
+                        <TD className="text-end text-rose-600 dark:text-rose-400">
+                          {row.outflow ? `- ${formatCurrency(row.outflow, settings.currency)}` : "—"}
+                        </TD>
+                        <TD className={`text-end font-bold ${row.net < 0 ? "text-rose-600 dark:text-rose-400" : "text-ink"}`}>
+                          {formatCurrency(row.net, settings.currency)}
+                        </TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+              </div>
+              <StatRow
+                label="إجمالي الرصيد الحالي"
+                value={currentCashBalance()}
+                tone="total"
+                settings={settings}
+              />
+              <p className="text-[11px] leading-relaxed text-ink-faint">
+                الدرج هو الكاش اللي المفروض يتعدّ فعليًا؛ باقي الطرق أرصدة عند
+                البنك أو المحفظة أو ماكينة الفيزا لحد ما تتسوّى.
+              </p>
+            </>
+          )}
+        </div>
+      </Dialog>
+
+      <Dialog
         open={openBalOpen}
         onClose={() => setOpenBalOpen(false)}
         title="تعديل الرصيد الافتتاحي"
@@ -706,6 +791,16 @@ export function CashboxPage() {
     </>
   );
 }
+
+/** One glyph per way money moves, so the breakdown reads at a glance. */
+const PAYMENT_METHOD_ICONS: Record<string, React.ReactNode> = {
+  cash: <Banknote className="h-3.5 w-3.5" />,
+  card: <CreditCard className="h-3.5 w-3.5" />,
+  instapay: <Landmark className="h-3.5 w-3.5" />,
+  vodafone: <Smartphone className="h-3.5 w-3.5" />,
+  bank: <Landmark className="h-3.5 w-3.5" />,
+  other: <MoreHorizontal className="h-3.5 w-3.5" />,
+};
 
 function TypeBadge({ type }: { type: CashEntryType }) {
   if (type === "sales-receipt") return <Badge tone="green">تحصيل مبيعات</Badge>;
@@ -747,11 +842,17 @@ function Stat({
   label,
   value,
   tone,
+  hint,
+  onDetails,
+  detailsLabel,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   tone: "green" | "blue" | "amber" | "rose" | "violet";
+  hint?: string;
+  onDetails?: () => void;
+  detailsLabel?: string;
 }) {
   const colors: Record<string, string> = {
     green: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -766,10 +867,22 @@ function Stat({
       <div className={`w-10 h-10 rounded-lg grid place-items-center ${colors[tone]}`}>
         {icon}
       </div>
-      <div>
+      <div className="min-w-0 flex-1">
         <div className="text-xs text-ink-muted">{label}</div>
         <div className="font-semibold text-ink">{value}</div>
+        {hint ? <div className="text-[11px] text-ink-faint truncate">{hint}</div> : null}
       </div>
+      {onDetails ? (
+        <button
+          type="button"
+          onClick={onDetails}
+          title={detailsLabel}
+          aria-label={detailsLabel}
+          className="shrink-0 grid h-8 w-8 place-items-center rounded-lg border border-line text-ink-muted transition hover:border-brand-400 hover:bg-surface-muted hover:text-brand-600"
+        >
+          <PieChart className="h-4 w-4" />
+        </button>
+      ) : null}
     </div>
   );
 }

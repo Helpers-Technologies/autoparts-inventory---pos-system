@@ -1,6 +1,11 @@
 import { createRequire } from "node:module";
 import { expect, test } from "@playwright/test";
-import { launchElectron, closeElectron } from "../../helpers/electron-app";
+import {
+  authenticatedShellMarker,
+  closeElectron,
+  dismissWhatsNewIfPresent,
+  launchElectron,
+} from "../../helpers/electron-app";
 import { FirstRunScreen } from "../screens/FirstRunScreen";
 import { LoginScreen } from "../screens/LoginScreen";
 
@@ -19,13 +24,12 @@ test("MFA enrollment, two-step login, and password recovery with Authenticator",
     const { window } = handle;
     const setup = new FirstRunScreen(window);
     await setup.createOwner(OWNER_USERNAME, OWNER_PASSWORD);
-    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
 
-    const whatsNewButton = window.getByRole("button", { name: "تمام، فهمت" });
-    if (await whatsNewButton.isVisible().catch(() => false)) await whatsNewButton.click();
+    await dismissWhatsNewIfPresent(window);
 
     await window.evaluate(() => {
-      window.location.hash = "/settings";
+      globalThis.location.hash = "/settings";
     });
     await expect(window.getByRole("heading", { name: "الإعدادات" }).first()).toBeVisible();
 
@@ -65,7 +69,7 @@ test("MFA enrollment, two-step login, and password recovery with Authenticator",
       .getByPlaceholder("000000 أو XXXX-XXXX-XXXX-XXXX")
       .fill(generateTotp(secret));
     await factorDialog.getByRole("button", { name: "تحقق وسجّل الدخول" }).click();
-    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
 
     await window.getByRole("button", { name: "تسجيل الخروج" }).click();
     await window
@@ -91,7 +95,7 @@ test("MFA enrollment, two-step login, and password recovery with Authenticator",
     await expect(recoveryDialog).toBeHidden();
 
     await login.loginAs(OWNER_USERNAME, RECOVERED_PASSWORD);
-    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
   } finally {
     await closeElectron(handle);
   }

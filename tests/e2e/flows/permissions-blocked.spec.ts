@@ -13,7 +13,12 @@
  * TC-E2E-009 — P0 / e2e / security
  */
 import { test, expect } from "@playwright/test";
-import { launchElectron, closeElectron } from "../../helpers/electron-app";
+import {
+  authenticatedShellMarker,
+  closeElectron,
+  dismissWhatsNewIfPresent,
+  launchElectron,
+} from "../../helpers/electron-app";
 import { FirstRunScreen } from "../screens/FirstRunScreen";
 import { LoginScreen } from "../screens/LoginScreen";
 
@@ -31,11 +36,13 @@ test("E2E-009: employee without permissions is blocked from ownerOnly routes", a
     const setup = new FirstRunScreen(window);
     await expect(setup.heading()).toBeVisible();
     await setup.createOwner(OWNER_USERNAME, OWNER_PASSWORD);
-    await expect(window.getByText(/أهلاً بك في/)).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
+    await dismissWhatsNewIfPresent(window);
 
     const login = new LoginScreen(window);
 
     // ── Step 2: Navigate to /users page ───────────────────────────────────
+    await window.getByPlaceholder("ابحث عن صفحة...").fill("المستخدمين");
     await window.getByRole("link", { name: "المستخدمين" }).click();
     await expect(window.getByRole("heading", { name: /مستخدمي النظام/ })).toBeVisible();
 
@@ -70,7 +77,7 @@ test("E2E-009: employee without permissions is blocked from ownerOnly routes", a
 
     // ── Step 6: Login as employee ──────────────────────────────────────────
     await login.loginAs(EMP_USERNAME, EMP_PASSWORD);
-    await expect(window.getByText(/أهلاً بك في/)).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
 
     // ── Step 7: Verify sidebar does NOT show ownerOnly links ───────────────
     await expect(window.getByRole("link", { name: "المستخدمين" })).not.toBeVisible();
@@ -79,15 +86,15 @@ test("E2E-009: employee without permissions is blocked from ownerOnly routes", a
 
     // ── Step 8: Directly navigate to /users via hash and verify redirect ───
     await window.evaluate(() => {
-      window.location.hash = "#/users";
+      globalThis.location.hash = "#/users";
     });
 
     // ProtectedShell redirects the employee back to "/" with a toast.
-    await expect(window.locator('[role="status"]', { hasText: /ليس لديك صلاحية/ })).toBeVisible({
+    await expect(window.locator('[role="status"]', { hasText: /ليس لديك صلاحية/ }).first()).toBeVisible({
       timeout: 6_000,
     });
     // Hash should resolve back to / (dashboard shown).
-    await expect(window.getByText(/أهلاً بك في/)).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
   } finally {
     await closeElectron(handle);
   }

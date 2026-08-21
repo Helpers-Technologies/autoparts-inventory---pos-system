@@ -2,11 +2,11 @@
 
 Desktop inventory and sales management system for auto-parts stores.
 
-[![CI](https://github.com/amrhanygomaa/Inv_system/actions/workflows/ci.yml/badge.svg)](https://github.com/amrhanygomaa/Inv_system/actions/workflows/ci.yml)
+[![CI](https://github.com/Helpers-Technologies/autoparts-inventory---pos-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Helpers-Technologies/autoparts-inventory---pos-system/actions/workflows/ci.yml)
 
 تطبيق Windows Desktop مستقل لمحلات وتجار قطع غيار السيارات. يدير كتالوج السيارات وتوافق القطع والبدائل والمخزون والفواتير، ويعمل أوفلاين بقاعدة SQLite محلية مشفرة.
 
-**Package version:** `6.1.1`
+**Package version:** `10.0.7`
 
 ## نظرة عامة
 
@@ -18,7 +18,7 @@ Desktop inventory and sales management system for auto-parts stores.
 
 | المجال | المميزات |
 | --- | --- |
-| كتالوج السيارات | 387 ماركة بشعارات أوفلاين، 3,781 موديل، وتصنيف بلد/سوق المنشأ مع تخصيص نشاط المحل حسب الدول أو الماركات |
+| كتالوج السيارات | 352 ماركة بشعارات أوفلاين، 3,058 موديل، وتصنيف بلد/سوق المنشأ مع تخصيص نشاط المحل حسب الدول أو الماركات |
 | قطع الغيار | Part Number، أرقام OEM متعددة، ماركة وجودة وحالة القطعة، مكان التركيب، الضمان، موقع الرف والبدائل |
 | التوافق | ربط القطعة بأكثر من ماركة/موديل/جيل/محرك ومدى سنوات، مع دليل بحث حسب السيارة |
 | المنتجات والمخزون | أسعار شراء وجملة وتجزئة، قطع وأطقم، حد أدنى، كمية إعادة طلب، وحركات مخزون |
@@ -49,12 +49,39 @@ Desktop inventory and sales management system for auto-parts stores.
 مفاتيح المميزات الحالية:
 
 ```text
-salesInvoices, purchaseInvoices, quotations, returns, products, inventory,
-stocktakes, alerts, customers, suppliers, drivers, cashbox, dues, reports,
-employeesReport, advancedAnalytics, whatsappIntegration, darkMode, activityLog,
-offlineEmployees, advancedAlerts, advancedSecurity, barcodeSystem,
-multiSalePrices, creditPayment, creditSales, expiryTracking
+pos, salesInvoices, purchaseInvoices, quotations, returns, products, inventory,
+stocktakes, alerts, customers, suppliers, drivers, cashbox, dues, dataImport,
+reports, excelExport, employeesReport, advancedAnalytics, marketingHub,
+whatsappIntegration, darkMode, activityLog, advancedAlerts, advancedSecurity,
+twoFactorAuth, barcodeSystem, multiSalePrices, creditPayment, creditSales,
+expiryTracking, partAlternatives, vehicleCatalog, warrantyCenter, pricingRules,
+supplierCommissions, purchasingAssistant, bulkProductTools, posMultiHold,
+employeePayroll, shippingManagement, bostaIntegration, mobileCompanion,
+cloudBackup
 ```
+
+المصدر الوحيد لهذه القائمة هو `src/lib/features.ts` — أي مفتاح هنا مأخوذ منها.
+
+## تطبيق الموبايل ومزامنة المخزن
+
+تطبيق Flutter مرافق (`flutter_app/`، ريبو منفصل) يعمل على أندرويد و iOS و PWA، ويتصل ببوابة التراخيص وليس بقاعدة البيانات المحلية مباشرة.
+
+| القدرة | التفاصيل |
+| --- | --- |
+| لوحة المتابعة | مبيعات وطلبات وعملاء وتنبيهات، للقراءة فقط، من لقطة يرفعها الكمبيوتر |
+| سكان المخزن | مسح باركود القطعة أو رقم OEM، وإضافة أو خصم أو تسجيل جرد من قدام الرف |
+| الربط | كود تفعيل لمرة واحدة من الكمبيوتر + كلمة مرور + 2FA، وجهاز موثوق بعدها |
+| الإشعارات | FCM لتنبيهات المخزون والطلبات |
+
+**قاعدة التصميم:** الموبايل لا يكتب مخزونًا أبدًا. يسجّل *نيّة* في طابور على البوابة، والكمبيوتر يسحبها ويطبّقها من نفس المسار الذي يكتب حركة المخزون وسجل العمليات ورصيد الفرع معًا — وإلا لظهرت كمية لا يستطيع الدفتر تفسيرها.
+
+ثلاث قواعد مبنية في المسار:
+
+- رقم العملية يُولَّد على الهاتف قبل الإرسال، فإعادة المحاولة بعد انقطاع الشبكة لا تخصم القطعة مرتين.
+- الخصم بأكثر من المتاح **يُرفض** ولا يُقصّ إلى صفر؛ الفرق بين الرف والدفتر هو المعلومة المفيدة، ومحوها أسوأ من رفض العملية.
+- الجرد يتحوّل إلى *فرق* عن الرصيد الحالي، فيترك حركة تشرح التغيير بدل الكتابة فوق رقم.
+
+كل عملية مطبَّقة تترك سطرًا في سجل العمليات باسم الجهاز واسم من نفّذها.
 
 ## نموذج الأمان
 
@@ -131,6 +158,8 @@ npm run test:watch       # Vitest watch
 npm run test:coverage    # Coverage
 npm run test:e2e         # Playwright E2E
 npm run test:smoke:e2e   # E2E smoke subset
+npm run typecheck:tests  # فحص أنواع شجرة الاختبارات (tsc -b يغطي src فقط)
+npm run catalog:sync     # إعادة توليد كتالوج السيارات
 npm run dist:win         # Windows NSIS installer
 ```
 
@@ -149,7 +178,7 @@ release/
 اسم المثبت يعتمد على `productName` و `version` في `package.json`:
 
 ```text
-AutoParts Inventory & Sales System-6.1.1-Setup.exe
+PartFlow-10.0.7-Setup.exe
 ```
 
 البناء يستخدم:

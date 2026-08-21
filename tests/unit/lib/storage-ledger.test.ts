@@ -48,16 +48,22 @@ async function freshModule(carryOver?: Map<string, string>) {
   await storage.reloadStorageCache();
 }
 
-type Mv = { id: string; referenceId?: string; productId: string; quantity: number };
+type Mv = { id: string; referenceId?: string; productId: string; quantity: number; date: string };
 const mv = (i: number, ref?: string): Mv =>
-  ({ id: `mv-${i}`, referenceId: ref, productId: `p-${i % 5}`, quantity: i });
+  ({
+    id: `mv-${String(i).padStart(6, "0")}`,
+    referenceId: ref,
+    productId: `p-${i % 5}`,
+    quantity: i,
+    date: new Date(Date.UTC(2020, 0, 1) + i * 1000).toISOString(),
+  });
 
 beforeEach(async () => {
   await freshModule();
 });
 
 describe("migrating an existing shop to oldest-first", () => {
-  it("reverses a newest-first ledger exactly once", async () => {
+  it("sorts a newest-first ledger exactly once", async () => {
     // How every shop's ledger looks today: newest at the front.
     const newestFirst = Array.from({ length: 1250 }, (_, i) => mv(1249 - i));
     storage.lsSetBatch({ stockMovements: newestFirst });
@@ -68,7 +74,7 @@ describe("migrating an existing shop to oldest-first", () => {
 
     expect(migrated).not.toBeNull();
     expect(migrated!.map((m) => m.id)).toEqual(
-      Array.from({ length: 1250 }, (_, i) => `mv-${i}`));
+      Array.from({ length: 1250 }, (_, i) => `mv-${String(i).padStart(6, "0")}`));
     expect(storage.lsIsOldestFirst("stockMovements")).toBe(true);
 
     await storage.reloadStorageCache();
@@ -98,7 +104,7 @@ describe("migrating an existing shop to oldest-first", () => {
 
     const migrated = storage.lsMigrateToOldestFirst<Mv>("stockMovements");
     expect(migrated!.map((m) => m.id)).toEqual(
-      Array.from({ length: 40 }, (_, i) => `mv-${i}`));
+      Array.from({ length: 40 }, (_, i) => `mv-${String(i).padStart(6, "0")}`));
     expect(desktop.rows.get(`${PREFIX}stockMovements`)).toBe(TOMBSTONE);
   });
 
@@ -133,6 +139,52 @@ describe("migrating an existing shop to oldest-first", () => {
       }),
       { numRuns: 120 },
     );
+  });
+
+  it("sorts a genuinely interleaved ledger instead of merely reversing it", async () => {
+    const interleaved = [mv(8), mv(1), mv(7), mv(3), mv(2), mv(9), mv(0), mv(6), mv(4), mv(5)];
+    storage.lsSetBatch({ stockMovements: interleaved });
+    await freshModule(new Map(desktop.rows));
+
+    const migrated = storage.lsMigrateToOldestFirst<Mv>("stockMovements");
+    expect(migrated?.map((item) => item.quantity)).toEqual(
+      Array.from({ length: 10 }, (_, index) => index));
+    expect(storage.lsIsOldestFirst("stockMovements")).toBe(true);
+  });
+
+  it("uses id as a deterministic tie-breaker for equal timestamps", async () => {
+    const sameDate = "2024-04-01T12:00:00.000Z";
+    const tied = [
+      { ...mv(1), id: "movement-c", date: sameDate },
+      { ...mv(2), id: "movement-a", date: sameDate },
+      { ...mv(3), id: "movement-b", date: sameDate },
+    ];
+    storage.lsSetBatch({ stockMovements: tied });
+    await freshModule(new Map(desktop.rows));
+
+    expect(storage.lsMigrateToOldestFirst<Mv>("stockMovements")?.map((item) => item.id))
+      .toEqual(["movement-a", "movement-b", "movement-c"]);
+  });
+
+  it("does not write a marker when any movement has an invalid date", async () => {
+    const invalid = [{ ...mv(1), date: "not-a-date" }, mv(0)];
+    storage.lsSetBatch({ stockMovements: invalid });
+    await freshModule(new Map(desktop.rows));
+    const before = new Map(desktop.rows);
+
+    expect(storage.lsMigrateToOldestFirst<Mv>("stockMovements")).toBeNull();
+    expect(storage.lsIsOldestFirst("stockMovements")).toBe(false);
+    expect(desktop.rows).toEqual(before);
+  });
+
+  it("does not trust the legacy marker that only proved reverse() ran", async () => {
+    storage.lsSetBatch({ stockMovements: [mv(2), mv(0), mv(1)] });
+    desktop.rows.set(`${PREFIX}stockMovements#order`, '"oldest-first"');
+    await freshModule(new Map(desktop.rows));
+
+    expect(storage.lsIsOldestFirst("stockMovements")).toBe(false);
+    expect(storage.lsMigrateToOldestFirst<Mv>("stockMovements")?.map((item) => item.quantity))
+      .toEqual([0, 1, 2]);
   });
 });
 
@@ -221,7 +273,7 @@ describe("removing an invoice's movements", () => {
     await freshModule(new Map(desktop.rows));
     const left = storage.lsGet<Mv[]>("stockMovements", []);
     expect(left).toHaveLength(601);
-    expect(left[left.length - 1].id).toBe("mv-9999");
+    expect(left[left.length - 1].id).toBe("mv-009999");
   });
 
   it("refuses on an un-migrated collection rather than pretending to delete", async () => {
@@ -302,7 +354,7 @@ describe("the whole ledger lifecycle", () => {
     const final = storage.lsGet<Mv[]>("stockMovements", []);
     expect(final).toHaveLength(afterDelete + 1);
     expect(final.some((m) => m.referenceId === "inv-7")).toBe(false);
-    expect(final[final.length - 1].id).toBe("mv-1002");
+    expect(final[final.length - 1].id).toBe("mv-001002");
     // No duplicates anywhere.
     expect(new Set(final.map((m) => m.id)).size).toBe(final.length);
     // Newest-first paging still agrees with the stored order.

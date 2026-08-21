@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, Phone, Plus, Receipt, Settings2, Trash2, Truck } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
@@ -29,6 +29,22 @@ export function DriversPage() {
   const canAddDriver = hasPermission(currentUser, "drivers", "add");
   const canEditDriver = hasPermission(currentUser, "drivers", "edit");
   const canDeleteDriver = hasPermission(currentUser, "drivers", "delete");
+
+  // Trip totals per driver, indexed once. The table used to filter every sales
+  // invoice inside the row map — so the whole invoice history was rescanned
+  // per driver, on every single render, not even memoised. Same shape as the
+  // customers page, which froze the app solid on a five-year shop.
+  const tripsByDriver = useMemo(() => {
+    const totals = new Map<string, { count: number; total: number }>();
+    for (const invoice of salesInvoices) {
+      if (invoice.cancelled || !invoice.driverId) continue;
+      const entry = totals.get(invoice.driverId) ?? { count: 0, total: 0 };
+      entry.count += 1;
+      entry.total += invoice.total;
+      totals.set(invoice.driverId, entry);
+    }
+    return totals;
+  }, [salesInvoices]);
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Driver | null>(null);
@@ -107,8 +123,8 @@ export function DriversPage() {
                 </TR>
               ) : (
                 drivers.map((d) => {
-                  const trips = salesInvoices.filter((inv) => inv.driverId === d.id && !inv.cancelled);
-                  const tripsTotal = trips.reduce((acc, inv) => acc + inv.total, 0);
+                  const { count: tripCount, total: tripsTotal } =
+                    tripsByDriver.get(d.id) ?? { count: 0, total: 0 };
 
                   return (
                     <TR
@@ -122,7 +138,7 @@ export function DriversPage() {
                         {d.salary ? formatCurrency(d.salary, settings.currency) : "—"}
                       </TD>
                       <TD>{d.licenseNumber || "—"}</TD>
-                      <TD>{trips.length}</TD>
+                      <TD>{tripCount}</TD>
                       <TD className="font-medium text-ink">{formatCurrency(tripsTotal, settings.currency)}</TD>
                       <TD>
                         <div className="flex items-center gap-2 justify-end">

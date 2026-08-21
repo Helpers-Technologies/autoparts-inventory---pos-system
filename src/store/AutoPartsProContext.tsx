@@ -205,6 +205,12 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   const { products } = useCatalog();
   const { logAudit } = useAuditLog();
   const productsRef = useRef(products);
+  const authenticatedIdentity = auth.isAuthenticated
+    ? auth.userId ?? auth.username ?? "authenticated"
+    : null;
+  const [hydratedIdentity, setHydratedIdentity] = useState<string | null>(
+    isDesktop ? null : "web",
+  );
   const [customerVehicles, setCustomerVehicles] = useState<CustomerVehicle[]>(() => lsGet("customerVehicles", []));
   const [warrantyClaims, setWarrantyClaims] = useState<WarrantyClaim[]>(() => lsGet("warrantyClaims", []));
   const [branches, setBranches] = useState<Branch[]>(() => lsGet("branches", DEFAULT_BRANCHES));
@@ -237,9 +243,13 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!auth.isAuthenticated) return;
+    if (!authenticatedIdentity) {
+      setHydratedIdentity(isDesktop ? null : "web");
+      return;
+    }
     reloadProData();
-  }, [auth.isAuthenticated, reloadProData]);
+    setHydratedIdentity(authenticatedIdentity);
+  }, [authenticatedIdentity, isDesktop, reloadProData]);
 
   useEffect(() => {
     setBranchStocks((current) => {
@@ -251,12 +261,12 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   }, [products, branches]);
 
   useEffect(() => {
-    if (isDesktop && !auth.isAuthenticated) return;
+    if (isDesktop && hydratedIdentity !== authenticatedIdentity) return;
     const timer = window.setTimeout(() => {
       lsSetBatch({ customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers });
     }, 1200);
     return () => window.clearTimeout(timer);
-  }, [auth.isAuthenticated, isDesktop, customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers]);
+  }, [auth.isAuthenticated, authenticatedIdentity, hydratedIdentity, isDesktop, customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers]);
 
   useEffect(() => {
     window.addEventListener("autoparts:pro-data-restored", reloadProData);

@@ -77,8 +77,9 @@ import {
   applyWeightedAverageCostDelta,
   requiresCreditSalesFeature,
   normalizeInitialSalesPayment,
-  calculateCustomerAccountBalance,
 } from "./_pure";
+import { registerProductOptionLabels } from "../lib/format";
+import { resolveProductOptions } from "../lib/productOptions";
 import { SettingsContext } from "./SettingsContext";
 import { AuditLogContext } from "./AuditLogContext";
 import { ShiftsContext } from "./ShiftsContext";
@@ -511,6 +512,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
   );
   const [auth, setAuth] = useState<AuthState>({ isAuthenticated: false });
+  // Desktop providers mount before a storage session exists. No persisted
+  // state may be flushed until the post-auth cache reload has completed and
+  // every AppProvider collection has been hydrated from that snapshot.
+  const [desktopStorageHydrated, setDesktopStorageHydrated] = useState(!isDesktop);
   const [isLocked, setIsLocked] = useState(false);
   const [desktopOwnerExists, setDesktopOwnerExists] = useState<boolean | null>(
     () => (isDesktop ? null : false)
@@ -645,6 +650,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSalesReturns(lsGet<SalesReturn[]>("salesReturns", []));
     setPurchaseReturns(lsGet<PurchaseReturn[]>("purchaseReturns", []));
     setDrivers(lsGet<Driver[]>("drivers", []));
+    setOfflineEmployees(lsGet<OfflineEmployee[]>("offlineEmployees", []));
+    setOfflineTransactions(lsGet<OfflineEmployeeTransaction[]>("offlineTransactions", []));
     setAuditLogs(lsGet<AuditLog[]>("auditLogs", []));
     setQuotations(lsGet<Quotation[]>("quotations", []));
     setStocktakes(lsGet<Stocktake[]>("stocktakes", []));
@@ -667,6 +674,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSalesReturns([]);
     setPurchaseReturns([]);
     setDrivers([]);
+    setOfflineEmployees([]);
+    setOfflineTransactions([]);
     setAuditLogs([]);
     setQuotations([]);
     setStocktakes([]);
@@ -863,7 +872,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // without this, a sale committed just before a graceful window close is
   // lost because win.destroy() kills the pending debounce timer outright.
   const flushPendingWritesNow = useCallback(async (): Promise<boolean> => {
-    if (isDesktop && !auth.isAuthenticated) return true;
+    if (isDesktop && (!auth.isAuthenticated || !desktopStorageHydrated)) return true;
     const s = liveStateRef.current;
     const ok = await lsSetBatchAwait({
       autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
@@ -871,7 +880,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     unflushedChangesRef.current = false;
     return ok;
-  }, [isDesktop, auth.isAuthenticated]);
+  }, [isDesktop, auth.isAuthenticated, desktopStorageHydrated]);
 
   // --- Auto Backup Logic (timer-based — never blocks on state changes) ---
   useEffect(() => {
@@ -928,7 +937,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Everything already flushed by the debounced batch write — skip the
       // redundant write so shutdown stays instant.
       if (!unflushedChangesRef.current) return;
-      if (isDesktop && !auth.isAuthenticated) return;
+      if (isDesktop && (!auth.isAuthenticated || !desktopStorageHydrated)) return;
       try {
         lsSetBatch({
           autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
@@ -940,7 +949,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [isDesktop, auth.isAuthenticated]);
+  }, [isDesktop, auth.isAuthenticated, desktopStorageHydrated]);
 
   const currentUser = useMemo(() => {
     if (!auth.isAuthenticated) return null;
@@ -986,7 +995,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // state is the empty seed, the main process rejects the write anyway, and
     // the optimistic cache update would poison the cache with empty arrays —
     // which previously led to the real data being overwritten on disk after login.
-    if (isDesktop && !auth.isAuthenticated) return;
+    if (isDesktop && (!auth.isAuthenticated || !desktopStorageHydrated)) return;
     const timer = window.setTimeout(() => {
       lsSetBatch({
         autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
@@ -1018,20 +1027,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unflushedChangesRef.current = false;
     }, 2000);
     return () => window.clearTimeout(timer);
-  }, [isDesktop, auth.isAuthenticated, settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, offlineEmployees, offlineTransactions, shifts]);
+  }, [isDesktop, auth.isAuthenticated, desktopStorageHydrated, settings, products, suppliers, customers, purchaseInvoices, salesInvoices, stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, offlineEmployees, offlineTransactions, shifts]);
 
   const finalizeDesktopAuthentication = useCallback(async (user: AppUser): Promise<LoginResult> => {
     // A main-process session exists only after every required authentication
     // factor succeeds. Reload renderer data at that point and never before it.
-    await reloadStorageCache();
+    setDesktopStorageHydrated(false);
+    const storageReady = await reloadStorageCache();
+    if (!storageReady) {
+      await window.desktopAPI?.auth.logout?.();
+      return { ok: false, error: "not_authenticated" };
+    }
     // The ledger has to be in oldest-first order before anything appends to
     // it. Checking costs one small row, so an already-migrated shop — which is
-    // every shop after the first launch — pays nothing. The shop that has not
-    // migrated pays once, here, where a wait after sign-in is expected.
+    // every shop after the first launch — pays nothing.
+    //
+    // The one shop that does migrate must fetch the ledger in a SINGLE call
+    // first. Its chunks are deliberately absent from the startup payload, so
+    // without this the migration reads them through the per-row fallback: 635
+    // synchronous IPC round-trips on a five-year shop, which turned sign-in
+    // into a forty-second blank screen.
     if (!lsIsOldestFirst("stockMovements")) {
-      lsMigrateToOldestFirst<StockMovement>("stockMovements");
+      await lsLoadCollection("stockMovements");
+      const migrated = lsMigrateToOldestFirst<StockMovement>("stockMovements");
+      if (migrated === null || !lsIsOldestFirst("stockMovements")) {
+        await window.desktopAPI?.auth.logout?.();
+        setDesktopStorageHydrated(false);
+        return { ok: false, error: "not_authenticated" };
+      }
     }
     loadStoredStateFromDesktop();
+    setDesktopStorageHydrated(true);
     const updatedUser = normalizeUser(user);
     setUsers((list) =>
       list.some((item) => item.id === updatedUser.id)
@@ -1094,6 +1120,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (user) {
       logAudit("user_logout", user.name, "تسجيل خروج ناجح", undefined, user);
     }
+    setDesktopStorageHydrated(false);
     if (window.desktopAPI?.auth.logout) {
       void window.desktopAPI.auth.logout();
       clearDesktopRendererState();
@@ -1157,8 +1184,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const result = await window.desktopAPI.setup.createOwner(username, password);
       if (!result.ok || !result.user) return false;
       setDesktopOwnerExists(true);
-      await reloadStorageCache();
+      const storageReady = await reloadStorageCache();
+      if (!storageReady) {
+        await window.desktopAPI.auth.logout?.();
+        return false;
+      }
       loadStoredStateFromDesktop();
+      if (!lsIsOldestFirst("stockMovements")) {
+        await lsLoadCollection("stockMovements");
+        const migrated = lsMigrateToOldestFirst<StockMovement>("stockMovements");
+        if (migrated === null || !lsIsOldestFirst("stockMovements")) {
+          await window.desktopAPI.auth.logout?.();
+          return false;
+        }
+      }
+      setDesktopStorageHydrated(true);
       const owner = normalizeUser(result.user);
       setUsers((list) => [owner, ...list.filter((u) => u.id !== owner.id)]);
       setAuth({
@@ -1189,6 +1229,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSalesReturns([]);
     setPurchaseReturns([]);
     setDrivers([]);
+    setOfflineEmployees([]);
+    setOfflineTransactions([]);
     setAuditLogs([]);
     setQuotations([]);
     setStocktakes([]);
@@ -1381,15 +1423,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return product;
   };
   const updateProduct: AppActions["updateProduct"] = (id, patch) => {
+    // A quantity typed into the product form is a stock movement like any
+    // other. Without this the ledger could no longer reconstruct the
+    // product's stock, and nothing recorded where the difference went.
+    const before = products.find((p) => p.id === id);
+    const quantityDelta =
+      before && patch.quantity !== undefined && patch.quantity !== before.quantity
+        ? patch.quantity - before.quantity
+        : 0;
+
     setProducts((list) =>
       list.map((p) => {
         if (p.id === id) {
-          logAudit("product_updated", p.name, "تعديل البيانات");
+          logAudit(
+            "product_updated",
+            p.name,
+            quantityDelta !== 0
+              ? `تعديل البيانات — الكمية ${quantityDelta > 0 ? "+" : ""}${quantityDelta} ${p.unit}`
+              : "تعديل البيانات",
+          );
           return { ...p, ...patch };
         }
         return p;
       })
     );
+
+    if (quantityDelta !== 0 && before) {
+      appendStockMovements([
+        {
+          id: uid("mov_edit"),
+          productId: id,
+          productName: patch.name ?? before.name,
+          type: quantityDelta > 0 ? "adjustment-in" : "adjustment-out",
+          quantity: quantityDelta,
+          reason: "تعديل الكمية من بيانات المنتج",
+          referenceType: "manual",
+          date: todayISO(),
+        },
+      ]);
+    }
   };
   const deleteProduct: AppActions["deleteProduct"] = (id) => {
     // prevent deletion if used in invoices, draft quotations or draft stocktakes
@@ -1738,7 +1810,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const newQty = newLines.reduce((sum, l) => sum + l.quantity, 0);
         const oldValue = oldLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
         const newValue = newLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
-        const qty = Math.max(0, p.quantity - oldQty) + newQty;
+        // Clamp the RESULT, not the reversal. Clamping `p.quantity - oldQty`
+        // first swallowed everything already sold and then added the new
+        // quantity on top, so saving an unchanged invoice re-created stock
+        // that had left the shop.
+        const qty = Math.max(0, p.quantity - oldQty + newQty);
         const avgCost = applyWeightedAverageCostDelta({
           currentQty: p.quantity,
           currentAvgCost: p.avgCost ?? p.purchasePrice,
@@ -2185,10 +2261,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const cancelSalesInvoice: AppActions["cancelSalesInvoice"] = (id, refundMode) => {
     const inv = salesInvoices.find((i) => i.id === id);
     if (!inv || inv.cancelled) return;
-    // return stock
+
+    // Only the units that have NOT already come back are restored.
+    //
+    // A sales return already put its own quantity back on the shelf, and the
+    // invoice keeps its original lines (settleSalesInvoiceReturn leaves them
+    // untouched on purpose). Restoring the full lines here therefore returned
+    // the same goods twice: sell 10, return 4, cancel -> stock +14. That is
+    // the double-count deleteSalesInvoice refuses outright; cancelling stays
+    // available because it is a legitimate action, it just has to net off
+    // what the returns already handled.
+    const alreadyReturned = new Map<string, number>();
+    for (const salesReturn of salesReturns) {
+      if (salesReturn.originalInvoiceId !== id) continue;
+      for (const returnedLine of salesReturn.lines) {
+        alreadyReturned.set(
+          returnedLine.productId,
+          (alreadyReturned.get(returnedLine.productId) ?? 0) + returnedLine.quantity,
+        );
+      }
+    }
+    const restorableLines = inv.lines
+      .map((invoiceLine) => {
+        const outstanding = alreadyReturned.get(invoiceLine.productId) ?? 0;
+        if (outstanding <= 0) return invoiceLine;
+        const quantity = Math.max(0, invoiceLine.quantity - outstanding);
+        alreadyReturned.set(invoiceLine.productId, outstanding - (invoiceLine.quantity - quantity));
+        return { ...invoiceLine, quantity };
+      })
+      .filter((invoiceLine) => invoiceLine.quantity > 0);
+
     setProducts((list) =>
       list.map((p) => {
-        const matchingLines = inv.lines.filter((x) => x.productId === p.id);
+        const matchingLines = restorableLines.filter((x) => x.productId === p.id);
         return applySalesLinesToProductStock(p, matchingLines, "add");
       })
     );
@@ -2230,7 +2335,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       : undefined;
     logAudit("invoice_sale_cancelled", `${inv.invoiceNumber} — ${inv.customerName}`, auditDetails);
     const cancelDate = todayISO();
-    const cancelMovements: StockMovement[] = inv.lines.map((l, idx) => ({
+    const cancelMovements: StockMovement[] = restorableLines.map((l, idx) => ({
       id: uid(`mov_cancel_${idx}`),
       productId: l.productId,
       productName: l.productName,
@@ -2811,19 +2916,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, [settings.openingBalance, cashEntries]);
 
+  // ── Per-customer money, indexed once ────────────────────────────────────
+  //
+  // These two used to walk the WHOLE invoice history on every call, and their
+  // callers call them once per customer: the dashboard sums receivables across
+  // every customer, the dues page lists them, and the reports page does it ten
+  // separate times. On a five-year shop that is 25,000 x 48,483 — about 1.2
+  // BILLION iterations per screen.
+  //
+  // It was the single most expensive thing in the product. A CPU profile of
+  // sign-in put 116 of its 122 seconds inside calculateCustomerAccountBalance,
+  // and the same call explains /dues at 371s and the financial and analytics
+  // reports at 441s and 415s. One pass over the invoices turns every one of
+  // those call sites into a map lookup.
+  const customerMoney = useMemo(() => {
+    const totals = new Map<string, { balance: number; credit: number }>();
+    for (const invoice of salesInvoices) {
+      let entry = totals.get(invoice.customerId);
+      if (!entry) {
+        entry = { balance: 0, credit: 0 };
+        totals.set(invoice.customerId, entry);
+      }
+      // customerCredit counts overpayment on every invoice, cancelled included.
+      entry.credit += invoice.overpayment ?? 0;
+      // calculateCustomerAccountBalance excludes cancelled invoices, and
+      // excludes collect-on-delivery because that is the carrier's money until
+      // it is settled, not the customer's debt.
+      if (!invoice.cancelled && !invoice.collectOnDelivery) {
+        entry.balance += invoice.remaining - (invoice.overpayment ?? 0);
+      }
+    }
+    return totals;
+  }, [salesInvoices]);
+
   const customerBalance = useCallback(
-    (customerId: string) =>
-      calculateCustomerAccountBalance(salesInvoices, customerId),
-    [salesInvoices]
+    (customerId: string) => customerMoney.get(customerId)?.balance ?? 0,
+    [customerMoney]
   );
 
   const customerCredit = useCallback(
-    (customerId: string) => {
-      return salesInvoices
-        .filter((s) => s.customerId === customerId)
-        .reduce((a, s) => a + (s.overpayment ?? 0), 0);
-    },
-    [salesInvoices]
+    (customerId: string) => customerMoney.get(customerId)?.credit ?? 0,
+    [customerMoney]
   );
 
   const settleAllDues = useCallback(
@@ -2984,13 +3117,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [purchaseInvoices, logAudit]
   );
 
+  // Indexed for the same reason customerBalance is: the suppliers page and the
+  // reports call this once per supplier.
+  const supplierBalances = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const invoice of purchaseInvoices) {
+      totals.set(
+        invoice.supplierId,
+        (totals.get(invoice.supplierId) ?? 0) + invoice.remaining - (invoice.overpayment ?? 0),
+      );
+    }
+    return totals;
+  }, [purchaseInvoices]);
+
   const supplierBalance = useCallback(
-    (supplierId: string) => {
-      return purchaseInvoices
-        .filter((p) => p.supplierId === supplierId)
-        .reduce((a, p) => a + p.remaining - (p.overpayment ?? 0), 0);
-    },
-    [purchaseInvoices]
+    (supplierId: string) => supplierBalances.get(supplierId) ?? 0,
+    [supplierBalances]
   );
 
   const supplierCredit = useCallback(
@@ -3676,6 +3818,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // F3-6: settings, the audit log, and session/auth are also exposed through
   // dedicated contexts so their consumers re-render independently of the main store.
   const settingsValue = useMemo(() => ({ settings, updateSettings }), [settings, updateSettings]);
+
+  // Quality grades, part conditions and warranty terms are editable by the
+  // shop, and their labels are read from a dozen pure formatters that have no
+  // access to settings. Publishing the resolved labels once here keeps every
+  // one of those screens showing the shop's own wording. See
+  // registerProductOptionLabels in lib/format.
+  useEffect(() => {
+    const labels: Record<string, string> = {};
+    for (const list of ["qualityGrades", "conditions", "warranties"] as const) {
+      for (const option of resolveProductOptions(list, settings.productOptions)) {
+        labels[`${list}:${option.value.toLowerCase()}`] = option.label;
+      }
+    }
+    registerProductOptionLabels(labels);
+  }, [settings.productOptions]);
   // restoreDeletedInvoice is a plain function (same pattern as catalog actions);
   // every path that mutates invoices also appends an audit entry, so memoizing
   // on auditLogs alone always captures fresh state.

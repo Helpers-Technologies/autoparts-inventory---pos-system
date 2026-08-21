@@ -1,10 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckCircle2, AlertTriangle, Info, XCircle, X } from "lucide-react";
 import { cn } from "../../lib/utils";
@@ -40,13 +34,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }, 3800);
   }, []);
 
-  const value: ToastCtx = {
-    toast: push,
-    success: (title, description) => push({ type: "success", title, description }),
-    error: (title, description) => push({ type: "error", title, description }),
-    info: (title, description) => push({ type: "info", title, description }),
-    warning: (title, description) => push({ type: "warning", title, description }),
-  };
+  // Memoised because the identity of this object is what every useToast()
+  // consumer subscribes to. Rebuilding it on each render made a single toast
+  // re-render all 63 consumers — enough, when combined with a caller that
+  // raised a toast during render, to starve the router's redirect transition
+  // and leave the window blank. See the note in ProtectedShell.
+  const value = useMemo<ToastCtx>(
+    () => ({
+      toast: push,
+      success: (title, description) => push({ type: "success", title, description }),
+      error: (title, description) => push({ type: "error", title, description }),
+      info: (title, description) => push({ type: "info", title, description }),
+      warning: (title, description) => push({ type: "warning", title, description }),
+    }),
+    [push],
+  );
 
   return (
     <ToastContext.Provider value={value}>

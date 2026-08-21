@@ -7,7 +7,7 @@ import { Badge } from "../ui/Badge";
 import { useInvoicing } from "../../store/InvoicingContext";
 import { useSettings } from "../../store/SettingsContext";
 import { useAuth } from "../../store/AuthContext";
-import { formatCurrency, formatDateTime } from "../../lib/format";
+import { CASH_PAYMENT_METHODS, formatCurrency, formatDateTime, PAYMENT_METHOD_LABELS } from "../../lib/format";
 import { useToast } from "../ui/Toast";
 import { hasPermission } from "../../lib/permissions";
 import type { CashierShift } from "../../types";
@@ -57,6 +57,13 @@ export function CloseShiftDialog({
 
   // Always compute live summary
   const summary = getShiftSummary(shift.id);
+
+  // Non-drawer takings, split by how the money arrived and shown in a fixed
+  // order so the cards do not reshuffle between two closes of the same day.
+  const nonCashByMethod = CASH_PAYMENT_METHODS
+    .filter((method) => method !== "cash")
+    .map((method) => [method, summary.paymentMethodTotals?.[method] ?? 0] as const)
+    .filter(([, amount]) => amount !== 0);
 
   const actualNum = Number(actualCash);
   const hasValidActual = actualCash.trim() !== "" && Number.isFinite(actualNum) && actualNum >= 0;
@@ -169,12 +176,29 @@ export function CloseShiftDialog({
             </div>
           </div>
 
-          <div className="p-3 rounded-xl border border-line bg-surface space-y-1">
-            <span className="text-[11px] text-blue-700 dark:text-blue-400 font-medium">مبيعات الشبكة (فيزا)</span>
-            <div className="text-sm font-bold text-blue-700 dark:text-blue-400">
-              {formatCurrency(summary.totalVisaSales, settings.currency)}
+          {/* One card per method the shop actually took money by. The single
+              "مبيعات الشبكة (فيزا)" card that stood here hid a Visa sale, an
+              InstaPay transfer and a wallet payment behind one number, which
+              is exactly what the cashier has to reconcile separately. */}
+          {nonCashByMethod.length > 0 ? (
+            nonCashByMethod.map(([method, amount]) => (
+              <div key={method} className="p-3 rounded-xl border border-line bg-surface space-y-1">
+                <span className="text-[11px] text-blue-700 dark:text-blue-400 font-medium">
+                  {PAYMENT_METHOD_LABELS[method] ?? method}
+                </span>
+                <div className="text-sm font-bold text-blue-700 dark:text-blue-400">
+                  {formatCurrency(amount, settings.currency)}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="p-3 rounded-xl border border-line bg-surface space-y-1">
+              <span className="text-[11px] text-blue-700 dark:text-blue-400 font-medium">مبيعات غير نقدية</span>
+              <div className="text-sm font-bold text-blue-700 dark:text-blue-400">
+                {formatCurrency(summary.totalVisaSales, settings.currency)}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="p-3 rounded-xl border border-line bg-surface space-y-1">
             <span className="text-[11px] text-indigo-700 dark:text-indigo-400 font-medium">المبيعات الآجلة</span>

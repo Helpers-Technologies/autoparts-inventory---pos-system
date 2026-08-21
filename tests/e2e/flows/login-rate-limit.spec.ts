@@ -10,7 +10,12 @@
  * TC-E2E-002 — P0 / e2e / security
  */
 import { test, expect } from "@playwright/test";
-import { launchElectron, closeElectron } from "../../helpers/electron-app";
+import {
+  authenticatedShellMarker,
+  closeElectron,
+  dismissWhatsNewIfPresent,
+  launchElectron,
+} from "../../helpers/electron-app";
 import { FirstRunScreen } from "../screens/FirstRunScreen";
 import { LoginScreen } from "../screens/LoginScreen";
 
@@ -27,14 +32,11 @@ test("E2E-002: 5 wrong passwords trigger the rate-limit lockout", async () => {
     const setup = new FirstRunScreen(window);
     await expect(setup.heading()).toBeVisible();
     await setup.createOwner(OWNER_USERNAME, OWNER_PASSWORD);
-    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
 
     // First run auto-opens the "What's New" dialog over the dashboard; dismiss
     // it so its backdrop doesn't intercept the logout click below.
-    const whatsNewButton = window.getByRole("button", { name: "تمام، فهمت" });
-    if (await whatsNewButton.isVisible({ timeout: 1500 }).catch(() => false)) {
-      await whatsNewButton.click();
-    }
+    await dismissWhatsNewIfPresent(window);
 
     // ── Step 2: Logout to reach the login screen ────────────────────────────
     await window.getByRole("button", { name: "تسجيل الخروج" }).click();

@@ -693,6 +693,8 @@ export interface Quotation {
   createdAt: string;
 }
 
+import type { ProductOptionSettings } from "../lib/productOptions";
+
 export type CashEntryType =
   | "sales-receipt"
   | "purchase-payment"
@@ -726,6 +728,8 @@ export interface CashEntry {
 }
 
 export interface Settings {
+  /** Shop-editable pick lists behind the product form. See lib/productOptions. */
+  productOptions?: ProductOptionSettings;
   companyName: string;
   companyNameAr: string;
   ownerName: string;
@@ -900,8 +904,10 @@ export interface CustomerVehicle {
   generationId?: ID;
   engineId?: ID;
   year?: number;
+  /** @deprecated Retired from the UI — the engine record carries the code. Kept so existing vehicles are not rewritten. */
   engineCode?: string;
   color?: string;
+  /** @deprecated Retired from the UI — a parts shop never reads it back. Kept so existing vehicles are not rewritten. */
   mileageKm?: number;
   notes?: string;
   archived?: boolean;

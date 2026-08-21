@@ -2,13 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CustomerAddress } from "../../types";
 import { Field, Input } from "../../components/ui/Input";
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
-import { useToast } from "../../components/ui/Toast";
 import {
   useShipping,
   type BostaCityOption,
   type BostaDistrictOption,
 } from "../../store/ShippingContext";
 import { useFeatures } from "../../lib/useFeatures";
+import {
+  EGYPT_GOVERNORATES,
+  citiesForGovernorate,
+  matchCity,
+  matchGovernorate,
+  normalizePlaceName,
+} from "../../lib/egyptLocations";
 
 export type AddressDraft = Omit<
   CustomerAddress,
@@ -20,201 +26,174 @@ function bilingualLabel(arabic?: string, english?: string) {
   return arabic || english || "—";
 }
 
-function normalizePlace(value?: string) {
-  return (value ?? "")
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ة/g, "ه")
-    .replace(/ى/g, "ي")
-    .replace(/[\s_-]+/g, " ");
-}
-
-function cityMatches(value: AddressDraft, city: BostaCityOption) {
-  const current = [value.governorate, value.bosta?.cityName]
-    .map(normalizePlace)
-    .filter(Boolean);
-  return [city.nameAr, city.name]
-    .map(normalizePlace)
-    .some((name) => name && current.includes(name));
-}
-
+/**
+ * Structured Egyptian address capture.
+ *
+ * The fields are the shop's own, backed by the built-in governorate/city
+ * reference in lib/egyptLocations — never by a shipping company's coverage
+ * API. That matters for two reasons: a counter sale has to be able to record
+ * an address with no carrier connected at all, and the system is going to
+ * carry more than one carrier, so none of them can own what a valid address
+ * looks like.
+ *
+ * A connected carrier is an ENRICHMENT pass on top: when Bosta coverage is
+ * available the picked governorate/city is resolved to Bosta's own ids and
+ * stashed on `value.bosta` so shipments still go out with the ids Bosta
+ * wants, and the district field gains Bosta's district list as suggestions.
+ * If the carrier is off, unconfigured, or offline, every field still works.
+ *
+ * `required` is the caller's call — a delivery needs a full address, adding a
+ * walk-in customer does not.
+ */
 export function AddressFields({
   value,
   onChange,
   compact = false,
   showRecipient = true,
+  required = false,
 }: {
   value: AddressDraft;
   onChange: (value: AddressDraft) => void;
   compact?: boolean;
   showRecipient?: boolean;
+  /** Marks governorate / city / street line as mandatory. Delivery and
+   *  shipping flows pass true; customer records leave it false. */
+  required?: boolean;
 }) {
-  const toast = useToast();
   const { isEnabled } = useFeatures();
   const bostaIntegrationEnabled = isEnabled("bostaIntegration");
-  const toastRef = useRef(toast);
   const { bostaConfig, getBostaCities, getBostaDistricts } = useShipping();
-  const [cities, setCities] = useState<BostaCityOption[]>([]);
-  const [districts, setDistricts] = useState<BostaDistrictOption[]>([]);
-  const [citiesLoading, setCitiesLoading] = useState(false);
-  const [districtsLoading, setDistrictsLoading] = useState(false);
-  const internetNoticeShown = useRef(false);
-
-  useEffect(() => {
-    toastRef.current = toast;
-  }, [toast]);
+  const [carrierCities, setCarrierCities] = useState<BostaCityOption[]>([]);
+  const [carrierDistricts, setCarrierDistricts] = useState<
+    BostaDistrictOption[]
+  >([]);
 
   function set<K extends keyof AddressDraft>(key: K, next: AddressDraft[K]) {
     onChange({ ...value, [key]: next });
   }
 
+  const carrierCoverageReady =
+    bostaIntegrationEnabled && bostaConfig.enabled && bostaConfig.configured;
+
+  // ── Carrier enrichment (optional, never blocking) ───────────────────────
+  // Failures here are silent by design: the address is already valid without
+  // carrier ids, and a toast about a shipping account is noise to a cashier
+  // recording a customer's address.
   useEffect(() => {
-    if (
-      !bostaIntegrationEnabled ||
-      !bostaConfig.enabled ||
-      !bostaConfig.configured
-    )
+    if (!carrierCoverageReady) {
+      setCarrierCities([]);
       return;
+    }
     let active = true;
-    setCitiesLoading(true);
     void getBostaCities().then((result) => {
       if (!active) return;
-      setCitiesLoading(false);
-      if (result.ok) {
-        setCities(result.cities ?? []);
-        internetNoticeShown.current = false;
-        return;
-      }
-      if (
-        result.error === "internet_required" &&
-        !internetNoticeShown.current
-      ) {
-        internetNoticeShown.current = true;
-        toastRef.current.error(
-          "الإنترنت مطلوب",
-          "شغّل الإنترنت لتحميل المحافظات والمدن والمناطق المعتمدة من Bosta.",
-        );
-      }
+      setCarrierCities(result.ok ? (result.cities ?? []) : []);
     });
     return () => {
       active = false;
     };
-  }, [
-    bostaConfig.configured,
-    bostaConfig.enabled,
-    bostaIntegrationEnabled,
-    getBostaCities,
-  ]);
+  }, [carrierCoverageReady, getBostaCities]);
 
-  const matchedCity = useMemo(
-    () =>
-      cities.find((city) => city.id === value.bosta?.cityId) ??
-      cities.find((city) => cityMatches(value, city)),
-    [cities, value],
-  );
-  const selectedCityId = matchedCity?.id ?? "";
+  const governorate = value.governorate ?? "";
+  const canonicalGovernorate = matchGovernorate(governorate);
+  const cityOptions = citiesForGovernorate(governorate);
+
+  /** The carrier city covering the picked governorate, if any. */
+  const carrierCity = useMemo(() => {
+    if (!carrierCities.length) return undefined;
+    const wanted = normalizePlaceName(governorate);
+    if (!wanted) return undefined;
+    return carrierCities.find((city) =>
+      [city.nameAr, city.name]
+        .map(normalizePlaceName)
+        .some((name) => name === wanted),
+    );
+  }, [carrierCities, governorate]);
+
+  const carrierCityId = carrierCity?.id ?? "";
 
   useEffect(() => {
-    if (!selectedCityId) {
-      setDistricts([]);
+    if (!carrierCityId) {
+      setCarrierDistricts([]);
       return;
     }
     let active = true;
-    setDistrictsLoading(true);
-    void getBostaDistricts(selectedCityId).then((result) => {
+    void getBostaDistricts(carrierCityId).then((result) => {
       if (!active) return;
-      setDistrictsLoading(false);
-      if (result.ok) setDistricts(result.districts ?? []);
-      else setDistricts([]);
+      setCarrierDistricts(result.ok ? (result.districts ?? []) : []);
     });
     return () => {
       active = false;
     };
-  }, [getBostaDistricts, selectedCityId]);
+  }, [carrierCityId, getBostaDistricts]);
 
-  const zones = useMemo(() => {
-    const unique = new Map<
-      string,
-      { id: string; name: string; nameAr?: string }
-    >();
-    for (const district of districts) {
-      const name = district.zoneName ?? district.name;
-      const nameAr = district.zoneNameAr;
-      const id = district.zoneId ?? `zone:${normalizePlace(name)}`;
-      if (!unique.has(id)) unique.set(id, { id, name, nameAr });
-    }
-    return [...unique.values()];
-  }, [districts]);
-
-  const matchedZone =
-    zones.find((zone) => zone.id === value.bosta?.zoneId) ??
-    zones.find((zone) =>
-      [zone.name, zone.nameAr]
-        .map(normalizePlace)
-        .filter(Boolean)
-        .includes(normalizePlace(value.city)),
+  // Keep the carrier ids on the address in step with what the user picked,
+  // so a shipment created later already carries them.
+  const lastSyncedRef = useRef("");
+  useEffect(() => {
+    const district = carrierDistricts.find(
+      (item) =>
+        normalizePlaceName(item.nameAr ?? item.name) ===
+        normalizePlaceName(value.district),
     );
-  const selectedZoneId = matchedZone?.id ?? "";
-  const filteredDistricts = selectedZoneId
-    ? districts.filter(
-        (district) =>
-          (district.zoneId ??
-            `zone:${normalizePlace(district.zoneName ?? district.name)}`) ===
-          selectedZoneId,
-      )
-    : [];
+    const zoneMatch = carrierDistricts.find(
+      (item) =>
+        normalizePlaceName(item.zoneNameAr ?? item.zoneName) ===
+        normalizePlaceName(value.city),
+    );
+    const next = carrierCity
+      ? {
+          cityId: carrierCity.id,
+          cityName: carrierCity.name,
+          zoneId: district?.zoneId ?? zoneMatch?.zoneId,
+          zoneName: district?.zoneName ?? zoneMatch?.zoneName,
+          districtId: district?.id,
+          districtName: district?.name,
+        }
+      : undefined;
+    const signature = JSON.stringify(next ?? null);
+    if (signature === lastSyncedRef.current) return;
+    if (JSON.stringify(value.bosta ?? null) === signature) {
+      lastSyncedRef.current = signature;
+      return;
+    }
+    lastSyncedRef.current = signature;
+    onChange({ ...value, bosta: next });
+    // `value`/`onChange` are intentionally out of the dep list: this effect
+    // writes back into `value`, and including it would re-run on its own
+    // output. The signature guard is what makes it settle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carrierCity, carrierDistricts, value.city, value.district]);
 
-  function selectGovernorate(cityId: string) {
-    const city = cities.find((item) => item.id === cityId);
-    if (!city) return;
-    onChange({
-      ...value,
-      governorate: city.nameAr || city.name,
-      city: "",
-      district: "",
-      bosta: {
-        cityId: city.id,
-        cityName: city.name,
-      },
-    });
+  function selectGovernorate(next: string) {
+    if (next === governorate) return;
+    // Clearing city/district is deliberate — they belong to the old
+    // governorate and a stale pair produces an undeliverable address.
+    onChange({ ...value, governorate: next, city: "", district: "" });
   }
 
-  function selectZone(zoneId: string) {
-    const zone = zones.find((item) => item.id === zoneId);
-    if (!zone || !matchedCity) return;
-    onChange({
-      ...value,
-      city: zone.nameAr || zone.name,
-      district: "",
-      bosta: {
-        cityId: matchedCity.id,
-        cityName: matchedCity.name,
-        zoneId: zone.id.startsWith("zone:") ? undefined : zone.id,
-        zoneName: zone.name,
-      },
-    });
+  /** SearchableSelect renders the placeholder for any value it has no option
+   *  for, so a typed-in place would look unselected. Carry it as its own
+   *  option. */
+  function withCurrent(names: readonly string[], current: string) {
+    const list = current && !names.includes(current) ? [current, ...names] : names;
+    return list.map((name) => ({ value: name, label: name, searchText: name }));
   }
 
-  function selectDistrict(districtId: string) {
-    const district = districts.find((item) => item.id === districtId);
-    if (!district || !matchedCity) return;
-    onChange({
-      ...value,
-      district: district.nameAr || district.name,
-      bosta: {
-        cityId: matchedCity.id,
-        cityName: matchedCity.name,
-        zoneId: district.zoneId,
-        zoneName: district.zoneName,
-        districtId: district.id,
-        districtName: district.name,
-      },
-    });
-  }
-
-  const coverageUnavailable =
-    !bostaConfig.enabled || !bostaConfig.configured;
+  const districtSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const district of carrierDistricts) {
+      const zone = normalizePlaceName(district.zoneNameAr ?? district.zoneName);
+      if (value.city && zone && zone !== normalizePlaceName(value.city))
+        continue;
+      const name = district.nameAr ?? district.name;
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      out.push(name);
+    }
+    return out;
+  }, [carrierDistricts, value.city]);
 
   return (
     <div
@@ -245,84 +224,78 @@ export function AddressFields({
         </>
       ) : null}
 
-      {bostaIntegrationEnabled ? <><Field
-        label="المحافظة"
-        required
-        hint="قائمة المحافظات المعتمدة من Bosta وتدعم البحث بالعربي والإنجليزي"
+      <Field label="المحافظة" required={required}>
+        <SearchableSelect
+          value={canonicalGovernorate || governorate}
+          onChange={selectGovernorate}
+          options={withCurrent(
+            EGYPT_GOVERNORATES,
+            canonicalGovernorate || governorate,
+          )}
+          placeholder="اختر المحافظة"
+          searchPlaceholder="ابحث عن المحافظة..."
+          onCreate={selectGovernorate}
+          createLabel="استخدم"
+          clearable={false}
+        />
+      </Field>
+
+      <Field
+        label="المدينة / المركز"
+        required={required}
+        hint={
+          governorate && !cityOptions.length
+            ? "اكتب اسم المدينة أو المركز"
+            : undefined
+        }
       >
         <SearchableSelect
-          value={selectedCityId}
-          onChange={selectGovernorate}
-          disabled={coverageUnavailable || citiesLoading}
-          options={cities.map((city) => ({
-            value: city.id,
-            label: bilingualLabel(city.nameAr, city.name),
-            searchText: `${city.nameAr ?? ""} ${city.name}`,
-          }))}
+          value={matchCity(governorate, value.city) || (value.city ?? "")}
+          onChange={(next) => set("city", next)}
+          options={withCurrent(
+            cityOptions,
+            matchCity(governorate, value.city) || (value.city ?? ""),
+          )}
           placeholder={
-            coverageUnavailable
-              ? "فعّل ربط Bosta أولًا"
-              : citiesLoading
-                ? "جاري تحميل المحافظات..."
-                : "اختر المحافظة"
+            governorate ? "اختر المدينة / المركز" : "اختر المحافظة أولًا"
           }
-          searchPlaceholder="ابحث عن المحافظة بالعربي أو الإنجليزي..."
+          searchPlaceholder="ابحث أو اكتب اسم المدينة..."
+          onCreate={(next) => set("city", next)}
+          createLabel="استخدم"
           clearable={false}
         />
       </Field>
 
-      <Field label="المدينة / المركز" required>
-        <SearchableSelect
-          value={selectedZoneId}
-          onChange={selectZone}
-          disabled={!selectedCityId || districtsLoading}
-          options={zones.map((zone) => ({
-            value: zone.id,
-            label: bilingualLabel(zone.nameAr, zone.name),
-            searchText: `${zone.nameAr ?? ""} ${zone.name}`,
-          }))}
-          placeholder={
-            !selectedCityId
-              ? "اختر المحافظة أولًا"
-              : districtsLoading
-                ? "جاري تحميل المدن..."
-                : "اختر المدينة / المركز"
-          }
-          searchPlaceholder="ابحث عن المدينة بالعربي أو الإنجليزي..."
-          clearable={false}
-        />
+      <Field
+        label="المنطقة / الحي"
+        hint={
+          districtSuggestions.length
+            ? "اقتراحات من تغطية شركة الشحن المرتبطة"
+            : undefined
+        }
+      >
+        {districtSuggestions.length ? (
+          <SearchableSelect
+            value={value.district ?? ""}
+            onChange={(next) => set("district", next)}
+            options={withCurrent(districtSuggestions, value.district ?? "")}
+            placeholder="اختر أو اكتب المنطقة / الحي"
+            searchPlaceholder="ابحث أو اكتب المنطقة..."
+            onCreate={(next) => set("district", next)}
+            createLabel="استخدم"
+          />
+        ) : (
+          <Input
+            value={value.district ?? ""}
+            onChange={(event) => set("district", event.target.value)}
+            placeholder="مثال: الحي السابع"
+          />
+        )}
       </Field>
-
-      <Field label="المنطقة / الحي">
-        <SearchableSelect
-          value={value.bosta?.districtId ?? ""}
-          onChange={selectDistrict}
-          disabled={!selectedZoneId || districtsLoading}
-          options={filteredDistricts.map((district) => ({
-            value: district.id,
-            label: bilingualLabel(district.nameAr, district.name),
-            searchText: `${district.nameAr ?? ""} ${district.name} ${district.zoneNameAr ?? ""} ${district.zoneName ?? ""}`,
-          }))}
-          placeholder={
-            !selectedZoneId ? "اختر المدينة أولًا" : "اختر المنطقة / الحي"
-          }
-          searchPlaceholder="ابحث عن المنطقة بالعربي أو الإنجليزي..."
-        />
-      </Field></> : <>
-        <Field label="المحافظة" required>
-          <Input value={value.governorate} onChange={(event) => set("governorate", event.target.value)} placeholder="مثال: الجيزة" />
-        </Field>
-        <Field label="المدينة / المركز" required>
-          <Input value={value.city} onChange={(event) => set("city", event.target.value)} placeholder="مثال: 6 أكتوبر" />
-        </Field>
-        <Field label="المنطقة / الحي">
-          <Input value={value.district ?? ""} onChange={(event) => set("district", event.target.value)} placeholder="مثال: الحي السابع" />
-        </Field>
-      </>}
 
       <Field
         label="العنوان بالتفصيل"
-        required
+        required={required}
         className={compact ? "col-span-2" : "sm:col-span-2"}
       >
         <Input
@@ -331,6 +304,13 @@ export function AddressFields({
           placeholder="الشارع، رقم العقار، علامة مميزة"
         />
       </Field>
+
+      {carrierCity ? (
+        <div className="text-[11px] text-emerald-500 sm:col-span-2">
+          العنوان مطابق لتغطية {bilingualLabel(carrierCity.nameAr, carrierCity.name)} لدى شركة الشحن المرتبطة.
+        </div>
+      ) : null}
+
       {!compact ? (
         <>
           <Field label="أقرب علامة مميزة">

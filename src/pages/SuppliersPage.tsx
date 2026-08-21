@@ -52,7 +52,7 @@ interface SupplierRow {
 export function SuppliersPage() {
   const { suppliers, products, deleteSupplier, archiveSupplier } = useCatalog();
   const { purchaseInvoices } = useInvoicing();
-  const { supplierBalance, calculateSupplierCommission } = useReporting();
+  const { calculateSupplierCommission } = useReporting();
   const { currentUser } = useAuth();
   const { settings } = useSettings();
   const { isEnabled } = useFeatures();
@@ -83,27 +83,58 @@ export function SuppliersPage() {
   const [sortBy, setSortBy] = useState<SortKey>("recent");
 
   // ── Per-supplier analytics ──
+  //
+  // Indexed in one pass, for the same reason CustomersPage is: scanning every
+  // purchase invoice and every product once PER supplier is O(suppliers x
+  // invoices), which is invisible at the 60 suppliers a workshop has and fatal
+  // at the thousands a distributor has. The customers page shipped with that
+  // shape and froze the renderer solid on a five-year shop.
   const allRows = useMemo<SupplierRow[]>(() => {
+    type Totals = {
+      invoiceCount: number;
+      totalPurchases: number;
+      lastActivity?: string;
+      balance: number;
+    };
+    const totals = new Map<string, Totals>();
+    for (const invoice of purchaseInvoices) {
+      let entry = totals.get(invoice.supplierId);
+      if (!entry) {
+        entry = { invoiceCount: 0, totalPurchases: 0, balance: 0 };
+        totals.set(invoice.supplierId, entry);
+      }
+      entry.invoiceCount += 1;
+      entry.totalPurchases += invoice.total;
+      // ISO dates, so the lexicographic max is the latest.
+      if (entry.lastActivity === undefined || invoice.date > entry.lastActivity) {
+        entry.lastActivity = invoice.date;
+      }
+      // Mirrors supplierBalance in AppContext.
+      entry.balance += invoice.remaining - (invoice.overpayment ?? 0);
+    }
+
+    const partCounts = new Map<string, number>();
+    for (const product of products) {
+      if (product.archived || !product.supplierId) continue;
+      partCounts.set(product.supplierId, (partCounts.get(product.supplierId) ?? 0) + 1);
+    }
+
     return suppliers.map((s) => {
-      const invs = purchaseInvoices.filter((p) => p.supplierId === s.id);
-      const totalPurchases = invs.reduce((sum, p) => sum + p.total, 0);
-      const lastActivity = invs.map((p) => p.date).sort().at(-1);
-      const parts = products.filter((p) => p.supplierId === s.id && !p.archived).length;
-      const commissionEarned = supplierCommissionsEnabled
-        ? calculateSupplierCommission(s.id).reduce((sum, r) => sum + r.earned, 0)
-        : 0;
+      const entry = totals.get(s.id);
       return {
         supplier: s,
         archived: !!s.archived,
-        invoiceCount: invs.length,
-        totalPurchases,
-        lastActivity,
-        parts,
-        balance: supplierBalance(s.id),
-        commissionEarned,
+        invoiceCount: entry?.invoiceCount ?? 0,
+        totalPurchases: entry?.totalPurchases ?? 0,
+        lastActivity: entry?.lastActivity,
+        parts: partCounts.get(s.id) ?? 0,
+        balance: entry?.balance ?? 0,
+        commissionEarned: supplierCommissionsEnabled
+          ? calculateSupplierCommission(s.id).reduce((sum, r) => sum + r.earned, 0)
+          : 0,
       };
     });
-  }, [suppliers, products, purchaseInvoices, supplierBalance, calculateSupplierCommission, supplierCommissionsEnabled]);
+  }, [suppliers, products, purchaseInvoices, calculateSupplierCommission, supplierCommissionsEnabled]);
 
   const rows = useMemo(() => allRows.filter((r) => !r.archived), [allRows]);
   const archivedRows = useMemo(() => allRows.filter((r) => r.archived), [allRows]);

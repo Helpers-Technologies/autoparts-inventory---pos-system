@@ -240,3 +240,20 @@ select option {
 .dark .recharts-tooltip-label {
   color: rgb(var(--ink-muted)) !important;
 }
+/* The boot screen's indeterminate progress bar. An honest sweep: the app does
+   not know how far along the first render is, and a fake percentage that
+   stalls at 90% reads worse than a bar that simply keeps moving. */
+@keyframes boot-progress-sweep {
+  0%   { transform: translateX(120%); }
+  100% { transform: translateX(-320%); }
+}
+.boot-progress {
+  animation: boot-progress-sweep 1.1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-progress {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

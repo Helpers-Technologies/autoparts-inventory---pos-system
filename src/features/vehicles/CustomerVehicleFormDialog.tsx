@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScanLine, ShieldCheck } from "lucide-react";
 import { formatEgyptianPlateNumber, validateEgyptianPlateNumber } from "../../lib/plateNumber";
 import { YearSelect } from "../../components/ui/YearSelect";
@@ -16,6 +16,7 @@ import {
 import { useCatalog } from "../../store/CatalogContext";
 import { useVehicleCatalog } from "../../store/VehicleCatalogContext";
 import { getMakeSearchText } from "../../lib/fuzzySearch";
+import { isYearWithinRange, vehicleYearRange } from "../../lib/vehicleYears";
 import type { CustomerVehicle } from "../../types";
 
 type VehicleDraft = {
@@ -27,9 +28,7 @@ type VehicleDraft = {
   generationId: string;
   engineId: string;
   year: string;
-  engineCode: string;
   color: string;
-  mileageKm: string;
   notes: string;
 };
 
@@ -42,9 +41,7 @@ const EMPTY_DRAFT: VehicleDraft = {
   generationId: "",
   engineId: "",
   year: "",
-  engineCode: "",
   color: "",
-  mileageKm: "",
   notes: "",
 };
 
@@ -80,9 +77,7 @@ export function CustomerVehicleFormDialog({
               generationId: editingVehicle.generationId ?? "",
               engineId: editingVehicle.engineId ?? "",
               year: editingVehicle.year ? String(editingVehicle.year) : "",
-              engineCode: editingVehicle.engineCode ?? "",
               color: editingVehicle.color ?? "",
-              mileageKm: editingVehicle.mileageKm ? String(editingVehicle.mileageKm) : "",
               notes: editingVehicle.notes ?? "",
             }
           : { ...EMPTY_DRAFT, customerId: initialCustomerId },
@@ -99,6 +94,29 @@ export function CustomerVehicleFormDialog({
   const availableEngines = vehicleCatalog.vehicleEngines.filter(
     (engine) => engine.generationId === draft.generationId && engine.active
   );
+
+  // Years a Lancer was never built in are not valid years for a Lancer.
+  //
+  // The picker offered 1970 to next year for every car, so a 2007–2017
+  // generation could be saved as a 1994 model and the fitment lookup would
+  // then never match it. The catalogue already knows the production window:
+  // a generation states its own, and a model's window is the span of all its
+  // generations. With neither chosen there is nothing to narrow to, so the
+  // full range stands.
+  const yearRange = useMemo(
+    () => vehicleYearRange(vehicleCatalog.vehicleGenerations, {
+      generationId: draft.generationId,
+      modelId: draft.modelId,
+    }),
+    [draft.generationId, draft.modelId, vehicleCatalog.vehicleGenerations],
+  );
+
+  // Narrowing the window must not leave a year outside it selected — that is
+  // exactly the invalid state the range exists to prevent.
+  useEffect(() => {
+    if (isYearWithinRange(draft.year, yearRange)) return;
+    setDraft((current) => ({ ...current, year: "" }));
+  }, [yearRange, draft.year]);
 
   function setVin(value: string) {
     const vin = normalizeVin(value);
@@ -150,9 +168,12 @@ export function CustomerVehicleFormDialog({
       generationId: draft.generationId || undefined,
       engineId: draft.engineId || undefined,
       year: draft.year ? Number(draft.year) : undefined,
-      engineCode: draft.engineCode || undefined,
       color: draft.color || undefined,
-      mileageKm: draft.mileageKm ? Number(draft.mileageKm) : undefined,
+      // Engine code and odometer were dropped from the form; an existing
+      // record keeps what it already had rather than being blanked by an
+      // unrelated edit.
+      engineCode: editingVehicle?.engineCode,
+      mileageKm: editingVehicle?.mileageKm,
       notes: draft.notes || undefined,
     };
     if (editingVehicle) {
@@ -187,19 +208,23 @@ export function CustomerVehicleFormDialog({
     >
       <div className="grid gap-4 md:grid-cols-2" dir="rtl">
         <Field label="العميل" required>
-          <Select
+          {/* A native <select> listing every customer the shop has, with no
+              way to type. Searchable by name, code or phone — the three
+              things the counter is actually told when a car comes in. */}
+          <SearchableSelect
             value={draft.customerId}
-            onChange={(event) => setDraft({ ...draft, customerId: event.target.value })}
-          >
-            <option value="">اختر العميل</option>
-            {customers
+            onChange={(value) => setDraft((current) => ({ ...current, customerId: value }))}
+            options={customers
               .filter((customer) => !customer.archived)
-              .map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name} {customer.phone ? `— ${customer.phone}` : ""}
-                </option>
-              ))}
-          </Select>
+              .map((customer) => ({
+                value: customer.id,
+                label: customer.phone ? `${customer.name} — ${customer.phone}` : customer.name,
+                searchText: `${customer.code ?? ""} ${customer.phone ?? ""}`,
+              }))}
+            placeholder="اختر العميل"
+            searchPlaceholder="اسم العميل أو الكود أو الهاتف..."
+            minChars={0}
+          />
         </Field>
         <Field
           label="رقم اللوحة"
@@ -255,7 +280,7 @@ export function CustomerVehicleFormDialog({
               .map((make) => ({
                 value: make.id,
                 label: make.nameAr ? `${make.nameAr} (${make.name})` : make.name,
-                image: make.logoPath || `/vehicle-logos/${make.slug}.png`,
+                image: make.logoPath || `./vehicle-logos/${make.slug}.png`,
                 searchText: getMakeSearchText(make),
               }))}
             placeholder="اختر الماركة..."
@@ -306,33 +331,19 @@ export function CustomerVehicleFormDialog({
             ))}
           </Select>
         </Field>
-        <Field label="سنة الصنع">
+        <Field label="سنة الصنع" hint={yearRange.hint}>
           <YearSelect
             value={draft.year}
             onChange={(val) => setDraft({ ...draft, year: val })}
             placeholder="اختر سنة الصنع"
-          />
-        </Field>
-        <Field label="كود المحرك">
-          <Input
-            value={draft.engineCode}
-            onChange={(event) => setDraft({ ...draft, engineCode: event.target.value.toUpperCase() })}
-            dir="ltr"
-            placeholder="G4FC / SQRE4T15"
+            startYear={yearRange.from}
+            endYear={yearRange.to}
           />
         </Field>
         <Field label="اللون">
           <Input
             value={draft.color}
             onChange={(event) => setDraft({ ...draft, color: event.target.value })}
-          />
-        </Field>
-        <Field label="قراءة العداد">
-          <Input
-            type="number"
-            value={draft.mileageKm}
-            onChange={(event) => setDraft({ ...draft, mileageKm: event.target.value })}
-            placeholder="كم"
           />
         </Field>
         <Field label="ملاحظات" className="md:col-span-2">

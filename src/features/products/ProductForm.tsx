@@ -16,6 +16,8 @@ import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { useVehicleCatalog } from "../../store/VehicleCatalogContext";
 import type { ProductFitment } from "../../types";
 import { getMakeSearchText } from "../../lib/fuzzySearch";
+import { ManagedOptionSelect } from "../../components/ui/ManagedOptionSelect";
+import { SupplierFormDialog } from "../suppliers/SupplierForm";
 
 const UNITS = ["قطعة", "طقم", "زوج", "علبة", "كرتونة", "جركن", "لتر", "متر"];
 const AUTO_PART_CATEGORIES = [
@@ -158,6 +160,34 @@ export function ProductFormDialog({
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const expiryTrackingEnabled = isEnabled("expiryTracking");
   const vehicleCatalogEnabled = isEnabled("vehicleCatalog");
+  // How many parts each option is attached to. The manage dialog refuses to
+  // delete an option that is still in use, and the counts are folded once
+  // rather than re-scanning the catalogue per row.
+  const productsByQualityGrade = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const product of products) {
+      const key = product.qualityGrade ?? "";
+      if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [products]);
+  const productsByCondition = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const product of products) {
+      const key = product.condition ?? "";
+      if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [products]);
+  const productsByWarranty = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const product of products) {
+      const key = String(product.warrantyMonths ?? 0);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [products]);
+
   const [form, setForm] = useState<FormState>(EMPTY);
   const [fitments, setFitments] = useState<FitmentDraft[]>([]);
   const [fitmentMakeId, setFitmentMakeId] = useState("");
@@ -169,6 +199,7 @@ export function ProductFormDialog({
   const [alternatives, setAlternatives] = useState<AlternativeDraft[]>([]);
   const [alternativeProductId, setAlternativeProductId] = useState("");
   const [alternativeRelation, setAlternativeRelation] = useState<PartAlternativeRelation>("equivalent");
+  const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddForm, setQuickAddForm] = useState({
     name: "",
@@ -720,21 +751,18 @@ export function ProductFormDialog({
         ) : null}
 
         <Field label="درجة الجودة" hint={`• أصلي توكيل:\nغلاف وعلبة ماركة السيارة الرسمية (مثل تويوتا أو هيونداي).\n\n• OEM:\nالمصنّع الأصلي للقطعة في علبته التجارية الخاصة (مثل Bosch أو Denso).\n\n• بديل ممتاز:\nقطع غيار تجارية معتمدة عالية الجودة.\n\n• بديل اقتصادي:\nقطع غيار تجارية موفرة للسعر.`} className="col-span-1">
-          <Select
+          <ManagedOptionSelect
+            list="qualityGrades"
+            ariaLabel="درجة الجودة"
             value={form.qualityGrade ?? "aftermarket-premium"}
-            onChange={(e) => {
-              const val = e.target.value as FormState["qualityGrade"];
-              set("qualityGrade", val);
+            onChange={(val) => {
+              set("qualityGrade", val as FormState["qualityGrade"]);
               if (val === "genuine") {
                 set("originCountry", undefined);
               }
             }}
-          >
-            <option value="genuine">أصلي توكيل</option>
-            <option value="oem">OEM أصلي مصنع</option>
-            <option value="aftermarket-premium">بديل ممتاز</option>
-            <option value="aftermarket-economy">بديل اقتصادي</option>
-          </Select>
+            usageCount={(val) => productsByQualityGrade.get(val) ?? 0}
+          />
         </Field>
         <Field label="بلد المنشأ" required={form.qualityGrade !== "genuine"} error={errors.originCountry} className="col-span-1">
           <SearchableSelect
@@ -752,27 +780,22 @@ export function ProductFormDialog({
           />
         </Field>
         <Field label="حالة القطعة" className="col-span-1">
-          <Select value={form.condition ?? "new"} onChange={(e) => set("condition", e.target.value as FormState["condition"])}>
-            <option value="new">جديدة</option>
-            <option value="used">استيراد / مستعملة</option>
-            <option value="remanufactured">مجددة</option>
-          </Select>
+          <ManagedOptionSelect
+            list="conditions"
+            ariaLabel="حالة القطعة"
+            value={form.condition ?? "new"}
+            onChange={(val) => set("condition", val as FormState["condition"])}
+            usageCount={(val) => productsByCondition.get(val) ?? 0}
+          />
         </Field>
         <Field label="الضمان" className="col-span-1">
-          <Select
+          <ManagedOptionSelect
+            list="warranties"
+            ariaLabel="الضمان"
             value={form.warrantyMonths === undefined || form.warrantyMonths === 0 ? "0" : String(form.warrantyMonths)}
-            onChange={(e) => set("warrantyMonths", e.target.value ? Number(e.target.value) : undefined)}
-          >
-            <option value="0">بدون ضمان</option>
-            <option value="1">شهر واحد</option>
-            <option value="3">3 شهور</option>
-            <option value="6">6 شهور</option>
-            <option value="12">سنة واحدة (12 شهر)</option>
-            <option value="18">سنة ونصف (18 شهر)</option>
-            <option value="24">سنتين (24 شهر)</option>
-            <option value="36">3 سنوات</option>
-            <option value="60">5 سنوات</option>
-          </Select>
+            onChange={(val) => set("warrantyMonths", val ? Number(val) : undefined)}
+            usageCount={(val) => productsByWarranty.get(val) ?? 0}
+          />
         </Field>
 
         {/* الفئة + الوحدة */}
@@ -975,15 +998,35 @@ export function ProductFormDialog({
 
         {/* المورد + تاريخ الصلاحية */}
         <Field label="المورد" className="col-span-1 sm:col-span-2">
-          <Select
-            value={form.supplierId ?? ""}
-            onChange={(e) => set("supplierId", e.target.value ? e.target.value : undefined)}
-          >
-            <option value="">— غير محدد —</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </Select>
+          <div className="flex items-center gap-1.5">
+            {/* Adding a part from a supplier not yet on file used to mean
+                abandoning this form, creating the supplier, and starting the
+                part again. */}
+            <SearchableSelect
+              value={form.supplierId ?? ""}
+              onChange={(val) => set("supplierId", val ? val : undefined)}
+              options={suppliers.map((supplier) => ({
+                value: supplier.id,
+                label: supplier.name,
+                searchText: `${supplier.code ?? ""} ${supplier.phone ?? ""}`,
+              }))}
+              placeholder="— غير محدد —"
+              searchPlaceholder="اسم المورد أو الكود أو الهاتف..."
+              minChars={0}
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              onClick={() => setSupplierDialogOpen(true)}
+              title="إضافة مورد جديد"
+              aria-label="إضافة مورد جديد"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
         </Field>
         {expiryTrackingEnabled ? (
           <Field
@@ -1075,7 +1118,7 @@ export function ProductFormDialog({
                 options={vehicleCatalog.specializedVehicleMakes.filter((make) => make.active).map((make) => ({
                   value: make.id,
                   label: make.nameAr ? `${make.nameAr} — ${make.name}` : make.name,
-                  image: `/vehicle-logos/${make.slug}.png`,
+                  image: `./vehicle-logos/${make.slug}.png`,
                   searchText: getMakeSearchText(make),
                 }))}
                 placeholder="اختر الماركة"
@@ -1277,6 +1320,12 @@ export function ProductFormDialog({
           </Field>
         </div>
       </Dialog>
+
+      <SupplierFormDialog
+        open={supplierDialogOpen}
+        onClose={() => setSupplierDialogOpen(false)}
+        onCreated={(supplier) => set("supplierId", supplier.id)}
+      />
 
       <Dialog
         open={quickAddOpen}

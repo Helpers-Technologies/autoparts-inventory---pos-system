@@ -118,6 +118,37 @@ declare global {
             }
           | { ok: false; error: "not_authorized" }
         >;
+        /**
+         * Stock work queued by a phone in the warehouse. The desktop applies
+         * it — a phone never writes a quantity — and reports back what it did.
+         */
+        fetchMobileStockOps: () => Promise<
+          | {
+              ok: true;
+              ops: Array<{
+                clientOpId: string;
+                kind: "add" | "remove" | "count";
+                productId: string;
+                productName?: string;
+                scannedCode?: string;
+                quantityMilli: number;
+                note?: string;
+                deviceLabel?: string;
+                actorName?: string;
+                createdAt?: string;
+              }>;
+            }
+          | { ok: false; error: string }
+        >;
+        resolveMobileStockOps: (
+          results: Array<{
+            clientOpId: string;
+            status: "applied" | "rejected";
+            rejectReason?: string;
+            appliedDeltaMilli?: number;
+            resultingQuantityMilli?: number;
+          }>,
+        ) => Promise<{ ok: boolean; applied?: number; rejected?: number; error?: string }>;
         createMobilePairing: (
           password: string,
           verificationCode: string,

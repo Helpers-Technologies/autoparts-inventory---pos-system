@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBlocker, useNavigate } from "react-router-dom";
-import { ArrowRight, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowRight, CarFront, Plus, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -25,13 +25,16 @@ import { ConfirmDialog } from "../components/ui/Dialog";
 import { BarcodeScanInput } from "../features/products/BarcodeScanInput";
 import { CustomerFormDialog } from "../features/customers/CustomerFormDialog";
 import { useAuth } from "../store/AuthContext";
+import { useAutoPartsPro, vehicleDisplayName } from "../store/AutoPartsProContext";
+import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { computeCreditPaymentView } from "../store/_pure";
 import { useFeatures } from "../lib/useFeatures";
 import { hasPermission } from "../lib/permissions";
 import { parseNumericInput } from "../lib/numberInput";
 import { findProductScanCandidates } from "../lib/partSearch";
-import { aggregateSalesPriceType } from "../lib/salesPrice";
+import { aggregateSalesPriceType, salesLinePrice } from "../lib/salesPrice";
 import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
 import {
   DeliveryConfigurator,
   EMPTY_DELIVERY,
@@ -67,6 +70,7 @@ interface DraftState {
   notes: string;
   lines: LineDraft[];
   delivery?: DeliveryDraft;
+  customerVehicleId?: string;
 }
 
 function normalizePriceType(value: unknown): SalesPriceType {
@@ -162,12 +166,15 @@ export function SalesInvoiceNewPage() {
     useInvoicing();
   const { createDeliveryOrder } = useShipping();
   const { settings } = useSettings();
+  const pro = useAutoPartsPro();
+  const vehicleCatalog = useVehicleCatalog();
   const { customerBalance } = useReporting();
   const { isEnabled } = useFeatures();
   const multiSalePricesEnabled = isEnabled("multiSalePrices");
   const creditPaymentEnabled = isEnabled("creditPayment");
   const creditSalesEnabled = isEnabled("creditSales");
   const shippingManagementEnabled = isEnabled("shippingManagement");
+  const vehicleCatalogEnabled = isEnabled("vehicleCatalog");
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -182,6 +189,9 @@ export function SalesInvoiceNewPage() {
     () => loadDraft()?.customerId ?? customers[0]?.id ?? "",
   );
   const [driverId, setDriverId] = useState(() => loadDraft()?.driverId ?? "");
+  const [selectedVehicleId, setSelectedVehicleId] = useState(
+    () => loadDraft()?.customerVehicleId ?? "",
+  );
   const [paymentType, setPaymentType] = useState<SalesPaymentType>(
     () => loadDraft()?.paymentType ?? "cash",
   );
@@ -226,6 +236,21 @@ export function SalesInvoiceNewPage() {
     if (!customerId && customers[0]) setCustomerId(customers[0].id);
   }, [customers, customerId]);
 
+  // The car the parts are for. The POS and the quotation already record it;
+  // an invoice written on this page did not, so the same sale lost its vehicle
+  // link — and with it the warranty and fitment history for that car.
+  const customerVehicles = useMemo(
+    () => pro.customerVehicles.filter((vehicle) => vehicle.customerId === customerId && !vehicle.archived),
+    [pro.customerVehicles, customerId],
+  );
+  const selectedVehicle = customerVehicles.find((vehicle) => vehicle.id === selectedVehicleId);
+  useEffect(() => {
+    // Switching customer must not leave the previous customer's car attached.
+    if (selectedVehicleId && !customerVehicles.some((vehicle) => vehicle.id === selectedVehicleId)) {
+      setSelectedVehicleId("");
+    }
+  }, [customerVehicles, selectedVehicleId]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       saveDraft({
@@ -243,6 +268,7 @@ export function SalesInvoiceNewPage() {
         notes,
         lines,
         delivery,
+        customerVehicleId: selectedVehicleId,
       });
     }, 150);
     return () => window.clearTimeout(timer);
@@ -261,6 +287,7 @@ export function SalesInvoiceNewPage() {
     notes,
     lines,
     delivery,
+    selectedVehicleId,
   ]);
 
   function handleClearDraft() {
@@ -377,12 +404,7 @@ export function SalesInvoiceNewPage() {
     product: Product,
     selectedPriceType: SalesPriceType = DEFAULT_PRICE_TYPE,
   ) {
-    const effectivePriceType = selectedPriceType;
-    if (effectivePriceType === "retail" && product.piecesPerUnit)
-      return product.retailPrice;
-    return effectivePriceType === "retail"
-      ? product.retailPrice
-      : product.wholesalePrice;
+    return salesLinePrice(product, selectedPriceType);
   }
 
   function addLine(productId?: string) {
@@ -661,6 +683,10 @@ export function SalesInvoiceNewPage() {
           : undefined,
       priceType: aggregateSalesPriceType(invLines),
       paymentDueDate: effectiveDueDate,
+      customerVehicleId: selectedVehicle?.id,
+      vehicleLabel: selectedVehicle
+        ? vehicleDisplayName(selectedVehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels)
+        : undefined,
       notes: notes.trim() || undefined,
     });
 
@@ -795,18 +821,24 @@ export function SalesInvoiceNewPage() {
             </Field>
             <Field label="العميل" required>
               <div className="flex items-center gap-1.5">
-                <Select
-                  aria-label="العميل"
+                {/* A plain <select> renders every customer the shop has ever
+                    had — 25,000 rows on a five-year book — with no way to
+                    find one except scrolling. Searchable by name, code or
+                    phone, which is what the counter actually has to hand. */}
+                <SearchableSelect
                   value={customerId}
-                  onChange={(e) => setCustomerId(e.target.value)}
+                  onChange={(value) => setCustomerId(value)}
+                  options={customers.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                    searchText: `${c.code ?? ""} ${c.phone ?? ""}`,
+                  }))}
+                  placeholder="اختر العميل"
+                  searchPlaceholder="اسم العميل أو الكود أو الهاتف..."
+                  minChars={0}
+                  clearable={false}
                   className="flex-1"
-                >
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
+                />
                 {canAddCustomer && (
                   <Button
                     size="icon"
@@ -820,6 +852,34 @@ export function SalesInvoiceNewPage() {
                 )}
               </div>
             </Field>
+            {vehicleCatalogEnabled ? (
+              <Field
+                label="سيارة العميل"
+                hint={
+                  customerId && customerVehicles.length === 0
+                    ? "لا توجد سيارة مسجلة لهذا العميل"
+                    : "تظهر على الفاتورة وتربط الضمان بالسيارة"
+                }
+              >
+                <div className="relative">
+                  <CarFront className="pointer-events-none absolute end-3 top-2.5 h-4 w-4 text-cyan-600" />
+                  <Select
+                    aria-label="سيارة العميل"
+                    value={selectedVehicleId}
+                    onChange={(e) => setSelectedVehicleId(e.target.value)}
+                    className="pe-9"
+                    disabled={customerVehicles.length === 0}
+                  >
+                    <option value="">بدون تحديد سيارة</option>
+                    {customerVehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels)}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </Field>
+            ) : null}
           </div>
           {customer ? (
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-ink-faint">

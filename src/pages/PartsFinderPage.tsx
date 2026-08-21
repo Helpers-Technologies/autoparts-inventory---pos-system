@@ -65,7 +65,7 @@ export function PartsFinderPage() {
               options={catalog.specializedVehicleMakes.filter((make) => make.active).map((make) => ({
                 value: make.id,
                 label: make.nameAr ? `${make.nameAr} — ${make.name}` : make.name,
-                image: `/vehicle-logos/${make.slug}.png`,
+                image: `./vehicle-logos/${make.slug}.png`,
                 searchText: getMakeSearchText(make),
               }))}
               placeholder="كل الماركات"

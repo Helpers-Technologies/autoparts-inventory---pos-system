@@ -27,7 +27,7 @@
 //
 // Configured via package.json -> build.win.signtoolOptions.sign.
 
-const { existsSync, readFileSync, writeFileSync } = require("node:fs");
+const { existsSync, readdirSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
@@ -45,13 +45,55 @@ const TIMESTAMP_URLS = [
   "http://tsa.starfieldtech.com",
 ];
 
-const SIGNTOOL_CANDIDATES = [
-  "C:\\Users\\amrha\\AppData\\Local\\electron-builder\\Cache\\winCodeSign\\winCodeSign-2.6.0\\windows-10\\x64\\signtool.exe",
-  "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64\\signtool.exe",
-];
+// Where signtool.exe may live. Both locations used to be hardcoded down to
+// one SDK build number and one developer's home directory, so installing any
+// other Windows SDK version — or building as a different user — found nothing
+// and silently shipped an UNSIGNED installer. The only clue was one warning
+// line in a very long build log. Everything below is discovered instead.
+function signtoolCandidates() {
+  const found = [];
+
+  // Explicit override wins, for a machine that keeps it somewhere else.
+  if (process.env.SIGNTOOL_PATH) found.push(process.env.SIGNTOOL_PATH);
+
+  // Windows SDK: .../Windows Kits/10/bin/<version>/<arch>/signtool.exe.
+  // Newest version first so a freshly installed SDK is preferred.
+  for (const programFiles of [
+    process.env["ProgramFiles(x86)"],
+    process.env.ProgramFiles,
+  ]) {
+    const binDir = programFiles
+      ? path.join(programFiles, "Windows Kits", "10", "bin")
+      : null;
+    if (!binDir || !existsSync(binDir)) continue;
+    const versions = readdirSync(binDir)
+      .filter((name) => /^10\./.test(name))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    for (const version of versions) {
+      for (const arch of ["x64", "x86"]) {
+        found.push(path.join(binDir, version, arch, "signtool.exe"));
+      }
+    }
+  }
+
+  // electron-builder ships its own copy in the winCodeSign cache — any
+  // version of it, not just the one that happened to be cached in 2026.
+  const cacheRoot = process.env.LOCALAPPDATA
+    ? path.join(process.env.LOCALAPPDATA, "electron-builder", "Cache", "winCodeSign")
+    : null;
+  if (cacheRoot && existsSync(cacheRoot)) {
+    for (const entry of readdirSync(cacheRoot)) {
+      for (const arch of ["x64", "x86"]) {
+        found.push(path.join(cacheRoot, entry, "windows-10", arch, "signtool.exe"));
+      }
+    }
+  }
+
+  return found;
+}
 
 function findSigntool() {
-  return SIGNTOOL_CANDIDATES.find((p) => existsSync(p)) ?? null;
+  return signtoolCandidates().find((candidate) => existsSync(candidate)) ?? null;
 }
 
 exports.default = async function sign(configuration) {

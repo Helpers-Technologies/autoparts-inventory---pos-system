@@ -39,15 +39,86 @@ export function formatDateTime(iso: string): string {
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: "كاش",
   bank: "تحويل بنكي",
-  card: "فيزا / كارت",
-  vodafone: "فودافون كاش",
-  instapay: "انستاباي",
+  card: "فيزا / ماكينة",
+  // Was "فودافون كاش". The shop takes Etisalat Cash and Orange Cash on the
+  // same line and they all settle the same way, so the bucket is named after
+  // what it is rather than after one operator.
+  vodafone: "محفظة إلكترونية",
+  instapay: "إنستاباي",
   other: "أخرى",
   credit: "رصيد",
 };
 
+/**
+ * The methods money can actually arrive by, in the order every breakdown
+ * shows them (cashbox balance, shift close, shift report). "credit" is left
+ * out on purpose: it moves an existing balance, it does not bring cash in.
+ */
+export const CASH_PAYMENT_METHODS = [
+  "cash",
+  "card",
+  "instapay",
+  "vodafone",
+  "bank",
+  "other",
+] as const;
+
+/**
+ * Labels the shop has renamed or added, keyed `list:value`.
+ *
+ * The quality-grade, condition and warranty labels are read from a dozen
+ * screens — the products table, the POS alternatives strip, the inventory
+ * filter, the reports, the Excel export. Threading a settings object through
+ * every one of those pure formatters would have meant touching all of them,
+ * so the settings provider registers the resolved lists here once and every
+ * existing call site becomes shop-aware unchanged.
+ *
+ * Nothing registered means the built-in labels below, which is exactly what a
+ * unit test or a fresh install should see.
+ */
+let registeredOptionLabels: Record<string, string> = {};
+
+export function registerProductOptionLabels(labels: Record<string, string>): void {
+  registeredOptionLabels = labels;
+}
+
+function shopLabel(list: string, code: string): string | undefined {
+  return registeredOptionLabels[`${list}:${code}`];
+}
+
+/** Months → the shop's own wording for that warranty term. */
+export function formatWarrantyLabel(months?: number): string {
+  const key = String(months ?? 0);
+  const custom = shopLabel("warranties", key);
+  if (custom) return custom;
+  if (!months) return "بدون ضمان";
+  if (months === 1) return "شهر واحد";
+  if (months === 12) return "سنة واحدة (12 شهر)";
+  if (months % 12 === 0) return `${months / 12} سنوات`;
+  return `${months} شهور`;
+}
+
+export function formatPartConditionLabel(code?: string): string {
+  if (!code) return "";
+  const custom = shopLabel("conditions", code.toLowerCase());
+  if (custom) return custom;
+  switch (code.toLowerCase()) {
+    case "new":
+      return "جديدة";
+    case "used":
+      return "استيراد / مستعملة";
+    case "remanufactured":
+    case "refurbished":
+      return "مجددة";
+    default:
+      return code;
+  }
+}
+
 export function formatQualityGradeLabel(code?: string): string {
   if (!code) return "";
+  const custom = shopLabel("qualityGrades", code.toLowerCase());
+  if (custom) return custom;
   switch (code.toLowerCase()) {
     case "genuine":
       return "أصلي توكيل";

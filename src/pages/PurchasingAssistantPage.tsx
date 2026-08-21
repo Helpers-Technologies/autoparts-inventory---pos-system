@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ClipboardCopy, Download, FileText, PackagePlus, Printer, Search, ShoppingCart, Sparkles, TrendingUp } from "lucide-react";
+import { AlertTriangle, ClipboardCopy, Download, FileText, Factory, PackagePlus, Printer, Search, ShoppingCart, Sparkles, TrendingUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AutoPartsHero } from "../components/AutoPartsHero";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
+import { Dialog } from "../components/ui/Dialog";
 import { Input, Select } from "../components/ui/Input";
 import { useToast } from "../components/ui/Toast";
 import { formatCurrency, formatDate } from "../lib/format";
@@ -35,23 +36,65 @@ export function PurchasingAssistantPage() {
   const [query, setQuery] = useState("");
   const [supplierFilter, setSupplierFilter] = useState("all");
   const [showPlanDialog, setShowPlanDialog] = useState(false);
+  const [showSupplierSplit, setShowSupplierSplit] = useState(false);
 
   usePrintPreviewMode(showPlanDialog);
   const since = daysAgo(windowDays);
 
+  // Sales, returns and last-purchase are each folded ONCE, keyed by product.
+  //
+  // This block used to re-filter and re-flatten the entire invoice history
+  // inside the per-product map: for every one of 6,000 products it walked all
+  // 48,483 sales invoices, allocated a fresh array of every line in them, then
+  // threw all but one product's lines away — and did the same again for
+  // returns and purchases. On a five-year shop the page took just under a
+  // minute to open, most of it garbage collection.
+  const soldByProduct = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const invoice of salesInvoices) {
+      if (invoice.cancelled || invoice.date < since) continue;
+      for (const line of invoice.lines) {
+        totals.set(line.productId, (totals.get(line.productId) ?? 0) + line.quantity);
+      }
+    }
+    return totals;
+  }, [salesInvoices, since]);
+
+  const returnedByProduct = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const item of salesReturns) {
+      if (item.date < since) continue;
+      for (const line of item.lines) {
+        totals.set(line.productId, (totals.get(line.productId) ?? 0) + line.quantity);
+      }
+    }
+    return totals;
+  }, [salesReturns, since]);
+
+  /** Newest purchase touching each product, plus that invoice's line for it. */
+  const lastPurchaseByProduct = useMemo(() => {
+    const latest = new Map<string, { invoice: (typeof purchaseInvoices)[number]; line: (typeof purchaseInvoices)[number]["lines"][number] }>();
+    for (const invoice of purchaseInvoices) {
+      for (const line of invoice.lines) {
+        const current = latest.get(line.productId);
+        if (!current || invoice.date.localeCompare(current.invoice.date) > 0) {
+          latest.set(line.productId, { invoice, line });
+        }
+      }
+    }
+    return latest;
+  }, [purchaseInvoices]);
+
+  const supplierById = useMemo(
+    () => new Map(suppliers.map((supplier) => [supplier.id, supplier])),
+    [suppliers],
+  );
+
   const rows = useMemo(() => products
     .filter((product) => !product.archived)
     .map((product) => {
-      const sold = salesInvoices
-        .filter((invoice) => !invoice.cancelled && invoice.date >= since)
-        .flatMap((invoice) => invoice.lines)
-        .filter((line) => line.productId === product.id)
-        .reduce((sum, line) => sum + line.quantity, 0);
-      const returned = salesReturns
-        .filter((item) => item.date >= since)
-        .flatMap((item) => item.lines)
-        .filter((line) => line.productId === product.id)
-        .reduce((sum, line) => sum + line.quantity, 0);
+      const sold = soldByProduct.get(product.id) ?? 0;
+      const returned = returnedByProduct.get(product.id) ?? 0;
       const netSold = Math.max(0, sold - returned);
       const dailyRate = netSold / Math.max(1, windowDays);
       const coverDays = dailyRate > 0 ? product.quantity / dailyRate : null;
@@ -60,23 +103,25 @@ export function PurchasingAssistantPage() {
         ? (product.reorderQuantity ?? Math.max(1, product.minStock * 2 - product.quantity))
         : 0;
       const recommended = Math.max(0, forecastNeed, minimumNeed);
-      const lastPurchase = purchaseInvoices
-        .filter((invoice) => invoice.lines.some((line) => line.productId === product.id))
-        .sort((a, b) => b.date.localeCompare(a.date))[0];
-      const lastLine = lastPurchase?.lines.find((line) => line.productId === product.id);
+      const lastPurchaseEntry = lastPurchaseByProduct.get(product.id);
+      const lastPurchase = lastPurchaseEntry?.invoice;
+      const lastLine = lastPurchaseEntry?.line;
       const supplierId = product.supplierId || lastPurchase?.supplierId;
-      const supplierName = suppliers.find((supplier) => supplier.id === supplierId)?.name || lastPurchase?.supplierName || "غير محدد";
+      const supplierName = (supplierId ? supplierById.get(supplierId)?.name : undefined) || lastPurchase?.supplierName || "غير محدد";
       const cost = lastLine?.price ?? product.purchasePrice;
       const urgency = product.quantity <= 0 ? 3 : product.quantity <= product.minStock ? 2 : coverDays !== null && coverDays < 15 ? 1 : 0;
       return { product, netSold, dailyRate, coverDays, recommended, supplierId, supplierName, cost, urgency };
     })
     .filter((row) => row.recommended > 0)
-    .sort((a, b) => b.urgency - a.urgency || b.recommended * b.cost - a.recommended * a.cost), [products, purchaseInvoices, salesInvoices, salesReturns, since, suppliers, targetDays, windowDays]);
+    .sort((a, b) => b.urgency - a.urgency || b.recommended * b.cost - a.recommended * a.cost),
+    [products, lastPurchaseByProduct, returnedByProduct, soldByProduct, supplierById, targetDays, windowDays]);
 
-  const filtered = rows.filter((row) => {
+  // Memoised so the per-supplier grouping below has a stable input; a fresh
+  // array on every render would rebuild the groups on every keystroke.
+  const filtered = useMemo(() => rows.filter((row) => {
     const text = `${row.product.name} ${row.product.partNumber ?? ""} ${row.product.code} ${row.product.partBrand ?? ""}`.toLowerCase();
     return text.includes(query.trim().toLowerCase()) && (supplierFilter === "all" || row.supplierId === supplierFilter || (supplierFilter === "none" && !row.supplierId));
-  });
+  }), [rows, query, supplierFilter]);
   const totalBudget = filtered.reduce((sum, row) => sum + row.recommended * row.cost, 0);
   const totalUnits = filtered.reduce((sum, row) => sum + row.recommended, 0);
 
@@ -127,27 +172,61 @@ export function PurchasingAssistantPage() {
     toast.success("تم تصدير كشف الخطة إلى Excel");
   }
 
+  // A purchase invoice belongs to ONE supplier — it is what gets sent to them
+  // and what their account is debited by. The plan, on the other hand, spans
+  // whatever the shop happens to be short of, which is normally spread over
+  // several suppliers. Pushing the whole plan into one invoice stamped with
+  // the first row's supplier (what this did) produced an invoice claiming a
+  // supplier had sold parts they never carried.
+  //
+  // So the plan is grouped by supplier, and each group becomes its own invoice.
+  const planBySupplier = useMemo(() => {
+    const groups = new Map<string, { supplierId: string; supplierName: string; rows: typeof filtered }>();
+    for (const row of filtered) {
+      const key = row.supplierId ?? "";
+      let group = groups.get(key);
+      if (!group) {
+        group = { supplierId: key, supplierName: key ? row.supplierName : "بدون مورد محدد", rows: [] };
+        groups.set(key, group);
+      }
+      group.rows.push(row);
+    }
+    return [...groups.values()]
+      .map((group) => ({
+        ...group,
+        units: group.rows.reduce((sum, row) => sum + row.recommended, 0),
+        budget: group.rows.reduce((sum, row) => sum + row.recommended * row.cost, 0),
+      }))
+      // Unassigned parts last: they need a supplier picked before they can be
+      // ordered at all, so they are the least actionable group.
+      .sort((a, b) => (a.supplierId ? 0 : 1) - (b.supplierId ? 0 : 1) || b.budget - a.budget);
+  }, [filtered]);
+
+  function openPurchaseInvoiceFor(supplierId: string, rows: typeof filtered) {
+    navigate("/purchases/new", {
+      state: {
+        supplierId,
+        lines: rows.map((row) => ({
+          productId: row.product.id,
+          quantity: row.recommended,
+          price: row.cost,
+          expiryDate: row.product.expiryDate,
+        })),
+      },
+    });
+  }
+
   function createPurchaseInvoiceFromPlan() {
     if (filtered.length === 0) {
       toast.error("لا توجد بنود في الخطة الحالية تحوّل إلى فاتورة");
       return;
     }
-    const lines = filtered.map((row) => ({
-      productId: row.product.id,
-      quantity: row.recommended,
-      price: row.cost,
-      expiryDate: row.product.expiryDate,
-    }));
-    const effectiveSupplierId =
-      supplierFilter !== "all" && supplierFilter !== "none"
-        ? supplierFilter
-        : filtered[0]?.supplierId ?? "";
-    navigate("/purchases/new", {
-      state: {
-        supplierId: effectiveSupplierId,
-        lines,
-      },
-    });
+    if (planBySupplier.length === 1) {
+      const only = planBySupplier[0];
+      openPurchaseInvoiceFor(only.supplierId, only.rows);
+      return;
+    }
+    setShowSupplierSplit(true);
   }
 
   const selectedSupplierName =
@@ -181,7 +260,10 @@ export function PurchasingAssistantPage() {
               className="bg-amber-400 text-slate-950 hover:bg-amber-300 font-semibold"
               onClick={createPurchaseInvoiceFromPlan}
             >
-              <ShoppingCart className="h-4 w-4" /> تحويل الخطة إلى فاتورة شراء ({filtered.length})
+              <ShoppingCart className="h-4 w-4" />{" "}
+              {planBySupplier.length > 1
+                ? `تحويل الخطة إلى فواتير شراء (${planBySupplier.length} مورد)`
+                : `تحويل الخطة إلى فاتورة شراء (${filtered.length})`}
             </Button>
           </>
         }
@@ -334,6 +416,51 @@ export function PurchasingAssistantPage() {
           )}
         </CardBody>
       </Card>
+
+      <Dialog
+        open={showSupplierSplit}
+        onClose={() => setShowSupplierSplit(false)}
+        title="الخطة موزّعة على الموردين"
+        subtitle="كل مورد له فاتورة شراء لوحده — اختر المورد اللي هتطلب منه دلوقتي"
+        width="lg"
+        footer={<Button variant="outline" onClick={() => setShowSupplierSplit(false)}>إغلاق</Button>}
+      >
+        <div className="space-y-2">
+          {planBySupplier.map((group) => (
+            <div
+              key={group.supplierId || "none"}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-muted text-ink-muted">
+                  <Factory className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-ink">{group.supplierName}</div>
+                  <div className="text-[11px] text-ink-muted">
+                    {group.rows.length} قطعة · {group.units} وحدة ·{" "}
+                    {formatCurrency(group.budget, settings.currency)}
+                  </div>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant={group.supplierId ? "primary" : "outline"}
+                onClick={() => {
+                  setShowSupplierSplit(false);
+                  openPurchaseInvoiceFor(group.supplierId, group.rows);
+                }}
+              >
+                <ShoppingCart className="h-3.5 w-3.5" />
+                {group.supplierId ? "إنشاء فاتورة" : "إنشاء فاتورة واختيار المورد"}
+              </Button>
+            </div>
+          ))}
+          <p className="text-[11px] leading-relaxed text-ink-faint">
+            الفاتورة بتتفتح كمسودة بالبنود والأسعار — راجعها وعدّل قبل الحفظ.
+          </p>
+        </div>
+      </Dialog>
 
       {/* Print / Export Modal Overlay */}
       {showPlanDialog &&

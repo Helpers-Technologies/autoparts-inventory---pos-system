@@ -3,7 +3,7 @@ import { Printer } from "lucide-react";
 import { Dialog } from "../ui/Dialog";
 import { Button } from "../ui/Button";
 import { useSettings } from "../../store/SettingsContext";
-import { formatCurrency, formatDateTime } from "../../lib/format";
+import { formatCurrency, formatDateTime, PAYMENT_METHOD_LABELS } from "../../lib/format";
 import type { CashierShift, PaymentMethod } from "../../types";
 
 interface ShiftReportModalProps {
@@ -12,10 +12,11 @@ interface ShiftReportModalProps {
   onClose: () => void;
 }
 
+// A card sale lands in paymentMethodTotals like every other non-drawer method,
+// and this table used to have no "card" key — so a Visa sale printed the raw
+// English word on the Z-report. The shared table is the one source now.
 const NON_CASH_METHOD_LABELS: Partial<Record<PaymentMethod, string>> = {
-  bank: "تحويل بنكي",
-  vodafone: "فودافون كاش",
-  instapay: "إنستاباي",
+  ...PAYMENT_METHOD_LABELS,
   other: "أخرى (غير نقدي)",
 };
 
@@ -168,7 +169,7 @@ export function ShiftReportModal({ shift, open, onClose }: ShiftReportModalProps
             // Old shift records closed before the per-method breakdown existed —
             // fall back to the legacy lumped-together "Visa" total.
             <div className="flex justify-between py-1 text-blue-700 dark:text-blue-400">
-              <span>مبيعات غير نقدية (شبكة/محافظ):</span>
+              <span>مبيعات غير نقدية (فيزا/محافظ/تحويل):</span>
               <span className="font-bold">{formatCurrency(shift.totalVisaSales, settings.currency)}</span>
             </div>
           )}

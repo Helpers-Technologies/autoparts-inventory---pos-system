@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CarFront, ChevronLeft, Gauge, Link, Pencil, Plus, Search, Settings2, Trash2, X } from "lucide-react";
+import { CarFront, CheckSquare, ChevronLeft, Gauge, Link, Pencil, Plus, Search, Settings2, Square, Trash2, X } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -16,6 +16,7 @@ import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { useCatalog } from "../store/CatalogContext";
 import type { VehicleMake, VehicleModel, VehicleGeneration, VehicleEngine } from "../types";
 import { getMakeSearchText, isFuzzyMatch } from "../lib/fuzzySearch";
+import { cn } from "../lib/utils";
 
 function readImageAsResizedDataUrl(file: File, maxSize = 200): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -382,6 +383,12 @@ export function VehicleCatalogPage() {
       return `${p.name} ${p.partNumber || ""} ${p.code}`.toLowerCase().includes(q);
     });
   }, [products, bulkProductQuery, bulkCategoryFilter]);
+
+  // "all selected" must be false on an empty list, otherwise the select-all
+  // control renders in its "clear" state with nothing to clear.
+  const allBulkProductsSelected =
+    filteredBulkProducts.length > 0 &&
+    bulkSelectedProductIds.size === filteredBulkProducts.length;
 
   const categories = useMemo(
     () => Array.from(new Set(products.map((p) => p.category))).sort(),
@@ -814,29 +821,69 @@ export function VehicleCatalogPage() {
           <div className="p-3 bg-surface-muted rounded-xl border border-line space-y-3">
             <h4 className="text-xs font-bold text-ink-muted">1. تحديد مواصفات السيارة:</h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {/* A native <select> of 400+ makes gives no logo, no search and
+                  no way to type the Arabic name — the counter had to scroll an
+                  alphabetical list from "9ff" downwards to reach Hyundai. */}
               <Field label="الماركة" required>
-                <Select value={bulkMakeId} onChange={(e) => { setBulkMakeId(e.target.value); setBulkModelId(""); setBulkGenerationId(""); setBulkEngineId(""); }}>
-                  <option value="">اختر الماركة...</option>
-                  {catalog.specializedVehicleMakes.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.nameAr || m.name})</option>)}
-                </Select>
+                <SearchableSelect
+                  value={bulkMakeId}
+                  onChange={(val) => { setBulkMakeId(val); setBulkModelId(""); setBulkGenerationId(""); setBulkEngineId(""); }}
+                  options={catalog.specializedVehicleMakes.map((m) => ({
+                    value: m.id,
+                    label: m.nameAr ? `${m.nameAr} (${m.name})` : m.name,
+                    image: m.logoPath || `./vehicle-logos/${m.slug}.png`,
+                    searchText: getMakeSearchText(m),
+                  }))}
+                  placeholder="اختر الماركة..."
+                  searchPlaceholder="ابحث بالعربي أو بالإنجليزي..."
+                  minChars={0}
+                  clearable={false}
+                />
               </Field>
               <Field label="الموديل (اختياري)">
-                <Select value={bulkModelId} onChange={(e) => { setBulkModelId(e.target.value); setBulkGenerationId(""); setBulkEngineId(""); }} disabled={!bulkMakeId}>
-                  <option value="">كل الموديلات</option>
-                  {bulkModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                </Select>
+                <SearchableSelect
+                  value={bulkModelId}
+                  onChange={(val) => { setBulkModelId(val); setBulkGenerationId(""); setBulkEngineId(""); }}
+                  options={bulkModels.map((m) => ({
+                    value: m.id,
+                    label: m.nameAr ? `${m.nameAr} (${m.name})` : m.name,
+                    searchText: `${m.name} ${m.nameAr ?? ""}`,
+                  }))}
+                  placeholder="كل الموديلات"
+                  searchPlaceholder="ابحث عن الموديل بالعربي أو بالإنجليزي..."
+                  minChars={0}
+                  disabled={!bulkMakeId}
+                />
               </Field>
               <Field label="الجيل (اختياري)">
-                <Select value={bulkGenerationId} onChange={(e) => { setBulkGenerationId(e.target.value); setBulkEngineId(""); }} disabled={!bulkModelId}>
-                  <option value="">كل الأجيال</option>
-                  {bulkGenerations.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.yearFrom || "?"}-{g.yearTo || "?"})</option>)}
-                </Select>
+                <SearchableSelect
+                  value={bulkGenerationId}
+                  onChange={(val) => { setBulkGenerationId(val); setBulkEngineId(""); }}
+                  options={bulkGenerations.map((g) => ({
+                    value: g.id,
+                    label: `${g.name} (${g.yearFrom || "?"}-${g.yearTo || "?"})`,
+                    searchText: `${g.name} ${g.yearFrom ?? ""} ${g.yearTo ?? ""}`,
+                  }))}
+                  placeholder="كل الأجيال"
+                  searchPlaceholder="ابحث عن الجيل..."
+                  minChars={0}
+                  disabled={!bulkModelId}
+                />
               </Field>
               <Field label="المحرك (اختياري)">
-                <Select value={bulkEngineId} onChange={(e) => setBulkEngineId(e.target.value)} disabled={!bulkGenerationId}>
-                  <option value="">كل المحركات</option>
-                  {bulkEngines.map((e) => <option key={e.id} value={e.id}>{e.name} {e.code ? `(${e.code})` : ""}</option>)}
-                </Select>
+                <SearchableSelect
+                  value={bulkEngineId}
+                  onChange={(val) => setBulkEngineId(val)}
+                  options={bulkEngines.map((e) => ({
+                    value: e.id,
+                    label: `${e.name}${e.code ? ` (${e.code})` : ""}`,
+                    searchText: `${e.name} ${e.code ?? ""}`,
+                  }))}
+                  placeholder="كل المحركات"
+                  searchPlaceholder="ابحث عن المحرك..."
+                  minChars={0}
+                  disabled={!bulkGenerationId}
+                />
               </Field>
               <Field label="من سنة">
                 <Input type="number" value={bulkYearFrom} onChange={(e) => setBulkYearFrom(e.target.value)} placeholder="مثال: 2012" />
@@ -848,24 +895,33 @@ export function VehicleCatalogPage() {
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="text-xs font-bold text-ink-muted">
                 2. اختيار الأصناف المراد ربطها ({bulkSelectedProductIds.size} صنف محدد):
               </h4>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-xs"
+              {/* A ghost button beside a heading reads as part of the heading.
+                  Framed, with a checkbox glyph and the count it will act on,
+                  it reads as the control it actually is. */}
+              <button
+                type="button"
+                disabled={filteredBulkProducts.length === 0}
                 onClick={() => {
-                  if (bulkSelectedProductIds.size === filteredBulkProducts.length) {
-                    setBulkSelectedProductIds(new Set());
-                  } else {
-                    setBulkSelectedProductIds(new Set(filteredBulkProducts.map((p) => p.id)));
-                  }
+                  setBulkSelectedProductIds(
+                    allBulkProductsSelected ? new Set() : new Set(filteredBulkProducts.map((p) => p.id)),
+                  );
                 }}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+                  allBulkProductsSelected
+                    ? "border-brand-500/40 bg-brand-500/10 text-brand-700 dark:text-brand-300"
+                    : "border-line bg-surface text-ink-muted hover:border-brand-400 hover:bg-surface-muted hover:text-ink",
+                )}
               >
-                {bulkSelectedProductIds.size === filteredBulkProducts.length ? "إلغاء تحديد الكل" : "تحديد الكل المفلتر"}
-              </Button>
+                {allBulkProductsSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                {allBulkProductsSelected
+                  ? "إلغاء تحديد الكل"
+                  : `تحديد الكل المفلتر (${filteredBulkProducts.length})`}
+              </button>
             </div>
             <div className="flex gap-2">
               <Input

@@ -110,7 +110,14 @@ export function PurchaseInvoiceNewPage() {
         expiryDate: l.expiryDate,
       }));
       setLines(draftLines);
-      toast.info("تم نقل خطة إعادة الطلب إلى الفاتورة", `${draftLines.length} صنف تم إدراجها تلقائيًا.`);
+      // Reached both from the purchasing plan (many parts) and from a single
+      // stock alert's "توريد" button, so the wording follows what arrived.
+      toast.info(
+        draftLines.length === 1 ? "تم إدراج القطعة في الفاتورة" : "تم نقل خطة إعادة الطلب إلى الفاتورة",
+        draftLines.length === 1
+          ? "راجع الكمية والسعر قبل الحفظ."
+          : `${draftLines.length} صنف تم إدراجها تلقائيًا.`,
+      );
     }
   }, []);
 

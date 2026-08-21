@@ -25,7 +25,6 @@ import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
 import { useCatalog } from "../store/CatalogContext";
 import { useInvoicing } from "../store/InvoicingContext";
-import { useReporting } from "../store/ReportingContext";
 import { useAuth } from "../store/AuthContext";
 import { useSettings } from "../store/SettingsContext";
 import { useAutoPartsPro } from "../store/AutoPartsProContext";
@@ -36,10 +35,12 @@ import { Link, useLocation } from "react-router-dom";
 import { hasPermission } from "../lib/permissions";
 import { AddressFields, type AddressDraft } from "../features/shipping/AddressFields";
 import { defaultCustomerAddress } from "../lib/shipping";
-import { uid } from "../lib/utils";
+import { normalizePhoneInput, uid } from "../lib/utils";
 
 type Segment = "all" | "debtors" | "creditors" | "inactive";
 type SortKey = "recent" | "purchases" | "balance" | "name" | "new";
+/** Rows rendered before "show more" — matches the products table's default. */
+const CUSTOMER_PAGE_SIZE = 25;
 const EMPTY_ADDRESS: AddressDraft = { label: "العنوان الرئيسي", governorate: "", city: "", addressLine: "", isDefault: true };
 
 interface CustomerRow {
@@ -55,7 +56,6 @@ interface CustomerRow {
 export function CustomersPage() {
   const { customers, addCustomer, updateCustomer, deleteCustomer, archiveCustomer, nextCustomerCode } = useCatalog();
   const { salesInvoices } = useInvoicing();
-  const { customerBalance } = useReporting();
   const { currentUser } = useAuth();
   const { settings } = useSettings();
   const { customerVehicles } = useAutoPartsPro();
@@ -83,6 +83,7 @@ export function CustomersPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [segment, setSegment] = useState<Segment>("all");
   const [sortBy, setSortBy] = useState<SortKey>("recent");
+  const [pagination, setPagination] = useState({ key: "", count: CUSTOMER_PAGE_SIZE });
 
   const [form, setForm] = useState<Omit<Customer, "id" | "createdAt">>({
     code: "",
@@ -95,23 +96,66 @@ export function CustomersPage() {
   const [addressDraft, setAddressDraft] = useState<AddressDraft>(EMPTY_ADDRESS);
 
   // ── Per-customer analytics ──
+  //
+  // Indexed by customer in one pass, deliberately. This used to run three
+  // whole-collection scans PER customer — one filter over every sales invoice,
+  // one over every vehicle, and customerBalance() re-scanning every invoice
+  // again — which is O(customers x invoices). A five-year shop (25,000
+  // customers, 48,483 invoices) made that ~2.7 BILLION iterations: the page
+  // froze the renderer for six and a half minutes and then the process died,
+  // taking the whole app with it. Grouping first makes it O(customers +
+  // invoices + vehicles).
   const allRows = useMemo<CustomerRow[]>(() => {
+    type Totals = {
+      invoiceCount: number;
+      totalPurchases: number;
+      lastActivity?: string;
+      balance: number;
+    };
+    const totals = new Map<string, Totals>();
+    for (const invoice of salesInvoices) {
+      if (invoice.cancelled) continue;
+      let entry = totals.get(invoice.customerId);
+      if (!entry) {
+        entry = { invoiceCount: 0, totalPurchases: 0, balance: 0 };
+        totals.set(invoice.customerId, entry);
+      }
+      entry.invoiceCount += 1;
+      entry.totalPurchases += invoice.total;
+      // Dates are ISO strings, so the lexicographic max is the latest — same
+      // answer the previous sort().at(-1) gave, without sorting per customer.
+      if (entry.lastActivity === undefined || invoice.date > entry.lastActivity) {
+        entry.lastActivity = invoice.date;
+      }
+      // Mirrors calculateCustomerAccountBalance: cancelled already excluded
+      // above, collect-on-delivery is not a receivable until it is collected.
+      if (!invoice.collectOnDelivery) {
+        entry.balance += invoice.remaining - (invoice.overpayment ?? 0);
+      }
+    }
+
+    const vehicleCounts = new Map<string, number>();
+    for (const vehicle of customerVehicles) {
+      if (vehicle.archived) continue;
+      vehicleCounts.set(
+        vehicle.customerId,
+        (vehicleCounts.get(vehicle.customerId) ?? 0) + 1,
+      );
+    }
+
     return customers.map((c) => {
-      const invs = salesInvoices.filter((s) => s.customerId === c.id && !s.cancelled);
-      const totalPurchases = invs.reduce((sum, s) => sum + s.total, 0);
-      const lastActivity = invs.map((s) => s.date).sort().at(-1);
-      const vehicles = customerVehicles.filter((v) => v.customerId === c.id && !v.archived).length;
+      const entry = totals.get(c.id);
       return {
         customer: c,
         archived: !!c.archived,
-        invoiceCount: invs.length,
-        totalPurchases,
-        lastActivity,
-        vehicles,
-        balance: customerBalance(c.id),
+        invoiceCount: entry?.invoiceCount ?? 0,
+        totalPurchases: entry?.totalPurchases ?? 0,
+        lastActivity: entry?.lastActivity,
+        vehicles: vehicleCounts.get(c.id) ?? 0,
+        balance: entry?.balance ?? 0,
       };
     });
-  }, [customers, salesInvoices, customerVehicles, customerBalance]);
+  }, [customers, salesInvoices, customerVehicles]);
 
   const rows = useMemo(() => allRows.filter((r) => !r.archived), [allRows]);
   const archivedRows = useMemo(() => allRows.filter((r) => r.archived), [allRows]);
@@ -182,6 +226,18 @@ export function CustomersPage() {
     return list;
   }, [rows, q, segment, sortBy]);
 
+  // Rows are handed to the DOM in batches, the same way the products table
+  // does it. Rendering the whole filtered list at once is fine for the few
+  // hundred customers a workshop has and ruinous for the 25,000 a five-year
+  // shop accumulates: every row carries badges, formatted money and three
+  // buttons, so the full list is hundreds of thousands of nodes and the tab
+  // stops responding while they are built. The count resets whenever the
+  // filter changes, so "show more" never leaks across searches.
+  const paginationKey = JSON.stringify([q, segment, sortBy, showArchived]);
+  const visibleCount = pagination.key === paginationKey ? pagination.count : CUSTOMER_PAGE_SIZE;
+  const visibleRows = visible.slice(0, visibleCount);
+  const remainingRows = Math.max(0, visible.length - visibleRows.length);
+
   function openNew() {
     setEditing(null);
     setForm({ code: `CUS-${String(nextCustomerCode).padStart(4, "0")}`, name: "", phone: "", address: "", marketingConsent: "unknown", notes: "" });
@@ -230,8 +286,19 @@ export function CustomersPage() {
       toast.error("رقم الهاتف غير صحيح", "يجب أن يكون 11 رقم بالضبط");
       return;
     }
-    if (!addressDraft.addressLine.trim() || !addressDraft.governorate || !addressDraft.city) {
-      toast.error("عنوان التوصيل غير مكتمل", "العنوان والمحافظة والمدينة مطلوبة لحساب التوصيل");
+    // A shop sells over the counter far more often than it delivers, so an
+    // address is optional here — it is the DELIVERY flow (POS and the sales
+    // invoice) that refuses to ship without one. What is still enforced is
+    // that a half-written address cannot be saved: an address line with no
+    // governorate or city cannot be priced or handed to any carrier later.
+    const addressStarted = Boolean(
+      addressDraft.addressLine.trim() || addressDraft.governorate || addressDraft.city,
+    );
+    if (addressStarted && (!addressDraft.addressLine.trim() || !addressDraft.governorate || !addressDraft.city)) {
+      toast.error(
+        "بيانات العنوان ناقصة",
+        "لو هتسجّل عنوان، اكتب العنوان واختر المحافظة والمدينة — أو سيبه فاضي خالص.",
+      );
       return;
     }
     const timestamp = new Date().toISOString();
@@ -377,6 +444,7 @@ export function CustomersPage() {
               }
             />
           ) : (
+            <>
             <Table>
               <THead>
                 <TR>
@@ -391,7 +459,7 @@ export function CustomersPage() {
                 </TR>
               </THead>
               <TBody>
-                {visible.map(({ customer: c, invoiceCount, totalPurchases, lastActivity, vehicles, balance }) => (
+                {visibleRows.map(({ customer: c, invoiceCount, totalPurchases, lastActivity, vehicles, balance }) => (
                   <TR key={c.id}>
                     <TD>
                       <Link
@@ -512,6 +580,19 @@ export function CustomersPage() {
                 ))}
               </TBody>
             </Table>
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 pt-1 text-xs text-ink-muted">
+              <span>عرض {visibleRows.length} من {visible.length} عميل</span>
+              {remainingRows > 0 ? (
+                <Button
+                  variant="outline"
+                  className="min-w-56"
+                  onClick={() => setPagination({ key: paginationKey, count: visibleCount + CUSTOMER_PAGE_SIZE })}
+                >
+                  عرض المزيد ({remainingRows} متبقي)
+                </Button>
+              ) : null}
+            </div>
+            </>
           )}
         </CardBody>
       </Card>
@@ -544,12 +625,18 @@ export function CustomersPage() {
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </Field>
-          <Field label="الهاتف" required>
+          <Field label="الهاتف" required hint="11 رقمًا ويبدأ بـ 01">
             <Input
+              // The field accepted any text, so "يثبت" could be saved as a
+              // phone number. normalizePhoneInput also folds Arabic-Indic and
+              // Persian digits, which is what an Arabic keyboard produces.
+              type="tel"
               value={form.phone ?? ""}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              onChange={(e) => setForm({ ...form, phone: normalizePhoneInput(e.target.value) })}
               maxLength={11}
               inputMode="numeric"
+              dir="ltr"
+              className="text-start font-mono"
             />
           </Field>
           <div className="col-span-2 rounded-xl border border-line bg-surface-muted/20 p-3"><div className="mb-3 text-sm font-bold text-ink">عنوان التوصيل الرئيسي</div><AddressFields value={addressDraft} onChange={setAddressDraft} showRecipient={false} /></div>

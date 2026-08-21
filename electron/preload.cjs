@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld("desktopAPI", {
       ipcRenderer.invoke("cloud-archive:preview-restore", { passphrase }),
     restoreCloudArchive: (passphrase) =>
       ipcRenderer.invoke("cloud-archive:restore", { passphrase }),
+    // Stock work scanned on a phone: pulled down, applied by the renderer
+    // (which owns the store), then reported back. See fetchMobileStockOps.
+    fetchMobileStockOps: () => ipcRenderer.invoke("mobile-stock-ops:fetch"),
+    resolveMobileStockOps: (results) =>
+      ipcRenderer.invoke("mobile-stock-ops:resolve", { results }),
     listMobileDevices: () => ipcRenderer.invoke("license:list-mobile-devices"),
     revokeMobileDevice: (deviceId, keepTrust) =>
       ipcRenderer.invoke("license:revoke-mobile-device", { deviceId, keepTrust }),

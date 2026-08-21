@@ -11,7 +11,12 @@
  * TC-E2E-001 — P0 / e2e
  */
 import { test, expect } from "@playwright/test";
-import { launchElectron, closeElectron } from "../../helpers/electron-app";
+import {
+  authenticatedShellMarker,
+  closeElectron,
+  dismissWhatsNewIfPresent,
+  launchElectron,
+} from "../../helpers/electron-app";
 import { FirstRunScreen } from "../screens/FirstRunScreen";
 import { LoginScreen } from "../screens/LoginScreen";
 
@@ -35,15 +40,12 @@ test("E2E-001: first-run setup → owner creation → auto-login → manual re-l
 
     // ── Step 3: Auto-login lands directly on the dashboard ──────────────
     // The current dashboard layout always exposes the authenticated logout action.
-    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
 
     // First run auto-opens the "What's New" dialog over the dashboard (the app
     // version has a changelog entry). Dismiss it so its backdrop doesn't
     // intercept clicks on the dashboard underneath.
-    const whatsNewButton = window.getByRole("button", { name: "تمام، فهمت" });
-    if (await whatsNewButton.isVisible({ timeout: 1500 }).catch(() => false)) {
-      await whatsNewButton.click();
-    }
+    await dismissWhatsNewIfPresent(window);
 
     // ── Step 4: Logout shows the login page ─────────────────────────────
     await window.getByRole("button", { name: "تسجيل الخروج" }).click();
@@ -52,7 +54,7 @@ test("E2E-001: first-run setup → owner creation → auto-login → manual re-l
 
     // ── Step 5: Manual login with the created credentials works ─────────
     await login.loginAs(OWNER_USERNAME, OWNER_PASSWORD);
-    await expect(window.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
   } finally {
     await closeElectron(handle);
   }

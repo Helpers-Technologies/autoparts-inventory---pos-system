@@ -13,7 +13,12 @@
  * error boundary.
  */
 import { test, expect } from "@playwright/test";
-import { launchElectron, closeElectron } from "../../helpers/electron-app";
+import {
+  authenticatedShellMarker,
+  closeElectron,
+  dismissWhatsNewIfPresent,
+  launchElectron,
+} from "../../helpers/electron-app";
 import { FirstRunScreen } from "../screens/FirstRunScreen";
 
 const OWNER_USERNAME = "blocker_owner";
@@ -37,11 +42,12 @@ test("@smoke unsaved-changes-guard pages render without tripping the error bound
     const setup = new FirstRunScreen(window);
     await expect(setup.heading()).toBeVisible();
     await setup.createOwner(OWNER_USERNAME, OWNER_PASSWORD);
-    await expect(window.getByText(/أهلاً بك في/)).toBeVisible();
+    await expect(authenticatedShellMarker(window)).toBeVisible();
+    await dismissWhatsNewIfPresent(window);
 
     for (const { hash, heading } of GUARDED_PAGES) {
       await window.evaluate((h) => {
-        window.location.hash = h;
+        globalThis.location.hash = h;
       }, hash);
       await expect(window.getByRole("heading", { name: heading })).toBeVisible();
       await expect(window.getByText("حدث خطأ غير متوقع")).not.toBeVisible();

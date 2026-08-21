@@ -49,8 +49,14 @@ const CHUNK_SIZE = 500;
  *  IPC round-trip landing. */
 const CHUNKED_TOMBSTONE = '"__partflow_chunked__"';
 
-/** Value of the `#order` marker once a collection has been reordered. */
-const ORDER_OLDEST_FIRST = '"oldest-first"';
+/**
+ * Versioned marker for a ledger that was validated and sorted by date + id.
+ *
+ * The old `"oldest-first"` marker only meant that `reverse()` had run. Some
+ * generated and imported ledgers were neither newest-first nor oldest-first,
+ * so trusting that marker could preserve tens of thousands of inversions.
+ */
+const ORDER_OLDEST_FIRST = '"oldest-first-v2-date-id"';
 
 const metaKey = (key: string) => `${PREFIX}${key}#meta`;
 const chunkKey = (key: string, index: number) =>
@@ -92,17 +98,25 @@ export async function loadStorageCache(): Promise<void> {
  * by the main process but the optimistic cache update still happens). Refreshing
  * here guarantees post-login reads reflect the real, on-disk data.
  */
-export async function reloadStorageCache(): Promise<void> {
-  if (!window.desktopAPI?.storage?.getBatch) return;
+export async function reloadStorageCache(): Promise<boolean> {
+  if (!window.desktopAPI?.storage?.getBatch) return true;
   try {
     const batch: Record<string, string> = await window.desktopAPI.storage.getBatch();
+    // Replace the authoritative snapshot instead of merging it. A key that was
+    // removed/restored between sessions must not survive in the renderer cache
+    // merely because the new batch does not contain it. Build the replacement
+    // only after IPC succeeds so a transient read failure never destroys the
+    // last known-good cache.
+    _cache.clear();
     for (const [key, value] of Object.entries(batch)) {
       _cache.set(key, value);
     }
     rememberChunkCounts();
     _cacheReady = true;
+    return true;
   } catch {
     // Keep the existing cache on failure.
+    return false;
   }
 }
 
@@ -262,7 +276,22 @@ export function lsGet<T>(key: string, fallback: T): T {
  * Returns the records in oldest-first order, or null if there was nothing to
  * do and the caller should read normally.
  */
-export function lsMigrateToOldestFirst<T>(key: string): T[] | null {
+type ChronologicalRecord = { date: string; id?: string };
+
+export function compareOldestFirstByDateAndId(
+  left: ChronologicalRecord,
+  right: ChronologicalRecord,
+): number {
+  const leftTime = Date.parse(left.date);
+  const rightTime = Date.parse(right.date);
+  if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) {
+    throw new Error("invalid_chronological_record");
+  }
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  return String(left.id ?? "").localeCompare(String(right.id ?? ""), "en");
+}
+
+export function lsMigrateToOldestFirst<T extends ChronologicalRecord>(key: string): T[] | null {
   if (!CHUNKED_KEYS.has(key)) return null;
   const markerKey = `${PREFIX}${key}#order`;
   if (readRow(markerKey) === ORDER_OLDEST_FIRST) return null;
@@ -293,7 +322,19 @@ export function lsMigrateToOldestFirst<T>(key: string): T[] | null {
     return [];
   }
 
-  const reordered = existing.slice().reverse();
+  let reordered: T[];
+  try {
+    // Sorting is required: real imports and the stress generator can interleave
+    // purchases, sales and returns, so reversing the array merely changes one
+    // invalid order into another. The id tie-breaker makes repeated migrations
+    // deterministic even when hundreds of movements share one timestamp.
+    reordered = existing.slice().sort(compareOldestFirstByDateAndId);
+  } catch {
+    // Never stamp an unverifiable ledger as migrated. Callers can block the
+    // operation or surface recovery guidance while the original rows remain
+    // untouched.
+    return null;
+  }
 
   const rows: Record<string, string> = {};
   const chunks = Math.ceil(reordered.length / CHUNK_SIZE);

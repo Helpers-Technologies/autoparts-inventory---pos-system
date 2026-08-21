@@ -84,6 +84,18 @@ export function ReportsPage() {
   const excelExportEnabled = isEnabled("excelExport");
   const supplierCommissionsEnabled = isEnabled("supplierCommissions");
   const { products, customers, suppliers } = useCatalog();
+
+  // Products looked up by id, indexed once.
+  //
+  // Every cost figure on this page resolves a line back to its product, and
+  // the lookups sat inside loops over EVERY line of EVERY invoice: roughly
+  // 150,000 lines each scanning 6,000 products, about 900 million iterations
+  // per render. A CPU profile of this route put four of its five hottest
+  // blocks on exactly those scans.
+  const productById = useMemo(
+    () => new Map(products.map((product) => [product.id, product])),
+    [products],
+  );
   const { users } = useUsers();
   const { salesInvoices, purchaseInvoices, salesReturns, cashEntries } = useInvoicing();
   const { settings } = useSettings();
@@ -138,7 +150,7 @@ export function ReportsPage() {
     const origLine =
       orig?.lines.find((l) => l.id === rl.sourceLineId) ??
       orig?.lines.find((l) => l.productId === rl.productId);
-    const prod = products.find((x) => x.id === rl.productId);
+    const prod = productById.get(rl.productId);
     return origLine?.costPrice ?? prod?.avgCost ?? prod?.purchasePrice ?? 0;
   };
 
@@ -183,7 +195,7 @@ export function ReportsPage() {
     let p = 0;
     salesInRange.forEach((inv) => {
       inv.lines.forEach((l) => {
-        const costProd = products.find((x) => x.id === l.productId);
+        const costProd = productById.get(l.productId);
         const cost = l.costPrice ?? costProd?.avgCost ?? costProd?.purchasePrice ?? 0;
         p += (l.price - cost) * l.quantity;
       });
@@ -207,7 +219,7 @@ export function ReportsPage() {
       entry.sales += s.total;
       let invProfit = -(s.discount ?? 0);
       s.lines.forEach((l) => {
-        const costProd = products.find((x) => x.id === l.productId);
+        const costProd = productById.get(l.productId);
         const cost = l.costPrice ?? costProd?.avgCost ?? costProd?.purchasePrice ?? 0;
         invProfit += (l.price - cost) * l.quantity;
       });
@@ -404,7 +416,7 @@ export function ReportsPage() {
     const map = new Map<string, { name: string; partNumber?: string; partBrand?: string; qty: number; revenue: number; grossProfit: number }>();
     salesInRange.forEach((inv) => {
       inv.lines.forEach((l) => {
-        const product = products.find((x) => x.id === l.productId);
+        const product = productById.get(l.productId);
         const e = map.get(l.productId) ?? { name: l.productName, partNumber: l.partNumber || product?.partNumber || product?.code, partBrand: l.partBrand || product?.partBrand, qty: 0, revenue: 0, grossProfit: 0 };
         const cost = l.costPrice ?? product?.avgCost ?? product?.purchasePrice ?? 0;
         e.qty += l.quantity;
@@ -422,7 +434,7 @@ export function ReportsPage() {
     const map = new Map<string, number>();
     salesInRange.forEach((inv) => {
       inv.lines.forEach((l) => {
-        const prod = products.find((p) => p.id === l.productId);
+        const prod = productById.get(l.productId);
         if (!prod) return;
         map.set(prod.category, (map.get(prod.category) ?? 0) + l.subtotal);
       });

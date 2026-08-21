@@ -65,6 +65,13 @@ vi.mock("../../src/store/AuditLogContext", () => ({
   }),
 }));
 
+// The page reads the catalogue to answer "how many parts use this quality
+// grade / condition / warranty term?" before letting one be deleted. An empty
+// catalogue is all this test needs — it never opens that dialog.
+vi.mock("../../src/store/CatalogContext", () => ({
+  useCatalog: () => ({ products: [] }),
+}));
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const INTERNAL_BACKUP_BUTTON = "استعادة من النسخة التلقائية الداخلية";

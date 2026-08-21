@@ -497,16 +497,22 @@ export function ProductsPage() {
                 تصدير الكتالوج
               </Button>
             )}
-            {bulkProductToolsEnabled && <Button
-              type="button"
-              variant="outline"
-              className="gap-1.5 text-white hover:text-white"
-              onClick={() => setColumnsDialogOpen(true)}
-              title="اختيار أعمدة الجدول الظاهرة"
-            >
-              <Columns3 className="w-4 h-4" />
-              تعديل الأعمدة
-            </Button>}
+            {bulkProductToolsEnabled && (
+              // The override here was `text-white hover:text-white` on an
+              // outline button, i.e. white text on a white surface — the
+              // control was invisible in light mode. It uses the standard
+              // outline treatment now, same as the inventory page.
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => setColumnsDialogOpen(true)}
+                title="اختيار أعمدة الجدول الظاهرة"
+              >
+                <Columns3 className="w-4 h-4" />
+                تعديل الأعمدة
+              </Button>
+            )}
             {canAddProduct && (
               <Button
                 onClick={() => {

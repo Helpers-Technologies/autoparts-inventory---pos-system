@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { salesLinePrice } from "../../../src/lib/salesPrice";
 import { applyPieceDeduction } from "../../../src/store/_pure";
 import type { Product } from "../../../src/types";
 
@@ -33,20 +34,24 @@ function makeProduct(overrides: Partial<Product> = {}): Product {
   };
 }
 
-// نسخة طبق الأصل من تعبير "الكمية الحالية" في ProductDetailsDrawer.tsx:45-48
+// A RESTATEMENT of the "الكمية الحالية" expression in ProductDetailsDrawer
+// (page-local, not exported). This pins the intended shape of the string,
+// NOT the component — a change there will not fail this test.
 function formatStock(p: Product): string {
   return p.piecesPerUnit
     ? `${p.quantity} ${p.unit}${p.looseQuantity ? ` + ${p.looseQuantity} ${p.retailUnit ?? "قطعة"}` : ""}`
     : `${p.quantity} ${p.unit}`;
 }
 
-// نسخة طبق الأصل من productPrice() في SalesInvoiceNewPage.tsx:192-195
-function productPrice(p: Product, priceType: "wholesale" | "retail"): number {
-  if (priceType === "retail" && p.piecesPerUnit) return p.retailPrice;
-  return priceType === "retail" ? p.retailPrice : p.wholesalePrice;
-}
+// The real rule, imported — not a copy. The copy that used to live here had
+// already drifted from SalesInvoiceNewPage while still claiming to be
+// identical, which is exactly why it could never catch a regression.
+const productPrice = (p: Product, priceType: "wholesale" | "retail") =>
+  salesLinePrice(p, priceType);
 
-// نسخة طبق الأصل من حساب "المتاح" في SalesInvoiceNewPage.tsx:182-184
+// A RESTATEMENT of the retail availability rule. The page computes it from
+// already-converted base units (availableFromBaseUnits), so this is the
+// intended arithmetic, not the production code path.
 function availableForSale(p: Product, isRetailLine: boolean): number {
   return isRetailLine ? p.quantity * p.piecesPerUnit! + (p.looseQuantity ?? 0) : p.quantity;
 }

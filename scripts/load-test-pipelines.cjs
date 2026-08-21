@@ -23,7 +23,8 @@ const datasetPath = process.argv[2];
 if (!datasetPath) throw new Error("usage: load-test-pipelines.cjs <dataset.json>");
 
 const ms = (s) => Number(process.hrtime.bigint() - s) / 1e6;
-const mb = (n) => (n / 1048576).toFixed(1) + " MB";
+const mb = (n) => (n / 1048576).toFixed(1) + " MiB";
+const failures = [];
 function time(label, fn) {
   const s = process.hrtime.bigint();
   const v = fn();
@@ -93,21 +94,36 @@ console.log(`\n2. ENCRYPTED CLOUD ARCHIVE — the paid off-site backup\n`);
 const archiveState = {};
 for (const [k, v] of Object.entries(d)) archiveState[`autoparts_inventory_v1::${k}`] = v;
 const { v: archiveJson } = time("serialize full shop state", () => JSON.stringify(archiveState));
-console.log(`  ${"plaintext size".padEnd(52)} ${mb(Buffer.byteLength(archiveJson)).padStart(10)}`);
+const plaintextBytes = Buffer.byteLength(archiveJson, "utf8");
+console.log(`  ${"plaintext size".padEnd(52)} ${mb(plaintextBytes).padStart(10)}`);
+
+// The desktop used to compare this plaintext against 48 MiB before
+// compression even started, which rejected shops whose actual upload fitted
+// several times over. electron/main.cjs now measures the envelope, like the
+// portal does, so the plaintext size is reported here for context only — it is
+// no longer a pass/fail gate.
+console.log(`  ${"(plaintext is no longer the gate — envelope is)".padEnd(52)} ${"".padStart(10)}`);
 
 const { v: envelope } = time("encrypt (scrypt + AES-256-GCM)", () =>
   encryptBackupWithPassphrase(archiveJson, "load test passphrase"));
-console.log(`  ${"envelope size".padEnd(52)} ${mb(Buffer.byteLength(envelope)).padStart(10)}`);
+const envelopeBytes = Buffer.byteLength(envelope, "utf8");
+console.log(`  ${"compressed encrypted envelope size".padEnd(52)} ${mb(envelopeBytes).padStart(10)}`);
 
 const { v: restored } = time("decrypt and verify round-trip", () =>
   decryptBackupWithPassphrase(envelope, "load test passphrase"));
-console.log(`  ${"round-trip identical".padEnd(52)} ${String(restored === archiveJson).padStart(10)}`);
+const roundTripOk = restored === archiveJson;
+console.log(`  ${"round-trip identical".padEnd(52)} ${String(roundTripOk).padStart(10)}`);
+if (!roundTripOk) failures.push("encrypted archive round-trip changed the plaintext");
 
-const MAX_ENVELOPE = 48 * 1024 * 1024;
-const fits = Buffer.byteLength(envelope) <= MAX_ENVELOPE;
-console.log(`  ${"within the portal's 48 MB limit".padEnd(52)} ${String(fits).padStart(10)}`);
-if (!fits) {
-  console.log(`  !! a shop this size CANNOT use the cloud backup it paid for`);
+// One number now, checked by both sides: CLOUD_ARCHIVE_MAX_BYTES in
+// electron/main.cjs and MAX_ENVELOPE_BYTES in the portal's cloudState.js.
+const MAX_ENVELOPE_BYTES = 48 * 1024 * 1024;
+const envelopeFits = envelopeBytes <= MAX_ENVELOPE_BYTES;
+console.log(`  ${"within 48 MiB envelope limit (desktop + portal)".padEnd(52)} ${String(envelopeFits).padStart(10)}`);
+console.log(`  ${"compression ratio".padEnd(52)} ${(plaintextBytes / envelopeBytes).toFixed(1).padStart(9)}x`);
+if (!envelopeFits) {
+  failures.push(`archive_too_large: envelope ${mb(envelopeBytes)} exceeds 48 MiB`);
+  console.log("  !! upload is rejected — desktop refuses and the portal would 413");
 }
 
 console.log(`\n3. DASHBOARD + REPORT AGGREGATIONS — opened every morning\n`);
@@ -178,4 +194,10 @@ time("global search across products + customers + invoices", () => {
   return hits;
 });
 
-console.log("");
+if (failures.length) {
+  console.log("\nPIPELINE FAILURES:");
+  for (const failure of failures) console.log(`  ✗ ${failure}`);
+  process.exitCode = 1;
+} else {
+  console.log("\nall pipeline validity checks hold ✓");
+}

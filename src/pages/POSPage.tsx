@@ -223,6 +223,10 @@ const POSProductCard = memo(function POSProductCard({
   return (
     <button
       type="button"
+      // A stable hook for the write-load suite: the grid is virtualised and
+      // the category tabs share words with the part names, so there is no
+      // text-based selector that reliably means "a product tile".
+      data-testid="pos-product-tile"
       onClick={onClick}
       disabled={isOutOfStock && !hasAlternatives}
       className={`flex flex-col text-right justify-between p-2.5 border rounded-xl bg-surface transition-all select-none relative ${
@@ -1479,7 +1483,7 @@ export function POSPage() {
                         image:
                           make?.logoPath ||
                           (make?.slug
-                            ? `/vehicle-logos/${make.slug}.png`
+                            ? `./vehicle-logos/${make.slug}.png`
                             : undefined),
                         searchText: `${label} ${vehicle.plateNumber ?? ""}`,
                       };

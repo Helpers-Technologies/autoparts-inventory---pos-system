@@ -32,6 +32,7 @@ import { useInvoicing } from "./InvoicingContext";
 
 const now = "2026-01-01T00:00:00.000Z";
 export const BOSTA_PROVIDER_ID = "shipping_bosta";
+export const IN_HOUSE_PROVIDER_ID = "shipping_in_house";
 
 function apiInternetAvailable() {
   return typeof navigator === "undefined" || navigator.onLine;
@@ -54,6 +55,21 @@ export interface BostaDistrictOption {
 
 const DEFAULT_PROVIDERS: ShippingProvider[] = [
   {
+    // The shop's own courier. Seeded ACTIVE and first because it needs no
+    // account, no API key and no internet — a shop that never signs up with a
+    // shipping company still has a working delivery option on day one.
+    // Without it the delivery screen opened on an empty provider list, which
+    // read as "delivery is broken" rather than "add your courier".
+    id: IN_HOUSE_PROVIDER_ID,
+    name: "توصيل بمندوب المحل",
+    kind: "manual",
+    active: true,
+    supportsCashOnDelivery: true,
+    notes: "توصيل داخلي بمندوب المحل — عدّل الاسم والأسعار من إدارة الشحن.",
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
     id: BOSTA_PROVIDER_ID,
     name: "Bosta",
     kind: "bosta",
@@ -65,6 +81,26 @@ const DEFAULT_PROVIDERS: ShippingProvider[] = [
     updatedAt: now,
   },
 ];
+
+/**
+ * Backfills defaults an existing shop has never seen, matched by id.
+ *
+ * The previous rule asked one question — "is Bosta in the list?" — and if it
+ * was, kept the stored list untouched, so a default added later could never
+ * reach an existing install. If it wasn't, it appended the WHOLE default set,
+ * which would duplicate any other default already stored.
+ *
+ * Checking each default on its own id fixes both. Backfilling is purely
+ * additive here because providers cannot be removed — the context exposes
+ * addProvider and updateProvider only, so a shop that does not want one turns
+ * it off via `active`, and that choice survives: the stored copy always wins
+ * over the default.
+ */
+function withMissingDefaults(stored: ShippingProvider[]): ShippingProvider[] {
+  const known = new Set(stored.map((item) => item.id));
+  const missing = DEFAULT_PROVIDERS.filter((item) => !known.has(item.id));
+  return missing.length ? [...stored, ...missing] : stored;
+}
 
 const EMPTY_BOSTA_CONFIG: BostaIntegrationConfig = {
   enabled: false,
@@ -226,8 +262,14 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
   const { auth, isDesktop } = useAuth();
   const { logAudit } = useAuditLog();
   const { salesInvoices, recordSalesReceipt } = useInvoicing();
+  const authenticatedIdentity = auth.isAuthenticated
+    ? auth.userId ?? auth.username ?? "authenticated"
+    : null;
+  const [hydratedIdentity, setHydratedIdentity] = useState<string | null>(
+    isDesktop ? null : "web",
+  );
   const [providers, setProviders] = useState<ShippingProvider[]>(() =>
-    lsGet("shippingProviders", DEFAULT_PROVIDERS),
+    withMissingDefaults(lsGet("shippingProviders", DEFAULT_PROVIDERS)),
   );
   const [rates, setRates] = useState<ShippingRate[]>(() =>
     lsGet("shippingRates", []),
@@ -247,33 +289,33 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
       "shippingProviders",
       DEFAULT_PROVIDERS,
     );
-    setProviders(
-      storedProviders.some((item) => item.id === BOSTA_PROVIDER_ID)
-        ? storedProviders
-        : [...storedProviders, ...DEFAULT_PROVIDERS],
-    );
+    setProviders(withMissingDefaults(storedProviders));
     setRates(lsGet("shippingRates", []));
     setOrders(lsGet("deliveryOrders", []));
   }, []);
 
   useEffect(() => {
-    if (!auth.isAuthenticated) return;
+    if (!authenticatedIdentity) {
+      setHydratedIdentity(isDesktop ? null : "web");
+      return;
+    }
     reloadShippingData();
+    setHydratedIdentity(authenticatedIdentity);
     if (window.desktopAPI?.integrations?.bosta) {
       void window.desktopAPI.integrations.bosta.getConfig().then((result) => {
         if (result.ok && result.config) setBostaConfig(result.config);
       });
     }
-  }, [auth.isAuthenticated, reloadShippingData]);
+  }, [authenticatedIdentity, isDesktop, reloadShippingData]);
 
   useEffect(() => {
-    if (isDesktop && !auth.isAuthenticated) return;
+    if (isDesktop && hydratedIdentity !== authenticatedIdentity) return;
     lsSetBatch({
       shippingProviders: providers,
       shippingRates: rates,
       deliveryOrders: orders,
     });
-  }, [auth.isAuthenticated, isDesktop, providers, rates, orders]);
+  }, [auth.isAuthenticated, authenticatedIdentity, hydratedIdentity, isDesktop, providers, rates, orders]);
 
   useEffect(() => {
     window.addEventListener("autoparts:pro-data-restored", reloadShippingData);

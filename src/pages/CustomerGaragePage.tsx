@@ -15,6 +15,9 @@ import { useSettings } from "../store/SettingsContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleFormDialog";
 
+/** Cards rendered before "show more" — a five-year shop has ~10,000 vehicles. */
+const GARAGE_PAGE_SIZE = 24;
+
 export function CustomerGaragePage() {
   const { customers } = useCatalog();
   const { salesInvoices } = useInvoicing();
@@ -26,15 +29,61 @@ export function CustomerGaragePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(GARAGE_PAGE_SIZE);
 
   const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
-  const activeVehicles = pro.customerVehicles.filter((vehicle) => !vehicle.archived);
-  const filtered = activeVehicles.filter((vehicle) => {
-    const customer = customerById.get(vehicle.customerId);
-    const label = vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels);
-    const haystack = `${label} ${customer?.name ?? ""} ${customer?.phone ?? ""} ${vehicle.vin ?? ""} ${vehicle.plateNumber ?? ""} ${vehicle.engineCode ?? ""}`.toLowerCase();
-    return haystack.includes(query.trim().toLowerCase());
-  });
+  const makeById = useMemo(
+    () => new Map(vehicleCatalog.vehicleMakes.map((make) => [make.id, make])),
+    [vehicleCatalog.vehicleMakes],
+  );
+  const modelById = useMemo(
+    () => new Map(vehicleCatalog.vehicleModels.map((model) => [model.id, model])),
+    [vehicleCatalog.vehicleModels],
+  );
+
+  // Invoices per vehicle, counted in one pass. The card grid used to filter
+  // the ENTIRE invoice history inside its row map — 9,828 vehicles x 48,483
+  // invoices is ~476 million iterations, redone on every render, and it made
+  // this page take five and a half minutes to open on a five-year shop.
+  const invoiceCountByVehicle = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const invoice of salesInvoices) {
+      if (invoice.cancelled || !invoice.customerVehicleId) continue;
+      counts.set(invoice.customerVehicleId, (counts.get(invoice.customerVehicleId) ?? 0) + 1);
+    }
+    return counts;
+  }, [salesInvoices]);
+  const linkedInvoiceCount = useMemo(
+    () => salesInvoices.reduce((sum, invoice) => sum + (invoice.customerVehicleId ? 1 : 0), 0),
+    [salesInvoices],
+  );
+
+  const activeVehicles = useMemo(
+    () => pro.customerVehicles.filter((vehicle) => !vehicle.archived),
+    [pro.customerVehicles],
+  );
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return activeVehicles;
+    return activeVehicles.filter((vehicle) => {
+      const customer = customerById.get(vehicle.customerId);
+      const label = vehicleDisplayName(vehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels);
+      const haystack = `${label} ${customer?.name ?? ""} ${customer?.phone ?? ""} ${vehicle.vin ?? ""} ${vehicle.plateNumber ?? ""}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [activeVehicles, customerById, query, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels]);
+
+  // Cards are rendered in batches for the same reason the customers table is:
+  // a five-year shop has ~10,000 vehicles and each card is a small subtree.
+  const trimmedQuery = query.trim().toLowerCase();
+  const [countKey, setCountKey] = useState("");
+  const effectiveCount = countKey === trimmedQuery ? visibleCount : GARAGE_PAGE_SIZE;
+  const visibleVehicles = filtered.slice(0, effectiveCount);
+  const remainingVehicles = Math.max(0, filtered.length - visibleVehicles.length);
+  function showMoreVehicles() {
+    setCountKey(trimmedQuery);
+    setVisibleCount(effectiveCount + GARAGE_PAGE_SIZE);
+  }
   const selected = pro.customerVehicles.find((vehicle) => vehicle.id === selectedId);
   const editingVehicle = pro.customerVehicles.find((vehicle) => vehicle.id === editingVehicleId) ?? null;
   const selectedSales = selected
@@ -66,7 +115,7 @@ export function CustomerGaragePage() {
         stats={[
           { label: "سيارة مسجلة", value: activeVehicles.length },
           { label: "شاسيه مكتمل", value: activeVehicles.filter((vehicle) => vehicle.vin && isValidVin(vehicle.vin)).length },
-          { label: "فواتير مرتبطة", value: salesInvoices.filter((invoice) => invoice.customerVehicleId).length },
+          { label: "فواتير مرتبطة", value: linkedInvoiceCount },
         ]}
         actions={<Button onClick={openAddDialog} className="bg-amber-400 text-slate-950 hover:bg-amber-300"><Plus className="h-4 w-4" /> تسجيل سيارة</Button>}
       />
@@ -83,11 +132,11 @@ export function CustomerGaragePage() {
               <EmptyState icon={<CarFront className="h-6 w-6" />} title="لا توجد سيارات مطابقة" description="سجل أول سيارة عميل لتفعيل التوافق داخل الكاشير." />
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
-                {filtered.map((vehicle) => {
+                {visibleVehicles.map((vehicle) => {
                   const customer = customerById.get(vehicle.customerId);
-                  const make = vehicleCatalog.vehicleMakes.find((item) => item.id === vehicle.makeId);
-                  const model = vehicleCatalog.vehicleModels.find((item) => item.id === vehicle.modelId);
-                  const invoiceCount = salesInvoices.filter((invoice) => invoice.customerVehicleId === vehicle.id && !invoice.cancelled).length;
+                  const make = makeById.get(vehicle.makeId ?? "");
+                  const model = modelById.get(vehicle.modelId ?? "");
+                  const invoiceCount = invoiceCountByVehicle.get(vehicle.id) ?? 0;
                   return (
                     <button key={vehicle.id} type="button" onClick={() => setSelectedId(vehicle.id)} className={`rounded-2xl border p-4 text-right transition ${selectedId === vehicle.id ? "border-cyan-500 bg-cyan-50/60 dark:bg-cyan-500/10" : "border-line bg-surface hover:border-brand-300"}`}>
                       <div className="flex items-start justify-between gap-3">
@@ -111,6 +160,14 @@ export function CustomerGaragePage() {
                 })}
               </div>
             )}
+            {remainingVehicles > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs text-ink-muted">
+                <span>عرض {visibleVehicles.length} من {filtered.length} سيارة</span>
+                <Button variant="outline" className="min-w-56" onClick={showMoreVehicles}>
+                  عرض المزيد ({remainingVehicles} متبقي)
+                </Button>
+              </div>
+            ) : null}
           </CardBody>
         </Card>
 
@@ -132,8 +189,7 @@ export function CustomerGaragePage() {
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <Info label="العميل" value={customerById.get(selected.customerId)?.name || "—"} />
                   <Info label="الجيل" value={selectedGeneration?.name || "—"} />
-                  <Info label="المحرك" value={selectedEngine?.name || selected.engineCode || "—"} />
-                  <Info label="العداد" value={selected.mileageKm ? `${selected.mileageKm.toLocaleString("ar-EG")} كم` : "—"} />
+                  <Info label="المحرك" value={selectedEngine?.name || "—"} />
                   <Info label="اللون" value={selected.color || "—"} />
                 </div>
                 <div>

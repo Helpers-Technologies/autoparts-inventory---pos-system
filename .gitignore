@@ -77,3 +77,9 @@ test-results/
 # Split into its own repo: github.com/amrhanygomaa/Helpers-Technologies-partflow-mobile
 # (has its own .git — a gitlink here would be a broken submodule reference)
 /flutter_app/
+
+# Generated load-test fixtures. Regenerated in seconds by
+# scripts/generate-load-test-dataset.cjs; a 5-year shop is 130 MB and a
+# 10-year one is 270 MB, which has no business in git history.
+/load-test-*.json
+/*.json.gz

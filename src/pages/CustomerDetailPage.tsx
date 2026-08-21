@@ -40,7 +40,7 @@ import { printAppRoute } from "../lib/print";
 import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleFormDialog";
 import { AddressFields, type AddressDraft } from "../features/shipping/AddressFields";
 import { defaultCustomerAddress } from "../lib/shipping";
-import { uid } from "../lib/utils";
+import { normalizePhoneInput, uid } from "../lib/utils";
 
 const EMPTY_ADDRESS: AddressDraft = { label: "العنوان الرئيسي", governorate: "", city: "", addressLine: "", isDefault: true };
 
@@ -158,8 +158,17 @@ export function CustomerDetailPage() {
       toast.error("رقم الهاتف غير صحيح", "يجب أن يكون 11 رقم بالضبط");
       return;
     }
-    if (!addressDraft.addressLine.trim() || !addressDraft.governorate || !addressDraft.city) {
-      toast.error("عنوان التوصيل غير مكتمل", "العنوان والمحافظة والمدينة مطلوبة لحساب التوصيل");
+    // Optional, exactly as on the customers list — only a HALF-written address
+    // is rejected, because it cannot be priced or shipped later. See the note
+    // in CustomersPage.submit.
+    const addressStarted = Boolean(
+      addressDraft.addressLine.trim() || addressDraft.governorate || addressDraft.city,
+    );
+    if (addressStarted && (!addressDraft.addressLine.trim() || !addressDraft.governorate || !addressDraft.city)) {
+      toast.error(
+        "بيانات العنوان ناقصة",
+        "لو هتسجّل عنوان، اكتب العنوان واختر المحافظة والمدينة — أو سيبه فاضي خالص.",
+      );
       return;
     }
     const timestamp = new Date().toISOString();
@@ -382,11 +391,9 @@ export function CustomerDetailPage() {
                       {v.plateNumber ? <span>PLATE {v.plateNumber}</span> : null}
                       {v.vin ? <span>VIN {v.vin}</span> : null}
                     </div>
-                    {(v.color || v.mileageKm || v.engineCode) ? (
+                    {v.color ? (
                       <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-muted">
-                        {v.color ? <span>اللون: {v.color}</span> : null}
-                        {v.mileageKm ? <span>الكيلومترات: {v.mileageKm.toLocaleString("ar-EG")}</span> : null}
-                        {v.engineCode ? <span dir="ltr">Engine {v.engineCode}</span> : null}
+                        <span>اللون: {v.color}</span>
                       </div>
                     ) : null}
                   </div>
@@ -490,12 +497,15 @@ export function CustomerDetailPage() {
           <Field label="اسم العميل" required>
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Field>
-          <Field label="الهاتف" required>
+          <Field label="الهاتف" required hint="11 رقمًا ويبدأ بـ 01">
             <Input
+              type="tel"
               value={form.phone ?? ""}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              onChange={(e) => setForm({ ...form, phone: normalizePhoneInput(e.target.value) })}
               maxLength={11}
               inputMode="numeric"
+              dir="ltr"
+              className="text-start font-mono"
             />
           </Field>
           <div className="col-span-2 rounded-xl border border-line bg-surface-muted/20 p-3"><div className="mb-3 text-sm font-bold text-ink">عنوان التوصيل الرئيسي</div><AddressFields value={addressDraft} onChange={setAddressDraft} showRecipient={false} /></div>

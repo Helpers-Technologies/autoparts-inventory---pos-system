@@ -226,7 +226,17 @@ export function QuotationDetailPage() {
               );
             })()}
             {quot.status === "draft" && canAdd ? (
-              <Button onClick={() => setConvertOpen(true)} disabled={isExpired} title={isExpired ? "انتهت صلاحية العرض" : undefined}>
+              <Button
+                onClick={() => {
+                  // Recomputed at open, not at mount: another invoice may have
+                  // been issued from a different screen while this page sat
+                  // open, and the number must be the next free one.
+                  setInvoiceNumber(nextInvoiceNumber(salesInvoices.map((s) => s.invoiceNumber)));
+                  setConvertOpen(true);
+                }}
+                disabled={isExpired}
+                title={isExpired ? "انتهت صلاحية العرض" : undefined}
+              >
                 <ArrowRightLeft className="w-4 h-4" /> تحويل إلى فاتورة
               </Button>
             ) : null}
@@ -376,8 +386,17 @@ export function QuotationDetailPage() {
         }
       >
         <div className="space-y-3">
-          <Field label="رقم الفاتورة" required>
-            <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+          <Field label="رقم الفاتورة" required hint="الترقيم تلقائي ومتسلسل ولا يُعدَّل">
+            {/* The number was typeable, so a conversion could reuse an issued
+                number or skip the sequence — either way the sales book stops
+                being a sequence, which is what an audit reads it as. The rest
+                of the app already issues it read-only; this was the one door
+                left open. */}
+            <Input
+              value={invoiceNumber}
+              readOnly
+              className="bg-surface-muted cursor-not-allowed text-ink-faint opacity-70 font-mono"
+            />
           </Field>
           <Field label="تاريخ الفاتورة" required>
             <Input type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} />

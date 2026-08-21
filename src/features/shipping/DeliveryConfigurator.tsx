@@ -749,10 +749,13 @@ export function DeliveryConfigurator({
 
               {editingAddress ? (
                 <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-3 dark:border-brand-500/30 dark:bg-brand-500/5">
+                  {/* The only flow where the address is mandatory: something
+                      is actually being delivered to it. */}
                   <AddressFields
                     value={addressDraft}
                     onChange={setAddressDraft}
                     compact={compact}
+                    required
                   />
                   <div className="mt-3 flex justify-end">
                     <Button

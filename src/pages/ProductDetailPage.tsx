@@ -33,21 +33,11 @@ import { useAuth } from "../store/AuthContext";
 import { useAutoPartsPro } from "../store/AutoPartsProContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { useFeatures } from "../lib/useFeatures";
-import { formatCurrency, formatDate, formatQualityGradeLabel } from "../lib/format";
+import { formatCurrency, formatDate, formatPartConditionLabel, formatQualityGradeLabel, formatWarrantyLabel } from "../lib/format";
 import { formatStockMovementReference } from "../lib/stockMovement";
 import { daysUntil } from "../lib/utils";
 import { hasPermission } from "../lib/permissions";
 import type { WarrantyClaimStatus } from "../types";
-
-function conditionLabel(condition?: string) {
-  switch (condition) {
-    case "new": return "جديدة";
-    case "used": return "استيراد / مستعملة";
-    case "refurbished": return "مجددة";
-    case "remanufactured": return "معاد تصنيعها";
-    default: return condition ?? "—";
-  }
-}
 
 const WARRANTY_STATUS: Record<WarrantyClaimStatus, { label: string; tone: "blue" | "amber" | "indigo" | "green" | "red" | "emerald" }> = {
   open: { label: "مفتوح", tone: "blue" },
@@ -269,12 +259,12 @@ export function ProductDetailPage() {
               <Info label="الحد الأدنى">{product.minStock} {product.unit}</Info>
               {product.reorderQuantity ? <Info label="كمية إعادة الطلب">{product.reorderQuantity} {product.unit}</Info> : null}
               {product.qualityGrade ? <Info label="الجودة">{formatQualityGradeLabel(product.qualityGrade)}</Info> : null}
-              {product.condition ? <Info label="الحالة">{conditionLabel(product.condition)}</Info> : null}
+              {product.condition ? <Info label="الحالة">{formatPartConditionLabel(product.condition)}</Info> : null}
               {product.originCountry ? <Info label="بلد المنشأ">{product.originCountry}</Info> : null}
               {product.manufacturer ? <Info label="المُصنّع">{product.manufacturer}</Info> : null}
               {product.position ? <Info label="الموضع">{product.position}</Info> : null}
               {product.warrantyMonths ? (
-                <Info label="الضمان" icon={<ShieldCheck className="w-3.5 h-3.5" />}>{product.warrantyMonths} شهر</Info>
+                <Info label="الضمان" icon={<ShieldCheck className="w-3.5 h-3.5" />}>{formatWarrantyLabel(product.warrantyMonths)}</Info>
               ) : null}
               <Info label="المورد" icon={<Building2 className="w-3.5 h-3.5" />}>
                 {supplier ? (

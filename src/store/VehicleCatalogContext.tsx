@@ -109,14 +109,40 @@ function normalizePreferences(value?: Partial<VehicleCatalogPreferences>): Vehic
   };
 }
 
+/**
+ * Brand logos ship as "/vehicle-logos/<slug>.png" — an ABSOLUTE path, which
+ * the desktop build cannot resolve. The packaged app is loaded over file://,
+ * where a leading slash means the root of the drive, not the app folder, so
+ * every one of the 352 logos failed with ERR_FILE_NOT_FOUND and each screen
+ * that lists makes fell back to a generic car icon.
+ *
+ * Rewritten on the way in rather than at each <img>, because the bad value is
+ * in the DATA: it is baked into the seeded catalogue and already persisted in
+ * every existing shop, so fixing the call sites alone would leave installed
+ * customers looking at the same blank icons.
+ */
+export function normaliseLogoPath(make: VehicleMake): VehicleMake {
+  const logoPath = make.logoPath;
+  if (!logoPath || !logoPath.startsWith("/")) return make;
+  return { ...make, logoPath: `.${logoPath}` };
+}
+
 function enrichMakeCountry(make: VehicleMake): VehicleMake {
   const countryCode = inferVehicleCountryCode(make);
-  return countryCode && make.countryCode !== countryCode ? { ...make, countryCode } : make;
+  const withCountry =
+    countryCode && make.countryCode !== countryCode ? { ...make, countryCode } : make;
+  return normaliseLogoPath(withCountry);
 }
 
 export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
   const { auth, isDesktop } = useAuth();
   const { products } = useCatalog();
+  const authenticatedIdentity = auth.isAuthenticated
+    ? auth.userId ?? auth.username ?? "authenticated"
+    : null;
+  const [hydratedIdentity, setHydratedIdentity] = useState<string | null>(
+    isDesktop ? null : "web",
+  );
   const loadMakes = useCallback(
     () => mergeSeedRecords(lsGet<VehicleMake[]>("vehicleMakes", []), seedVehicleMakes).map(enrichMakeCountry),
     [],
@@ -183,7 +209,19 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
   }, [reloadVehicleCatalog]);
 
   useEffect(() => {
-    if (isDesktop && !auth.isAuthenticated) return;
+    if (!authenticatedIdentity) {
+      setHydratedIdentity(isDesktop ? null : "web");
+      return;
+    }
+    reloadVehicleCatalog();
+    // React batches this with the collection state updates above. Persistence
+    // is enabled only on the following committed render, so the pre-login
+    // fallback arrays can never win a race against authoritative storage.
+    setHydratedIdentity(authenticatedIdentity);
+  }, [authenticatedIdentity, isDesktop, reloadVehicleCatalog]);
+
+  useEffect(() => {
+    if (isDesktop && hydratedIdentity !== authenticatedIdentity) return;
     const timer = window.setTimeout(() => {
       lsSetBatch({
         vehicleCatalogSchemaVersion,
@@ -199,6 +237,8 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [
     auth.isAuthenticated,
+    authenticatedIdentity,
+    hydratedIdentity,
     isDesktop,
     vehicleMakes,
     vehicleCatalogPreferences,

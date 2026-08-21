@@ -165,6 +165,9 @@ describe("CustomerGaragePage — TC-COMP-GARAGE", () => {
     // Dialog's role="dialog" node has no aria-labelledby, so match on its title text.
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("تعديل بيانات السيارة")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /أحمد علي/ }).selected).toBe(true);
+    // The customer picker is a SearchableSelect now (a button showing the
+    // current selection), not a native <select> — a shop with thousands of
+    // customers could not find one by scrolling. Assert on what it displays.
+    expect(within(dialog).getByTitle(/أحمد علي/)).toBeInTheDocument();
   });
 });

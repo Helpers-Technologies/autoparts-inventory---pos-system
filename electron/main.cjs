@@ -2,6 +2,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const crypto = require("node:crypto");
+const zlib = require("node:zlib");
 const childProcess = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 const electronRuntime = require("electron");
@@ -136,6 +137,14 @@ const {
   readChunkedCollection,
   isChunkedTombstone,
 } = require("./storage-security.cjs");
+const {
+  collectMacAddresses,
+  pickPrimaryMac,
+  buildFingerprintMaterial,
+  machineCodeFromMaterial,
+  acceptedMachineHashes,
+  stableCoreHash,
+} = require("./machine-fingerprint.cjs");
 
 // ── Mobile push: what to say, and whether to say it again ────────────────
 const {
@@ -475,58 +484,81 @@ function getMachineMaterial() {
   }
 }
 
+// ── Hardware probes ───────────────────────────────────────────────────────
+//
+// Both probes shell out to PowerShell, and a probe that came back empty used
+// to silently change this machine's identity: the fingerprint dropped empty
+// components, so a single missed reading shifted every later component into a
+// different slot and minted a brand-new machine hash. The license then read
+// as `machine_mismatch` and the app demanded a fresh serial on the next
+// launch. Two things stop that now — retries with a timeout long enough for a
+// cold-boot PowerShell start, and a last-known-good cache in the encrypted
+// kv_store that a failed probe falls back to.
+const FINGERPRINT_PROBE_CACHE_KEY = "__fingerprint_probes";
+
+function runPowerShellProbe(command) {
+  // 5s was not enough on a machine still booting with antivirus scanning the
+  // PowerShell host; two attempts at 15s each cost nothing on a warm machine
+  // (the probes run once per launch) and turn a fingerprint-breaking timeout
+  // back into a normal read.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const out = childProcess.execFileSync(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", command],
+        { encoding: "utf8", timeout: 15000, windowsHide: true },
+      );
+      const value = out.trim();
+      if (value) return value;
+    } catch {
+      /* fall through to the retry, then to the cached value */
+    }
+  }
+  return "";
+}
+
+function readProbeCache() {
+  try {
+    const parsed = JSON.parse(storageGet(FINGERPRINT_PROBE_CACHE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    // Storage not open yet, or the row is unreadable. Not fatal: a live probe
+    // still answers, we just lose the fallback for this launch.
+    return {};
+  }
+}
+
+/** Runs `probe`, remembering the last non-empty answer. A failed probe returns
+ *  the remembered value rather than "" so the fingerprint holds still. */
+function probeWithCache(name, probe) {
+  const cache = readProbeCache();
+  const fresh = probe();
+  if (!fresh) return cache[name] || "";
+  if (cache[name] !== fresh) {
+    try {
+      storageSet(
+        FINGERPRINT_PROBE_CACHE_KEY,
+        JSON.stringify({ ...cache, [name]: fresh }),
+      );
+    } catch {
+      /* best effort — the fresh reading is still what we use this run */
+    }
+  }
+  return fresh;
+}
+
 function getSmbiosUuid() {
   if (process.platform !== "win32") return "";
-  try {
-    const out = childProcess.execFileSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID",
-      ],
-      { encoding: "utf8", timeout: 5000, windowsHide: true },
-    );
-    return out.trim();
-  } catch {
-    return "";
-  }
+  return runPowerShellProbe(
+    "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID",
+  );
 }
 
 function getPrimaryDiskSerial() {
   if (process.platform !== "win32") return "";
-  try {
-    const out = childProcess.execFileSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "(Get-CimInstance -ClassName Win32_DiskDrive | Sort-Object Index | Select-Object -First 1).SerialNumber",
-      ],
-      { encoding: "utf8", timeout: 5000, windowsHide: true },
-    );
-    return out.trim();
-  } catch {
-    return "";
-  }
-}
-
-function getPrimaryMacAddress() {
-  try {
-    const macs = [];
-    for (const list of Object.values(os.networkInterfaces())) {
-      for (const info of list || []) {
-        if (info.mac && info.mac !== "00:00:00:00:00:00" && !info.internal)
-          macs.push(info.mac.toLowerCase());
-      }
-    }
-    macs.sort(); // deterministic regardless of adapter enumeration order
-    return macs[0] || "";
-  } catch {
-    return "";
-  }
+  return runPowerShellProbe(
+    "(Get-CimInstance -ClassName Win32_DiskDrive | Sort-Object Index | Select-Object -First 1).SerialNumber",
+  );
 }
 
 // Anti-clone hardware fingerprint used ONLY for license binding
@@ -535,40 +567,107 @@ function getPrimaryMacAddress() {
 // getMachineMaterial() so a fingerprint change here never orphans an existing
 // encrypted database or MFA enrollment. MachineGuid alone is a single
 // registry value that a raw disk-image clone reproduces verbatim; combining
-// it with the SMBIOS system UUID, primary disk serial, and a MAC address
-// (none of which live in the cloned filesystem image alone — SMBIOS/disk
-// serial come from the physical hardware) means a clone landing on different
-// physical hardware gets a different license fingerprint. This does not stop
-// a byte-identical clone of BOTH the disk and the underlying VM/hardware
-// (e.g. a VM snapshot restored on the same host), and it is still local
-// offline logic — it raises the bar on the common "image one machine, deploy
-// to N POS terminals" cloning path, it does not add real seat counting
+// it with the SMBIOS system UUID, primary disk serial, and a physical MAC
+// address (none of which live in the cloned filesystem image alone —
+// SMBIOS/disk serial come from the physical hardware) means a clone landing
+// on different physical hardware gets a different license fingerprint. This
+// does not stop a byte-identical clone of BOTH the disk and the underlying
+// VM/hardware (e.g. a VM snapshot restored on the same host), and it is still
+// local offline logic — it raises the bar on the common "image one machine,
+// deploy to N POS terminals" cloning path, it does not add real seat counting
 // (which needs server-side enforcement, out of scope here).
-// MUST stay in sync with the identical derivation in
-// autoparts-license-studio/scripts/license-studio.cjs and generate-license.cjs.
+//
+// The pure half — which MACs count, how the components are joined, which
+// variants an existing license may match — lives in machine-fingerprint.cjs
+// so it can be unit-tested without Electron. MUST stay in sync with the
+// identical derivation in autoparts-license-studio/scripts/license-studio.cjs
+// and generate-license.cjs.
+let _fingerprintPartsCache = null;
+function getFingerprintParts() {
+  if (_fingerprintPartsCache) return _fingerprintPartsCache;
+  _fingerprintPartsCache = {
+    machineGuid: getMachineMaterial(),
+    smbiosUuid: probeWithCache("smbiosUuid", getSmbiosUuid),
+    diskSerial: probeWithCache("diskSerial", getPrimaryDiskSerial),
+  };
+  return _fingerprintPartsCache;
+}
+
+function listMacAddresses() {
+  return collectMacAddresses(os.networkInterfaces());
+}
+
 let _licenseFingerprintCache = null;
 function getLicenseFingerprintMaterial() {
   if (_licenseFingerprintCache) return _licenseFingerprintCache;
-  const parts = [
-    getMachineMaterial(),
-    getSmbiosUuid(),
-    getPrimaryDiskSerial(),
-    getPrimaryMacAddress(),
-  ];
-  _licenseFingerprintCache = parts.filter(Boolean).join("|");
+  _licenseFingerprintCache = buildFingerprintMaterial(
+    getFingerprintParts(),
+    pickPrimaryMac(listMacAddresses()),
+  );
   return _licenseFingerprintCache;
 }
 
 function getMachineCode() {
-  const digest = sha256(
-    `${APP_SALT}:machine:${getLicenseFingerprintMaterial()}`,
-  ).toUpperCase();
-  const groups = digest.slice(0, 32).match(/.{1,4}/g) || [];
-  return `APW-${groups.join("-")}`;
+  return machineCodeFromMaterial(getLicenseFingerprintMaterial(), APP_SALT);
 }
 
 function getMachineHash() {
   return sha256(getMachineCode());
+}
+
+// Bindings that already proved themselves on this machine, alongside the
+// stable-core hash they were proved under. Licenses issued before the
+// fingerprint was stabilised are bound to whatever MAC the old rule picked —
+// often a Hyper-V address that Windows will re-draw. Without this, the next
+// re-draw kicks a paying customer back to the activation screen exactly the
+// way the original bug did. The record is only honoured while the stable core
+// still matches, and it lives in the machine-bound encrypted store, so it
+// cannot be carried to another machine.
+const LICENSE_BOUND_HASHES_KEY = "__license_bound_hashes";
+const MAX_REMEMBERED_BINDINGS = 8;
+
+function readRememberedBindings() {
+  try {
+    const parsed = JSON.parse(storageGet(LICENSE_BOUND_HASHES_KEY) || "null");
+    if (!parsed || parsed.core !== stableCoreHash(getFingerprintParts(), APP_SALT))
+      return []; // different machine core — the memory no longer applies
+    return Array.isArray(parsed.hashes) ? parsed.hashes : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberBinding(hash) {
+  try {
+    const current = readRememberedBindings();
+    if (current.includes(hash)) return;
+    storageSet(
+      LICENSE_BOUND_HASHES_KEY,
+      JSON.stringify({
+        core: stableCoreHash(getFingerprintParts(), APP_SALT),
+        hashes: [hash, ...current].slice(0, MAX_REMEMBERED_BINDINGS),
+      }),
+    );
+  } catch {
+    /* best effort — validation already succeeded for this launch */
+  }
+}
+
+/** True when `hash` identifies this machine: either under a variant it can
+ *  present right now (see acceptedMachineHashes in machine-fingerprint.cjs),
+ *  or under one it presented before while it was the same machine. */
+function isMachineHashAccepted(hash) {
+  if (!hash) return false;
+  const live = acceptedMachineHashes(
+    getFingerprintParts(),
+    listMacAddresses(),
+    APP_SALT,
+  );
+  if (live.has(hash)) {
+    rememberBinding(hash);
+    return true;
+  }
+  return readRememberedBindings().includes(hash);
 }
 
 function getDbKey() {
@@ -1920,7 +2019,7 @@ function evaluateLicense(serial, persistSeen) {
     });
   }
 
-  if (license.machineHash !== getMachineHash()) {
+  if (!isMachineHashAccepted(license.machineHash)) {
     return buildLicenseStatus("machine_mismatch", { license });
   }
 
@@ -2052,7 +2151,7 @@ function activateBranchSlot(serial) {
     };
   }
 
-  if (activation.machineHash !== getMachineHash()) {
+  if (!isMachineHashAccepted(activation.machineHash)) {
     return {
       ok: false,
       error: "machine_mismatch",
@@ -2202,9 +2301,13 @@ async function checkLicenseOnline() {
 
   try {
     const license = parseSignedPayload(token, "APLIC.", licenseSchema);
-    const machineHash = getMachineHash();
-
-    const url = `${HEARTBEAT_BASE_URL}/${machineHash}.json`;
+    // Key the lookup by the hash the license was ISSUED against, not the one
+    // recomputed here. The portal filed the record under the issued hash, so
+    // recomputing meant that any accepted fingerprint variant (a Docker
+    // adapter coming or going — see getAcceptedMachineHashes) quietly pointed
+    // the heartbeat at a URL that does not exist, and remote block/unblock
+    // stopped reaching the machine with nothing logged.
+    const url = `${HEARTBEAT_BASE_URL}/${license.machineHash}.json`;
     const response = await fetch(url, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
@@ -2628,7 +2731,111 @@ function getUpdateStatusForRenderer() {
   };
 }
 
+/**
+ * Stock work queued by a phone in the warehouse.
+ *
+ * The desktop is the source of truth for stock, so a phone never writes a
+ * quantity — it queues an intent on the portal and this pulls the queue down.
+ * Applying it happens in the renderer, which owns the store and is the only
+ * place that writes a stock movement, an audit entry and a branch balance
+ * together. Splitting that would produce a quantity the ledger cannot explain.
+ *
+ * Returns `{ ok: false, error }` for every failure rather than throwing: a
+ * warehouse with no signal is the normal case, not an exception.
+ */
+async function fetchMobileStockOps() {
+  // A test harness must not reach the portal at all — see the note on
+  // syncCommerceOnline and tests/unit/electron/e2e-network-isolation.
+  if (HW_E2E) return { ok: false, error: "not_configured" };
+  const status = getLicenseStatus();
+  if (status.state !== "active") return { ok: false, error: "license_inactive" };
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token) return { ok: false, error: "license_inactive" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(
+      `${REFERRAL_PORTAL_ORIGIN}/api/v1/me/commerce/stock-ops?status=pending&limit=100`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      },
+    );
+    if (response.status === 401) return { ok: false, error: "license_inactive" };
+    if (!response.ok) return { ok: false, error: "online_service_unavailable" };
+    const data = await response.json();
+    const ops = Array.isArray(data?.ops) ? data.ops : [];
+    // Re-validated here rather than trusted: this list drives stock changes,
+    // and "it came from our own server" is not a reason to skip checking it.
+    const clean = [];
+    for (const op of ops.slice(0, 100)) {
+      const clientOpId = String(op?.clientOpId || "").trim().slice(0, 80);
+      const productId = String(op?.productId || "").trim().slice(0, 100);
+      const quantityMilli = Number(op?.quantityMilli);
+      if (!clientOpId || !productId) continue;
+      if (!["add", "remove", "count"].includes(op?.kind)) continue;
+      if (!Number.isSafeInteger(quantityMilli) || quantityMilli < 0 || quantityMilli > 100_000_000) continue;
+      clean.push({
+        clientOpId,
+        kind: op.kind,
+        productId,
+        productName: String(op?.productName || "").slice(0, 240),
+        scannedCode: String(op?.scannedCode || "").slice(0, 120),
+        quantityMilli,
+        note: String(op?.note || "").slice(0, 500),
+        deviceLabel: String(op?.deviceLabel || "").slice(0, 120),
+        actorName: String(op?.actorName || "").slice(0, 120),
+        createdAt: String(op?.createdAt || ""),
+      });
+    }
+    return { ok: true, ops: clean };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Tells the portal what actually happened, so the phone can show it. */
+async function resolveMobileStockOps(results) {
+  if (HW_E2E) return { ok: false, error: "not_configured" };
+  if (!Array.isArray(results) || results.length === 0) return { ok: true, applied: 0, rejected: 0 };
+  const status = getLicenseStatus();
+  if (status.state !== "active") return { ok: false, error: "license_inactive" };
+  if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
+  const token = storageGet(LICENSE_TOKEN_KEY);
+  if (!token) return { ok: false, error: "license_inactive" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/me/commerce/stock-ops/resolve`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ results: results.slice(0, 500) }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return { ok: false, error: "online_service_unavailable" };
+    const data = await response.json();
+    return { ok: true, applied: Number(data?.applied) || 0, rejected: Number(data?.rejected) || 0 };
+  } catch {
+    return { ok: false, error: "online_service_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function getReferralInfoOnline() {
+  // A test harness must not reach the portal at all — see the note on
+  // syncCommerceOnline and tests/unit/electron/e2e-network-isolation.
+  if (HW_E2E) return { ok: false, error: "not_configured" };
   const status = getLicenseStatus();
   if (status.state !== "active") return { ok: false, error: "license_inactive" };
   if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
@@ -2714,6 +2921,9 @@ async function portalIsReachable({
   timeoutMs = 4000,
   gapMs = 400,
 } = {}) {
+  // Reported unreachable under test, which is what keeps every caller that
+  // gates on this from opening a connection to the live portal.
+  if (HW_E2E) return false;
   for (let attempt = 0; attempt < attempts; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -2739,6 +2949,8 @@ async function portalIsReachable({
 }
 
 async function createMobilePairingOnline(event, payload) {
+  // Writes a real row into a real customer's account.
+  if (HW_E2E) return { ok: false, error: "online_service_unavailable" };
   const user = getSessionUser(event);
   if (!canManageMobileCompanion(user)) {
     return { ok: false, error: "not_authorized" };
@@ -2863,9 +3075,10 @@ const CLOUD_ARCHIVE_PASSPHRASE_KEY = "__cloud_archive_passphrase";
 const CLOUD_ARCHIVE_AT_KEY = "__cloud_archive_at";
 const CLOUD_ARCHIVE_HASH_KEY = "__cloud_archive_hash";
 const CLOUD_ARCHIVE_ERROR_KEY = "__cloud_archive_error";
-// Matches MAX_ENVELOPE_BYTES in the portal's cloudState.js. Checked before
-// encrypting so a shop that outgrows the limit gets a clear message instead of
-// a 413 after spending seconds on scrypt.
+// Matches MAX_ENVELOPE_BYTES in the portal's cloudState.js — and like the
+// portal, it is measured against the ENVELOPE, not the plaintext that goes
+// into it. See uploadCloudArchive for why that distinction stopped being
+// cosmetic once the envelope started being compressed.
 const CLOUD_ARCHIVE_MAX_BYTES = 48 * 1024 * 1024;
 
 /** Every renderer-owned key, i.e. the whole shop minus internal/protected ones. */
@@ -2902,6 +3115,11 @@ function getCloudArchivePassphrase() {
 let cloudArchiveInFlight = false;
 
 async function syncCloudArchive({ force = false } = {}) {
+  // Same rule as syncCommerceOnline: a test harness must never publish the
+  // shop it is driving. This one carries the WHOLE encrypted state, so a
+  // fixture uploaded here would overwrite the customer's real off-site backup
+  // — the one thing they would reach for after losing data.
+  if (HW_E2E) return { ok: false, error: "not_configured" };
   if (cloudArchiveInFlight || !REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "not_configured" };
   if (getLicenseStatus().state !== "active") return { ok: false, error: "license_inactive" };
   // Sold standalone like mobileCompanion — a shop without this add-on must
@@ -2919,16 +3137,26 @@ async function syncCloudArchive({ force = false } = {}) {
   if (!force && storageGet(CLOUD_ARCHIVE_HASH_KEY) === payload.sourceHash) {
     return { ok: true, skipped: true };
   }
-  if (Buffer.byteLength(payload.plaintext, "utf8") > CLOUD_ARCHIVE_MAX_BYTES) {
-    storageSet(CLOUD_ARCHIVE_ERROR_KEY, JSON.stringify({ message: "archive_too_large", at: new Date().toISOString() }));
-    return { ok: false, error: "archive_too_large" };
-  }
-
   cloudArchiveInFlight = true;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000);
   try {
     const envelope = await encryptBackupWithPassphraseAsync(payload.plaintext, passphrase);
+    // Judged on the envelope — the thing that actually crosses the wire and
+    // the thing the portal measures. This used to be judged on the plaintext
+    // against the same 48 MiB number, which was equivalent only while the
+    // envelope was roughly as big as its input. Once the envelope became
+    // gzipped it ran several times smaller, and the stale check began
+    // rejecting shops whose upload would have fitted many times over: a
+    // five-year shop measures 110.8 MiB of plaintext but only 18.6 MiB on the
+    // wire, so cloud backup switched itself off at precisely the history size
+    // where losing it costs the most. Paying for the encrypt before finding
+    // out is the right trade — it only happens when the shop actually changed
+    // (see the sourceHash skip above) and it runs on a background timer.
+    if (Buffer.byteLength(envelope, "utf8") > CLOUD_ARCHIVE_MAX_BYTES) {
+      storageSet(CLOUD_ARCHIVE_ERROR_KEY, JSON.stringify({ message: "archive_too_large", at: new Date().toISOString() }));
+      return { ok: false, error: "archive_too_large" };
+    }
     const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/state`, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -2964,6 +3192,8 @@ async function syncCloudArchive({ force = false } = {}) {
 
 /** Pulls the archive back down and decrypts it, without writing anything yet. */
 async function fetchCloudArchive(passphrase) {
+  // Pulls a real customer's encrypted shop down onto the test machine.
+  if (HW_E2E) return { ok: false, error: "not_configured" };
   if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "not_configured" };
   if (!isCloudBackupFeatureLicensed()) return { ok: false, error: "cloud_backup_not_licensed" };
   const token = storageGet(LICENSE_TOKEN_KEY);
@@ -3010,6 +3240,8 @@ async function fetchCloudArchive(passphrase) {
 // device is as sensitive as creating a pairing code, so it must not be reachable
 // on an install where pairing itself is refused.
 async function mobileDevicesRequest(event, path, { method = "GET", body } = {}) {
+  // Lists and REVOKES real paired phones.
+  if (HW_E2E) return { ok: false, error: "online_service_unavailable" };
   const user = getSessionUser(event);
   if (!canManageMobileCompanion(user)) return { ok: false, error: "not_authorized" };
   if (!isMobileCompanionFeatureLicensed()) return { ok: false, error: "mobile_feature_not_licensed" };
@@ -3084,6 +3316,8 @@ function revokeMobileDeviceOnline(event, payload) {
 // no privilege to escalate — but an unlicensed or expired install must still be
 // unable to send.
 async function notifyMobileDevices(notification) {
+  // Sends push notifications to the owner's actual phone.
+  if (HW_E2E) return;
   if (!REFERRAL_PORTAL_ORIGIN) return { ok: false, error: "online_service_unavailable" };
   if (!isMobileCompanionFeatureLicensed() || !isMfaFeatureLicensed()) {
     return { ok: false, error: "mobile_feature_not_licensed" };
@@ -3172,6 +3406,13 @@ function buildCommerceSnapshot() {
       quantityMilli: commerceMilli(product.quantity), minStockMilli: commerceMilli(product.minStock),
       retailPriceMinor: commerceMinor(product.retailPrice), costMinor: commerceMinor(product.avgCost ?? product.purchasePrice),
       archived: Boolean(product.archived),
+      // What a phone in the warehouse scans and what a storeman reads off the
+      // shelf. Without the barcode the mirror cannot answer the only question
+      // the scanner asks: "what is this thing I just scanned?"
+      barcode: product.barcode,
+      oemNumbers: Array.isArray(product.oemNumbers) ? product.oemNumbers.join(", ") : product.oemNumbers,
+      rackLocation: product.rackLocation,
+      unit: product.unit,
     })) : [],
     customers: Array.isArray(customers) ? customers.map((customer) => {
       const stats = customerStats.get(String(customer.id || "")) || { balanceMinor: 0, orderCount: 0, totalSpentMinor: 0 };
@@ -3218,6 +3459,15 @@ function commerceSourceRevision() {
 }
 
 async function syncCommerceOnline({ force = false } = {}) {
+  // HW_E2E means this process is a test harness driving a synthetic shop, so
+  // nothing it holds may leave the machine. The licence heartbeat and the
+  // update check already refused under it; the two calls that actually
+  // PUBLISH the shop's contents — this one and syncCloudArchive — did not.
+  // An E2E run against a seeded fixture therefore uploaded a five-year fake
+  // shop (48,483 orders, 25,000 customers) into the live portal under the
+  // real licence the fixture was seeded with, replacing that customer's
+  // snapshot. Test data must never reach a customer's account.
+  if (HW_E2E) return;
   if (commerceSyncInFlight || !REFERRAL_PORTAL_ORIGIN) return;
   if (getLicenseStatus().state !== "active") return;
   const token = storageGet(LICENSE_TOKEN_KEY);
@@ -3231,10 +3481,34 @@ async function syncCommerceOnline({ force = false } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/snapshot`, {
-      method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(snapshot), signal: controller.signal,
-    });
+    // Gzipped, because the snapshot outgrew the portal's request-body limit:
+    // a five-year shop serialises to ~41 MB against a 25 MB cap, so sync
+    // failed with HTTP 413 on every attempt and the owner's phone quietly
+    // stopped updating with nothing on screen to explain it. Compressed it is
+    // ~7 MB. The portal keeps the full order history by design, so the answer
+    // is to carry the data, not to trim it to fit the pipe.
+    //
+    // The plain-JSON retry covers the rollout window: a desktop that updates
+    // before its portal does would otherwise break sync outright, which is
+    // worse than the bug being fixed.
+    const body = JSON.stringify(snapshot);
+    const post = (payload, gzip) =>
+      fetch(`${REFERRAL_PORTAL_ORIGIN}/api/v1/sync/snapshot`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...(gzip ? { "Content-Encoding": "gzip" } : {}),
+          Authorization: `Bearer ${token}`,
+        },
+        body: payload,
+        signal: controller.signal,
+      });
+
+    let response = await post(zlib.gzipSync(Buffer.from(body, "utf8")), true);
+    if (!response.ok && (response.status === 415 || response.status === 400)) {
+      response = await post(body, false);
+    }
     if (response.ok) {
       storageSet(COMMERCE_SYNC_HASH_KEY, snapshot.datasetHash);
       storageSet(COMMERCE_SYNC_SOURCE_REVISION_KEY, sourceRevision);
@@ -3806,7 +4080,7 @@ async function resetOwnerPassword({ supportCode, username, password }) {
     return { ok: false, error: "invalid_support_code" };
   }
 
-  if (support.machineHash !== getMachineHash()) {
+  if (!isMachineHashAccepted(support.machineHash)) {
     return { ok: false, error: "machine_mismatch" };
   }
   const supportExpiresMs = parseDateMs(support.expiresAt);
@@ -4469,13 +4743,20 @@ function buildInvoicePrintHtml(route) {
   const allReturnLines = invoiceReturns.flatMap((r) => r.lines || []);
   const returnsTotal = invoiceReturns.reduce((a, r) => a + (r.total || 0), 0);
 
+  // Kept in step with PAYMENT_METHOD_LABELS in src/lib/format.ts. This copy
+  // had drifted: it still said "فودافون كاش" after the renderer renamed that
+  // bucket to "محفظة إلكترونية", had NO "card" key at all — so a Visa sale
+  // printed the raw English word on the invoice — and said "رصيد دائن" where
+  // the screen said "رصيد". A printed document is what the customer keeps, so
+  // it cannot disagree with the screen it was printed from.
   const paymentMethodLabels = {
     cash: "كاش",
     bank: "تحويل بنكي",
-    vodafone: "فودافون كاش",
-    instapay: "انستاباي",
+    card: "فيزا / ماكينة",
+    vodafone: "محفظة إلكترونية",
+    instapay: "إنستاباي",
     other: "أخرى",
-    credit: "رصيد دائن",
+    credit: "رصيد",
   };
   const getPaymentLabel = (entry) => {
     if (entry.paymentMethod === "credit") return "رصيد";
@@ -5867,6 +6148,10 @@ function registerIpc() {
     }
     return result;
   });
+  ipcMain.handle("mobile-stock-ops:fetch", () => fetchMobileStockOps());
+  ipcMain.handle("mobile-stock-ops:resolve", (event, payload) =>
+    resolveMobileStockOps(payload?.results));
+
   ipcMain.handle("print:route", (event, route) => {
     if (!getSession(event)) return { ok: false, error: "not_authenticated" };
     let module;

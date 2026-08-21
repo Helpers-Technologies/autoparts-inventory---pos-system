@@ -6,7 +6,9 @@ import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Dialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
-import { Field, Input, Select, Textarea } from "../components/ui/Input";
+import { Field, Input, Textarea } from "../components/ui/Input";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
 import { useToast } from "../components/ui/Toast";
 import { formatCurrency } from "../lib/format";
 import { todayISO } from "../lib/utils";
@@ -64,6 +66,11 @@ export function BranchesPage() {
     .sort((a, b) => b.quantity - a.quantity), [products, pro, query, selectedBranchId]);
   const selectedValue = productRows.reduce((sum, row) => sum + row.quantity * row.product.purchasePrice, 0);
   const sourceAvailable = productId ? pro.branchQuantity(fromBranchId, productId) : 0;
+  // Only what the source branch actually holds can be transferred out of it.
+  const transferableProducts = useMemo(
+    () => products.filter((product) => !product.archived && pro.branchQuantity(fromBranchId, product.id) > 0),
+    [products, pro, fromBranchId],
+  );
   const machineCode = branchLicenseStatus?.machineCode ?? licenseStatus?.machineCode ?? "";
   const whatsappMessage = encodeURIComponent(`مرحبًا، أريد شراء تفعيل لإضافة فرع جديد في نظام AutoParts.\nكود الجهاز: ${machineCode || "غير متاح"}`);
 
@@ -261,7 +268,69 @@ export function BranchesPage() {
       <Dialog open={branchDialog} onClose={() => setBranchDialog(false)} title="إضافة الفرع المُفعّل" subtitle="سيبدأ بدون رصيد، وسيُستهلك مكان الفرع بعد الحفظ" footer={<><Button variant="outline" onClick={() => setBranchDialog(false)}>إلغاء</Button><Button onClick={addBranch} disabled={creatingBranch}><Plus className="h-4 w-4" /> {creatingBranch ? "جارِ الإضافة..." : "إضافة الفرع"}</Button></>}><div className="space-y-4"><Field label="اسم الفرع" required><Input value={branchName} onChange={(event) => setBranchName(event.target.value)} placeholder="فرع مدينة نصر" /></Field><Field label="العنوان"><Input value={branchAddress} onChange={(event) => setBranchAddress(event.target.value)} /></Field><Field label="الهاتف"><Input value={branchPhone} onChange={(event) => setBranchPhone(event.target.value)} dir="ltr" /></Field></div></Dialog>
 
       <Dialog open={transferDialog} onClose={() => setTransferDialog(false)} title="تحويل مخزون بين الفروع" subtitle="التحويل يعيد توزيع الرصيد ولا يغير إجمالي المنتج" width="lg" footer={<><Button variant="outline" onClick={() => setTransferDialog(false)}>إلغاء</Button><Button onClick={transfer}><ArrowLeftRight className="h-4 w-4" /> تنفيذ التحويل</Button></>}>
-        <div className="grid gap-4 md:grid-cols-2"><Field label="من فرع" required><Select value={fromBranchId} onChange={(event) => setFromBranchId(event.target.value)}>{activeBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</Select></Field><Field label="إلى فرع" required><Select value={toBranchId} onChange={(event) => setToBranchId(event.target.value)}><option value="">اختر الفرع</option>{activeBranches.filter((branch) => branch.id !== fromBranchId).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</Select></Field><Field label="القطعة" required className="md:col-span-2"><Select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">اختر المنتج</option>{products.filter((product) => !product.archived && pro.branchQuantity(fromBranchId, product.id) > 0).map((product) => <option key={product.id} value={product.id}>{product.partNumber || product.code} — {product.name}</option>)}</Select></Field><Field label="الكمية" hint={`المتاح في المصدر: ${sourceAvailable}`} required><Input type="number" min="1" max={sourceAvailable} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></Field><div className="rounded-xl border border-line bg-surface-muted p-3"><div className="text-xs text-ink-faint">بعد التحويل</div><div className="mt-1 text-lg font-bold text-ink">{Math.max(0, sourceAvailable - quantity)} متبقي</div></div><Field label="ملاحظات" className="md:col-span-2"><Textarea value={transferNotes} onChange={(event) => setTransferNotes(event.target.value)} /></Field></div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="من فرع" required>
+            <SearchableSelect
+              value={fromBranchId}
+              onChange={(value) => setFromBranchId(value)}
+              options={activeBranches.map((branch) => ({
+                value: branch.id,
+                label: branch.name,
+                searchText: branch.address ?? "",
+              }))}
+              placeholder="اختر الفرع"
+              searchPlaceholder="ابحث عن فرع..."
+              minChars={0}
+              clearable={false}
+            />
+          </Field>
+          <Field label="إلى فرع" required>
+            <SearchableSelect
+              value={toBranchId}
+              onChange={(value) => setToBranchId(value)}
+              options={activeBranches
+                .filter((branch) => branch.id !== fromBranchId)
+                .map((branch) => ({
+                  value: branch.id,
+                  label: branch.name,
+                  searchText: branch.address ?? "",
+                }))}
+              placeholder="اختر الفرع"
+              searchPlaceholder="ابحث عن فرع..."
+              minChars={0}
+              clearable={false}
+            />
+          </Field>
+          {/* The product list was a native <select> holding every part with
+              stock at the source branch — thousands of rows, no search, and
+              the part number crushed into the same line as the name. This is
+              the same picker the invoices use, so it reads and behaves the
+              way the rest of the app already does. */}
+          <Field label="القطعة" required className="md:col-span-2">
+            <SearchableProductSelect
+              value={productId}
+              onChange={(value) => setProductId(value)}
+              products={transferableProducts}
+              placeholder="اختر القطعة المراد تحويلها"
+            />
+          </Field>
+          <Field label="الكمية" hint={`المتاح في المصدر: ${sourceAvailable}`} required>
+            <Input
+              type="number"
+              min="1"
+              max={sourceAvailable}
+              value={quantity}
+              onChange={(event) => setQuantity(Number(event.target.value))}
+            />
+          </Field>
+          <div className="rounded-xl border border-line bg-surface-muted p-3">
+            <div className="text-xs text-ink-faint">بعد التحويل</div>
+            <div className="mt-1 text-lg font-bold text-ink">{Math.max(0, sourceAvailable - quantity)} متبقي</div>
+          </div>
+          <Field label="ملاحظات" className="md:col-span-2">
+            <Textarea value={transferNotes} onChange={(event) => setTransferNotes(event.target.value)} />
+          </Field>
+        </div>
       </Dialog>
     </div>
   );

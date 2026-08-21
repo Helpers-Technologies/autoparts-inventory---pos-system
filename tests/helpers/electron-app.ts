@@ -11,10 +11,48 @@ export interface ElectronHandle {
   dbPath: string;
 }
 
-export async function launchElectron(): Promise<ElectronHandle> {
-  const tmpDir = path.join(os.tmpdir(), `hw-e2e-${crypto.randomUUID()}`);
+export function authenticatedShellMarker(window: Page) {
+  return window
+    .getByRole("button", { name: "تسجيل الخروج", exact: true })
+    .first();
+}
+
+/**
+ * Dismisses the optional first-login changelog without Playwright waiting for
+ * actionability on a node that AppLayout can replace during post-login state
+ * hydration. HTMLElement.click() runs as soon as the locator resolves; the
+ * short timeout also keeps the absent/detached case bounded.
+ */
+export async function dismissWhatsNewIfPresent(window: Page): Promise<void> {
+  const dismissButton = window.getByRole("button", {
+    name: "تمام، فهمت",
+    exact: true,
+  });
+
+  try {
+    await dismissButton.evaluate(
+      (button: HTMLButtonElement) => button.click(),
+      undefined,
+      { timeout: 1_500 },
+    );
+  } catch (error) {
+    // A post-login remount can remove the whole optional dialog between
+    // locator resolution and evaluation. That is already the desired state.
+    if (!(await dismissButton.isVisible().catch(() => false))) return;
+    throw error;
+  }
+
+  await dismissButton.waitFor({ state: "hidden", timeout: 1_500 });
+}
+
+export async function launchElectron(options: { dbPath?: string } = {}): Promise<ElectronHandle> {
+  const tmpDir = options.dbPath
+    ? path.dirname(path.resolve(options.dbPath))
+    : path.join(os.tmpdir(), `hw-e2e-${crypto.randomUUID()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
-  const dbPath = path.join(tmpDir, "autoparts-inventory.secure.sqlite");
+  const dbPath = options.dbPath
+    ? path.resolve(options.dbPath)
+    : path.join(tmpDir, "autoparts-inventory.secure.sqlite");
 
   // Build env WITHOUT ELECTRON_RENDERER_URL so main.cjs runs in production mode
   // (isDev = Boolean(ELECTRON_RENDERER_URL)) and loads the built dist/. Setting

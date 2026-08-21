@@ -20,6 +20,7 @@ import {
 import { useFeatures } from "../../lib/useFeatures";
 import { AppLayoutControlsProvider } from "./AppLayoutControls";
 import { UpdateBanner } from "../updates/UpdateBanner";
+import { useMobileStockOps } from "../../features/mobile/useMobileStockOps";
 
 const WHATS_NEW_KEY = "whatsNew_lastSeenVersion";
 
@@ -28,6 +29,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
     lsGet("sidebarCollapsed", false),
   );
   const { isLocked, lockSession, licenseStatus } = useAuth();
+  // Applies stock work scanned on a phone as it arrives. Mounted here because
+  // this is the one component every authenticated screen sits inside, so the
+  // warehouse stays in sync no matter which page the counter is looking at.
+  useMobileStockOps();
   const { settings } = useSettings();
   const { isEnabled } = useFeatures();
   const navigate = useNavigate();
