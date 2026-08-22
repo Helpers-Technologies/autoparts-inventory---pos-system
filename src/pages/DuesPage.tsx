@@ -20,6 +20,7 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Input, Select } from "../components/ui/Input";
+import { ConfirmDialog } from "../components/ui/Dialog";
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/Table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/Tabs";
 import { useCatalog } from "../store/CatalogContext";
@@ -172,6 +173,15 @@ export function DuesPage() {
   const [endDate, setEndDate] = useState("");
   const [sortBy, setSortBy] = useState("default");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Settling moves a party's credit balance onto their open invoices. It
+  // cannot be undone from any screen, so it is confirmed like every other
+  // irreversible action rather than firing straight off the row button.
+  const [settleTarget, setSettleTarget] = useState<{
+    id: string;
+    name: string;
+    type: PartyType;
+    credit: number;
+  } | null>(null);
   const [displayLimit, setDisplayLimit] = useState<number | "all">(5);
   const [showAllRows, setShowAllRows] = useState(false);
   const [priorityDisplayLimit, setPriorityDisplayLimit] = useState<number | "all">(5);
@@ -1123,15 +1133,14 @@ export function DuesPage() {
                                   variant="outline"
                                   className="text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/40 hover:bg-emerald-50 dark:bg-emerald-500/10 gap-1"
                                   title={`تسوية الرصيد الدائن ${formatCurrency(customerCredit(row.id), settings.currency)} من مستحقات ${row.name}`}
-                                  onClick={() => {
-                                    const settled = settleAllDues(row.id);
-                                    if (settled > 0) {
-                                      toast.success(
-                                        "تسوية الرصيد",
-                                        `تم تسوية ${formatCurrency(settled, settings.currency)} من رصيد ${row.name}`
-                                      );
-                                    }
-                                  }}
+                                  onClick={() =>
+                                    setSettleTarget({
+                                      id: row.id,
+                                      name: row.name,
+                                      type: "customer",
+                                      credit: customerCredit(row.id),
+                                    })
+                                  }
                                 >
                                   <Shuffle className="w-3.5 h-3.5" />
                                   تسوية
@@ -1146,15 +1155,14 @@ export function DuesPage() {
                                   variant="outline"
                                   className="text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/40 hover:bg-emerald-50 dark:bg-emerald-500/10 gap-1"
                                   title={`تسوية الرصيد الدائن ${formatCurrency(supplierCredit(row.id), settings.currency)} من مستحقات ${row.name}`}
-                                  onClick={() => {
-                                    const settled = settleSupplierDues(row.id);
-                                    if (settled > 0) {
-                                      toast.success(
-                                        "تسوية الرصيد",
-                                        `تم تسوية ${formatCurrency(settled, settings.currency)} من رصيد ${row.name}`
-                                      );
-                                    }
-                                  }}
+                                  onClick={() =>
+                                    setSettleTarget({
+                                      id: row.id,
+                                      name: row.name,
+                                      type: "supplier",
+                                      credit: supplierCredit(row.id),
+                                    })
+                                  }
                                 >
                                   <Shuffle className="w-3.5 h-3.5" />
                                   تسوية
@@ -1336,6 +1344,35 @@ export function DuesPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={!!settleTarget}
+        onClose={() => setSettleTarget(null)}
+        onConfirm={() => {
+          if (!settleTarget) return;
+          const settled =
+            settleTarget.type === "customer"
+              ? settleAllDues(settleTarget.id)
+              : settleSupplierDues(settleTarget.id);
+          if (settled > 0) {
+            toast.success(
+              "تسوية الرصيد",
+              `تم تسوية ${formatCurrency(settled, settings.currency)} من رصيد ${settleTarget.name}`
+            );
+          } else {
+            toast.info("لا توجد مستحقات للتسوية", `لم يتغيّر رصيد ${settleTarget.name}`);
+          }
+          setSettleTarget(null);
+        }}
+        title="تسوية الرصيد الدائن"
+        message={
+          settleTarget
+            ? `سيتم خصم ${formatCurrency(settleTarget.credit, settings.currency)} من الرصيد الدائن لـ "${settleTarget.name}" وتسديد الفواتير المفتوحة به. لا يمكن التراجع عن هذا الإجراء.`
+            : ""
+        }
+        variant="danger"
+        confirmText="تأكيد التسوية"
+      />
     </>
   );
 }

@@ -80,6 +80,9 @@ export function SupplierDetailPage() {
   const [invoiceQuery, setInvoiceQuery] = useState("");
 
   const [tierDialogOpen, setTierDialogOpen] = useState(false);
+  // The trash icon sits next to the edit pencil, so a misclick used to delete
+  // a commission tier outright with nothing to undo it.
+  const [tierToDelete, setTierToDelete] = useState<{ id: string; label: string } | null>(null);
   const [editingTier, setEditingTier] = useState<CommissionTier | null>(null);
   const [tierForm, setTierForm] = useState<Omit<CommissionTier, "id">>({
     threshold: 0,
@@ -330,7 +333,15 @@ export function SupplierDetailPage() {
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
                                 <button
-                                  onClick={() => deleteCommissionTier(supplier.id, res.tierId)}
+                                  onClick={() =>
+                                    setTierToDelete({
+                                      id: res.tierId,
+                                      // Named the same way the card above names
+                                      // it, so the dialog is unambiguous when a
+                                      // supplier has several tiers.
+                                      label: `${formatCurrency(res.threshold, settings.currency)} / ${res.periodDays} يوم`,
+                                    })
+                                  }
                                   className="p-1 hover:bg-surface-muted rounded text-ink-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -564,6 +575,20 @@ export function SupplierDetailPage() {
         onConfirm={handleDelete}
         title="حذف مورد"
         message={`هل أنت متأكد من حذف المورد "${supplier.name}"؟`}
+        variant="danger"
+        confirmText="حذف"
+      />
+
+      <ConfirmDialog
+        open={!!tierToDelete}
+        onClose={() => setTierToDelete(null)}
+        onConfirm={() => {
+          if (!tierToDelete) return;
+          deleteCommissionTier(supplier.id, tierToDelete.id);
+          setTierToDelete(null);
+        }}
+        title="حذف شريحة عمولة"
+        message={`سيتم حذف شريحة ${tierToDelete?.label ?? ""} نهائيًا ولن تُحتسب في عمولات هذا المورد.`}
         variant="danger"
         confirmText="حذف"
       />
