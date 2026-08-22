@@ -60,21 +60,23 @@ const internalPrintWebContents = new Set();
 
 const APP_ID = "com.helperstechnologies.autoparts";
 const APP_SALT = "autoparts-inventory-system-v1-local-license";
-// Backward clock-jump tolerance before flagging clock_tampered. 5 minutes was
-// too tight — ordinary NTP resyncs, DST transitions, and a user fixing a
-// slightly-wrong clock could all trip it. A rollback measured in hours buys a
-// trial-abuser nothing meaningful, so a generous tolerance here doesn't weaken
-// the actual protection (that's the signed subscriptionExpiresAt check above).
-const CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
-// If the recorded "last seen" timestamp is further in the future than this,
-// treat it as a corrupted/one-off bad reading rather than active tampering —
-// nobody rolls a clock back over a year to gain a few days of trial, since the
-// signed subscriptionExpiresAt is checked independently either way — and
-// self-heal by re-baselining, so a single bad clock read can't permanently
-// lock a paying customer out with no recovery path.
-const CLOCK_TAMPER_SELF_HEAL_MS = 365 * 24 * 60 * 60 * 1000;
+// License verification lives in ./license-core.cjs so it can be unit-tested
+// without Electron. Its constants (clock tolerances, token size cap) and the
+// three storage keys come from there, so there is one definition of each.
+const {
+  licenseSchema,
+  supportSchema,
+  branchActivationSchema,
+  canonicalStringify,
+  parseDateMs,
+  parseSignedPayload: verifySignedPayload,
+  evaluateLicense: evaluateLicenseCore,
+  licenseAllowsFeature,
+  LICENSE_TOKEN_KEY,
+  LICENSE_LAST_SEEN_KEY,
+  LICENSE_SERVER_STATUS_KEY,
+} = require("./license-core.cjs");
 
-const MAX_TOKEN_LENGTH = 8192;
 const MAX_USERNAME_LENGTH = 80;
 const MAX_PASSWORD_LENGTH = 256;
 
@@ -171,8 +173,6 @@ const {
 } = require("./mfa.cjs");
 
 // Derived keys used only inside main.cjs
-const LICENSE_TOKEN_KEY = "__license_token";
-const LICENSE_LAST_SEEN_KEY = "__license_last_seen_at";
 const COMMERCE_SYNC_HASH_KEY = "__commerce_sync_hash";
 const COMMERCE_SYNC_AT_KEY = "__commerce_sync_at";
 const COMMERCE_SYNC_SOURCE_REVISION_KEY = "__commerce_sync_source_revision";
@@ -330,41 +330,6 @@ function getAppIconPath() {
   );
 }
 
-const licenseSchema = z.object({
-  licenseId: z.string().min(1),
-  machineHash: z.string().length(64),
-  subscriptionType: z.enum(["limited", "lifetime"]),
-  subscriptionStartDate: z.string().min(1),
-  subscriptionExpiresAt: z.string().nullable(),
-  warrantyStartDate: z.string().nullable(),
-  warrantyExpiresAt: z.string().nullable(),
-  // Optional feature packaging. When present they are part of the signed payload
-  // (must be included in the generator's canonical string before signing).
-  // Absent on serials issued before packaging ⇒ all features allowed.
-  plan: z.string().optional(),
-  features: z.array(z.string()).optional(),
-  issuedAt: z.string().min(1),
-  signature: z.string().min(32),
-});
-
-const supportSchema = z.object({
-  supportId: z.string().min(1),
-  purpose: z.literal("owner_password_reset"),
-  machineHash: z.string().length(64),
-  issuedAt: z.string().min(1),
-  expiresAt: z.string().min(1),
-  signature: z.string().min(32),
-});
-
-const branchActivationSchema = z.object({
-  activationId: z.string().min(1),
-  purpose: z.literal("add_branch"),
-  machineHash: z.string().length(64),
-  slots: z.literal(1),
-  issuedAt: z.string().min(1),
-  signature: z.string().min(32),
-});
-
 const branchCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   address: z.string().trim().max(240).optional(),
@@ -391,11 +356,6 @@ function isPasswordLengthAllowed(password, minLength = 0) {
     cleanPassword.length >= minLength &&
     cleanPassword.length <= MAX_PASSWORD_LENGTH
   );
-}
-
-function parseDateMs(value) {
-  const ms = new Date(value).getTime();
-  return Number.isNaN(ms) ? null : ms;
 }
 
 function isArgonPasswordHash(value) {
@@ -457,19 +417,6 @@ function printModuleForRoute(route) {
   return cleanRoute.startsWith("/purchases/")
     ? "purchaseInvoices"
     : "salesInvoices";
-}
-
-function canonicalStringify(value) {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalStringify(item)).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function getMachineMaterial() {
@@ -1481,13 +1428,7 @@ function getMfaPolicy() {
 // renderer/UI cannot enable it without a signed license feature entitlement.
 function isFeatureLicensed(featureKey) {
   if (HW_E2E) return true;
-  const status = getLicenseStatus();
-  const features = status?.license?.features;
-  return (
-    status?.state === "active" &&
-    Array.isArray(features) &&
-    (features.includes(featureKey) || features.includes("*"))
-  );
+  return licenseAllowsFeature(getLicenseStatus(), featureKey);
 }
 
 function isMfaFeatureLicensed() {
@@ -1967,33 +1908,7 @@ function getPublicKey() {
 }
 
 function parseSignedPayload(token, prefix, schema) {
-  const normalized = String(token || "")
-    .replace(/\s+/g, "")
-    .trim();
-  if (normalized.length > MAX_TOKEN_LENGTH) {
-    throw new Error("Token too large");
-  }
-  if (!normalized.startsWith(prefix)) {
-    throw new Error("Invalid token prefix");
-  }
-
-  const decoded = JSON.parse(
-    Buffer.from(normalized.slice(prefix.length), "base64url").toString("utf8"),
-  );
-  const parsed = schema.parse(decoded);
-  const { signature, ...unsignedPayload } = parsed;
-  const verified = crypto.verify(
-    null,
-    Buffer.from(canonicalStringify(unsignedPayload)),
-    getPublicKey(),
-    Buffer.from(signature, "base64url"),
-  );
-
-  if (!verified) {
-    throw new Error("Invalid token signature");
-  }
-
-  return parsed;
+  return verifySignedPayload(token, prefix, schema, getPublicKey());
 }
 
 function buildLicenseStatus(state, extra = {}) {
@@ -2006,60 +1921,15 @@ function buildLicenseStatus(state, extra = {}) {
 }
 
 function evaluateLicense(serial, persistSeen) {
-  if (!serial) {
-    return buildLicenseStatus("inactive");
-  }
-
-  let license;
-  try {
-    license = parseSignedPayload(serial, "APLIC.", licenseSchema);
-  } catch (error) {
-    return buildLicenseStatus("inactive", {
-      message: error instanceof Error ? error.message : "Invalid license",
-    });
-  }
-
-  if (!isMachineHashAccepted(license.machineHash)) {
-    return buildLicenseStatus("machine_mismatch", { license });
-  }
-
-  const now = new Date();
-  const lastSeenRaw = storageGet(LICENSE_LAST_SEEN_KEY);
-  if (lastSeenRaw) {
-    const lastSeenMs = parseDateMs(lastSeenRaw);
-    if (lastSeenMs !== null && now.getTime() + CLOCK_SKEW_MS < lastSeenMs) {
-      if (lastSeenMs - now.getTime() > CLOCK_TAMPER_SELF_HEAL_MS) {
-        // Implausibly large gap — almost certainly a corrupted/stale reading,
-        // not genuine tampering. Re-baseline instead of a permanent lock.
-        storageSet(LICENSE_LAST_SEEN_KEY, now.toISOString());
-      } else {
-        return buildLicenseStatus("clock_tampered", { license });
-      }
-    }
-  }
-
-  const serverStatus = storageGet("__license_server_status");
-  if (serverStatus === "blocked") {
-    return buildLicenseStatus("inactive", { message: "موقوف من الإدارة" });
-  }
-
-  const subscriptionExpiresMs = license.subscriptionExpiresAt
-    ? parseDateMs(license.subscriptionExpiresAt)
-    : null;
-  if (
-    license.subscriptionType === "limited" &&
-    (!license.subscriptionExpiresAt ||
-      subscriptionExpiresMs === null ||
-      now.getTime() > subscriptionExpiresMs)
-  ) {
-    return buildLicenseStatus("expired", { license });
-  }
-
-  if (persistSeen) {
-    storageSet(LICENSE_LAST_SEEN_KEY, now.toISOString());
-  }
-
-  return buildLicenseStatus("active", { license });
+  return evaluateLicenseCore(serial, {
+    publicKey: getPublicKey(),
+    schema: licenseSchema,
+    isMachineHashAccepted,
+    storageGet,
+    storageSet,
+    buildStatus: buildLicenseStatus,
+    persistSeen,
+  });
 }
 
 function getLicenseStatus() {
@@ -2315,7 +2185,7 @@ async function checkLicenseOnline() {
     const data = response.ok ? await response.json() : null;
 
     if (data && data.status === "blocked") {
-      storageSet("__license_server_status", "blocked");
+      storageSet(LICENSE_SERVER_STATUS_KEY, "blocked");
 
       BrowserWindow.getAllWindows().forEach((win) => {
         if (!win.isDestroyed()) {
@@ -2323,9 +2193,9 @@ async function checkLicenseOnline() {
         }
       });
     } else if (data && data.status === "active") {
-      const wasBlocked = storageGet("__license_server_status") === "blocked";
+      const wasBlocked = storageGet(LICENSE_SERVER_STATUS_KEY) === "blocked";
       if (wasBlocked) {
-        storageRemove("__license_server_status");
+        storageRemove(LICENSE_SERVER_STATUS_KEY);
         BrowserWindow.getAllWindows().forEach((win) => {
           if (!win.isDestroyed()) {
             win.webContents.send("license:restored");
