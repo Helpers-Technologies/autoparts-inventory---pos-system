@@ -15,10 +15,9 @@ if (!key || !key.includes("BEGIN PUBLIC KEY")) {
 }
 
 const content = `const LICENSE_PUBLIC_KEY =
-  process.env.AUTOPARTS_LICENSE_PUBLIC_KEY ||
   ${JSON.stringify(key)};
 
-module.exports = { LICENSE_PUBLIC_KEY };
+Object.freeze(module.exports = { LICENSE_PUBLIC_KEY });
 `;
 
 const target = path.join(__dirname, "..", "electron", "license-public-key.cjs");

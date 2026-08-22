@@ -67,7 +67,6 @@ const {
   licenseSchema,
   supportSchema,
   branchActivationSchema,
-  canonicalStringify,
   parseDateMs,
   parseSignedPayload: verifySignedPayload,
   evaluateLicense: evaluateLicenseCore,

@@ -19,10 +19,9 @@ if (url && !/^https:\/\//.test(url)) {
 }
 
 const content = `const LICENSE_HEARTBEAT_URL =
-  process.env.AUTOPARTS_LICENSE_HEARTBEAT_URL ||
   ${JSON.stringify(url || null)};
 
-module.exports = { LICENSE_HEARTBEAT_URL };
+Object.freeze(module.exports = { LICENSE_HEARTBEAT_URL });
 `;
 
 const target = path.join(__dirname, "..", "electron", "license-heartbeat-url.cjs");
