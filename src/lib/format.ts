@@ -1,3 +1,7 @@
+// Renderer formatting uses en-US (Western digits) for on-screen readability.
+// electron/main.cjs has a SEPARATE ar-EG implementation for printed PDFs/receipts
+// that produces Eastern Arabic numerals (١٬٢٣٤٫٥٦). The two cannot be shared:
+// main process is CJS, renderer is ESM, and locale intent differs by design.
 export function formatCurrency(amount: number, currency = "ج.م"): string {
   const n = Number.isFinite(amount) ? amount : 0;
   const fixed = n.toLocaleString("en-US", {

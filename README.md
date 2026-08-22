@@ -6,7 +6,7 @@ Desktop inventory and sales management system for auto-parts stores.
 
 تطبيق Windows Desktop مستقل لمحلات وتجار قطع غيار السيارات. يدير كتالوج السيارات وتوافق القطع والبدائل والمخزون والفواتير، ويعمل أوفلاين بقاعدة SQLite محلية مشفرة.
 
-**Package version:** `10.0.7`
+**Package version:** `10.5.0`
 
 ## نظرة عامة
 

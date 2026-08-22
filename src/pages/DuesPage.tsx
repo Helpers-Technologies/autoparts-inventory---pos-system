@@ -35,6 +35,7 @@ import { useAuth } from "../store/AuthContext";
 import { hasPermission } from "../lib/permissions";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { useAutoPartsPro, vehicleDisplayName } from "../store/AutoPartsProContext";
+import { buildWhatsappHref } from "../lib/whatsappTemplate";
 
 type DueStatus = "overdue" | "today" | "soon" | "scheduled" | "undated";
 type PartyType = "customer" | "supplier";
@@ -117,13 +118,7 @@ function statusTone(status: DueStatus): "red" | "amber" | "blue" | "slate" {
   return "slate";
 }
 
-function whatsappHref(phone?: string, message?: string) {
-  const digits = String(phone ?? "").replace(/\D/g, "");
-  if (!digits) return undefined;
-  const normalized = digits.startsWith("0") ? `20${digits.slice(1)}` : digits;
-  const query = message?.trim() ? `?text=${encodeURIComponent(message.trim())}` : "";
-  return `https://wa.me/${normalized}${query}`;
-}
+const whatsappHref = buildWhatsappHref;
 
 function includesTerm(...values: Array<string | number | undefined>) {
   return (term: string) =>

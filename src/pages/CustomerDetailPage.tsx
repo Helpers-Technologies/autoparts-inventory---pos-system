@@ -41,15 +41,11 @@ import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleF
 import { AddressFields, type AddressDraft } from "../features/shipping/AddressFields";
 import { defaultCustomerAddress } from "../lib/shipping";
 import { normalizePhoneInput, uid } from "../lib/utils";
+import { buildWhatsappHref } from "../lib/whatsappTemplate";
 
 const EMPTY_ADDRESS: AddressDraft = { label: "العنوان الرئيسي", governorate: "", city: "", addressLine: "", isDefault: true };
 
-function whatsappHref(phone: string | undefined, message: string) {
-  const digits = String(phone ?? "").replace(/\D/g, "");
-  if (!digits) return undefined;
-  const normalized = digits.startsWith("0") ? `20${digits.slice(1)}` : digits;
-  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
-}
+const whatsappHref = buildWhatsappHref;
 
 export function CustomerDetailPage() {
   const { id } = useParams();

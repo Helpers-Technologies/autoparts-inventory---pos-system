@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useSettings } from "../../store/SettingsContext";
 import { formatCurrency, formatDate } from "../../lib/format";
+import { buildWhatsappUrl } from "../../lib/whatsappTemplate";
 import { buildXlsx } from "../../lib/xlsx";
 import { useFeatures } from "../../lib/useFeatures";
 
@@ -127,12 +128,7 @@ export function StatementPrintLayout({ kind, partyName, partyCode, partyPhone, r
                 `إجمالي المدين: ${formatCurrency(totalMadin, settings.currency)}`,
                 `إجمالي الدائن: ${formatCurrency(totalDaen, settings.currency)}`,
               ].join("\n");
-              const phone = String(partyPhone ?? "").replace(/\D/g, "");
-              const normalized = phone.startsWith("0") ? `20${phone.slice(1)}` : phone;
-              const href = normalized
-                ? `https://wa.me/${normalized}?text=${encodeURIComponent(msg)}`
-                : `https://wa.me/?text=${encodeURIComponent(msg)}`;
-              window.open(href);
+              window.open(buildWhatsappUrl(partyPhone, msg));
             }}
             className="h-9 px-5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
           >

@@ -67,3 +67,10 @@ export function buildWhatsappUrl(phone: string | undefined, message: string) {
   const query = encodeURIComponent(message);
   return normalized ? `https://wa.me/${normalized}?text=${query}` : `https://wa.me/?text=${query}`;
 }
+
+export function buildWhatsappHref(phone?: string, message?: string): string | undefined {
+  const normalized = normalizeWhatsappPhone(phone);
+  if (!normalized) return undefined;
+  const query = message?.trim() ? `?text=${encodeURIComponent(message.trim())}` : "";
+  return `https://wa.me/${normalized}${query}`;
+}

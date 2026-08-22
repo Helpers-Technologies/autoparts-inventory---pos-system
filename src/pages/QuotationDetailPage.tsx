@@ -28,6 +28,7 @@ import { hasPermission } from "../lib/permissions";
 import { printAppRoute } from "../lib/print";
 import { todayISO } from "../lib/utils";
 import { useFeatures } from "../lib/useFeatures";
+import { buildWhatsappHref } from "../lib/whatsappTemplate";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
 import { productVehicleFitmentStatus, useAutoPartsPro } from "../store/AutoPartsProContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
@@ -204,8 +205,6 @@ export function QuotationDetailPage() {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    const phone = String(customer.phone ?? "").replace(/\D/g, "");
-                    const normalized = phone.startsWith("0") ? `20${phone.slice(1)}` : phone;
                     const msg = [
                       `مرحباً ${quot.customerName}،`,
                       ``,
@@ -218,7 +217,8 @@ export function QuotationDetailPage() {
                       ``,
                       settings.companyNameAr || settings.companyName,
                     ].filter(Boolean).join("\n");
-                    window.open(`https://wa.me/${normalized}?text=${encodeURIComponent(msg)}`, "_blank");
+                    const href = buildWhatsappHref(customer.phone, msg);
+                    if (href) window.open(href, "_blank");
                   }}
                 >
                   <MessageCircle className="w-4 h-4" /> واتساب

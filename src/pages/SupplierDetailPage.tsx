@@ -40,13 +40,9 @@ import { formatCurrency, formatDate } from "../lib/format";
 import type { CommissionTier, CommissionType } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { printAppRoute } from "../lib/print";
+import { buildWhatsappHref } from "../lib/whatsappTemplate";
 
-function whatsappHref(phone: string | undefined, message: string) {
-  const digits = String(phone ?? "").replace(/\D/g, "");
-  if (!digits) return undefined;
-  const normalized = digits.startsWith("0") ? `20${digits.slice(1)}` : digits;
-  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
-}
+const whatsappHref = buildWhatsappHref;
 
 export function SupplierDetailPage() {
   const { id } = useParams();
