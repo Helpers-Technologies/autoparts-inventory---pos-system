@@ -90,7 +90,7 @@ Original branch: `main`. Original and repair starting HEAD: `55837aa6ecdca07a253
 
 Starting user work: 18 tracked paths (including the existing deleted ImportPage) and four untracked files. `scripts/hardening-baseline.mjs` itself was added by this program immediately before the capture and is not pre-existing user work. No reset, clean, revert, historical checkout, customer-data mutation or unrelated-work commit was performed.
 
-Phase evidence/tooling commit: recorded after the files are staged; see the phase commit in `git log` and the next phase report.
+Phase evidence/tooling commit: `4532a4b` (`test(hardening): capture production repair baseline`).
 
 ## 12. Recommendation
 
