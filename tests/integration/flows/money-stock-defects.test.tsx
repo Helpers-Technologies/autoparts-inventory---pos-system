@@ -11,13 +11,17 @@
  *
  * TC-MSD-001 through TC-MSD-006
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { webcrypto } from "node:crypto";
 import { AppProvider, useApp } from "../../../src/store/AppContext";
 import type { InvoiceLine, Product } from "../../../src/types";
 import { lsClearAll } from "../../../src/lib/storage";
+import * as storage from "../../../src/lib/storage";
+import { useCatalog } from "../../../src/store/CatalogContext";
+import { useInvoicing } from "../../../src/store/InvoicingContext";
+import { prepareDeliveryOrder } from "../../../src/store/ShippingContext";
 
 if (!globalThis.crypto?.subtle) {
   Object.defineProperty(globalThis, "crypto", { value: webcrypto });
@@ -73,10 +77,140 @@ beforeEach(() => {
   localStorage.clear();
   lsClearAll();
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe("sale commit durability", () => {
+  it("persists explicit branch consumption and delivery with the invoice", async () => {
+    const { result } = mountStore();
+    let productId = "";
+    act(() => {
+      productId = result.current.addProduct(baseProduct({ quantity: 20 })).id;
+    });
+    const invoiceId = "delivery-sale";
+    const order = prepareDeliveryOrder({
+      id: "delivery-order", invoiceId, invoiceNumber: "BRANCH-DELIVERY",
+      customerId: "delivery-customer", customerName: "عميل",
+      branchId: "secondary", method: "branch_driver", driverId: "driver-1",
+      address: {
+        recipientName: "عميل", phone: "01000000000",
+        governorate: "القاهرة", city: "مدينة نصر", addressLine: "شارع اختبار",
+      },
+      shippingFee: 10, codAmount: 0,
+    }, 0);
+    const branchStocks = [
+      { branchId: "main", productId, quantity: 3, updatedAt: order.createdAt },
+      { branchId: "secondary", productId, quantity: 15, updatedAt: order.createdAt },
+    ];
+    await act(async () => {
+      await result.current.addSalesInvoice({
+        invoiceNumber: "BRANCH-DELIVERY", date: "2026-09-15",
+        customerId: "delivery-customer", customerName: "عميل",
+        branchId: "secondary", deliveryOrderId: order.id,
+        lines: [line(productId, 2, 100)], total: 200, amountReceived: 200,
+        paymentType: "cash", priceType: "wholesale",
+      }, { invoiceId, branchStocks, deliveryOrders: [order] });
+    });
+    expect(storage.lsGet("branchStocks", [])).toEqual(branchStocks);
+    expect(storage.lsGet("deliveryOrders", [])).toEqual([order]);
+    expect(result.current.salesInvoices.find((invoice) => invoice.id === invoiceId)?.deliveryOrderId)
+      .toBe(order.id);
+    expect(result.current.products.find((product) => product.id === productId)?.quantity)
+      .toBe(18);
+  });
+
+  it("uses current catalog stock even when the invoice slice retained its action", async () => {
+    const { result } = renderHook(() => ({
+      catalog: useCatalog(), invoicing: useInvoicing(),
+    }), { wrapper });
+    const retainedSaleAction = result.current.invoicing.addSalesInvoice;
+    let productId = "";
+    act(() => {
+      productId = result.current.catalog.addProduct(baseProduct({ quantity: 20 })).id;
+    });
+    await act(async () => {
+      await retainedSaleAction({
+        invoiceNumber: "FRESH-STOCK", date: "2026-09-15",
+        customerId: "customer-1", customerName: "عميل",
+        lines: [line(productId, 2, 100)], total: 200, amountReceived: 200,
+        paymentType: "cash", priceType: "wholesale",
+      });
+    });
+    expect(result.current.catalog.products.find((product) => product.id === productId)?.quantity)
+      .toBe(18);
+    expect(storage.lsGet<Product[]>("products", []).find((product) => product.id === productId)?.quantity)
+      .toBe(18);
+  });
+
+  it("does not expose a rejected sale or any stock/cash changes", async () => {
+    const { result } = mountStore();
+    let productId = "";
+    act(() => {
+      productId = result.current.addProduct(baseProduct({ quantity: 20 })).id;
+    });
+    const before = {
+      products: result.current.products,
+      salesInvoices: result.current.salesInvoices,
+      cashEntries: result.current.cashEntries,
+      auditLogs: result.current.auditLogs,
+    };
+    vi.spyOn(storage, "lsCommitSaleAwait").mockResolvedValueOnce(false);
+    await act(async () => {
+      await expect(result.current.addSalesInvoice({
+        invoiceNumber: "REJECTED-1", date: "2026-09-15",
+        customerId: "customer-1", customerName: "عميل",
+        lines: [line(productId, 2, 100)], total: 200, amountReceived: 200,
+        paymentType: "cash", priceType: "wholesale",
+      })).rejects.toThrow("تعذر حفظ");
+    });
+    expect(result.current.products).toBe(before.products);
+    expect(result.current.salesInvoices).toBe(before.salesInvoices);
+    expect(result.current.cashEntries).toBe(before.cashEntries);
+    expect(result.current.auditLogs).toBe(before.auditLogs);
+  });
+
+  it("settles credit in the sale commit without booking it as cash", async () => {
+    const { result } = mountStore();
+    let productId = "";
+    act(() => {
+      productId = result.current.addProduct(baseProduct({ quantity: 20 })).id;
+    });
+    await act(async () => {
+      await result.current.addSalesInvoice({
+        invoiceNumber: "CREDIT-SOURCE", date: "2026-09-14",
+        customerId: "credit-customer", customerName: "عميل",
+        lines: [line(productId, 1, 100)], total: 100, amountReceived: 100,
+        overpayment: 40, paymentType: "cash", priceType: "wholesale",
+      });
+    });
+    const cashBefore = result.current.currentCashBalance();
+    let invoiceId = "";
+    await act(async () => {
+      const invoice = await result.current.addSalesInvoice({
+        invoiceNumber: "CREDIT-TARGET", date: "2026-09-15",
+        customerId: "credit-customer", customerName: "عميل",
+        lines: [line(productId, 1, 100)], total: 100, amountReceived: 60,
+        paymentType: "account", priceType: "wholesale",
+      }, { customerCredit: { customerId: "credit-customer", amount: 40 } });
+      invoiceId = invoice.id;
+      expect(invoice.remaining).toBe(0);
+      expect(invoice.amountReceived).toBe(100);
+    });
+    expect(result.current.currentCashBalance()).toBe(cashBefore + 60);
+    expect(result.current.customerCredit("credit-customer")).toBe(0);
+    const persisted = storage.lsGet<import("../../../src/types").SalesInvoice[]>(
+      "salesInvoices", [],
+    );
+    expect(persisted.find((invoice) => invoice.id === invoiceId)?.remaining).toBe(0);
+    expect(persisted.find((invoice) => invoice.invoiceNumber === "CREDIT-SOURCE")?.overpayment)
+      .toBeUndefined();
+  });
+});
 
 describe("money and stock defects — TC-MSD", () => {
-  it("TC-MSD-001: cancelling an invoice that was partly returned does not restore the returned units twice", () => {
+  it("TC-MSD-001: cancelling an invoice that was partly returned does not restore the returned units twice", async () => {
     // deleteSalesInvoice already refuses this case with a comment naming the
     // double-count. cancelSalesInvoice ran the same restore with no such
     // check, so the returned units came back a second time.
@@ -85,12 +219,12 @@ describe("money and stock defects — TC-MSD", () => {
     act(() => { productId = result.current.addProduct(baseProduct({ quantity: 50 })).id; });
 
     let invoiceId = "";
-    act(() => {
-      const invoice = result.current.addSalesInvoice({
+    await act(async () => {
+      const invoice = (await result.current.addSalesInvoice({
         invoiceNumber: "S-1", date: "2026-08-01", customerId: "walkin", customerName: "نقدي",
         lines: [line(productId, 10, 75)], total: 750, amountReceived: 750,
         paymentType: "cash", priceType: "retail",
-      });
+      }));
       invoiceId = invoice.id;
     });
     expect(result.current.products.find((p) => p.id === productId)!.quantity).toBe(40);
@@ -153,7 +287,7 @@ describe("money and stock defects — TC-MSD", () => {
     expect(result.current.supplierCredit(supplierId)).toBe(400);
   });
 
-  it("TC-MSD-003: editing a purchase invoice does not re-create stock that has since been sold", () => {
+  it("TC-MSD-003: editing a purchase invoice does not re-create stock that has since been sold", async () => {
     // The reversal clamped at zero BEFORE adding the new quantity back, so
     // any units already sold were invented again on the next save.
     const { result } = mountStore();
@@ -175,12 +309,12 @@ describe("money and stock defects — TC-MSD", () => {
     });
     expect(result.current.products.find((p) => p.id === productId)!.quantity).toBe(10);
 
-    act(() => {
-      result.current.addSalesInvoice({
+    await act(async () => {
+      (await result.current.addSalesInvoice({
         invoiceNumber: "S-2", date: "2026-08-02", customerId: "walkin", customerName: "نقدي",
         lines: [line(productId, 7, 150)], total: 1050, amountReceived: 1050,
         paymentType: "cash", priceType: "retail",
-      });
+      }));
     });
     expect(result.current.products.find((p) => p.id === productId)!.quantity).toBe(3);
 
@@ -233,7 +367,7 @@ describe("money and stock defects — TC-MSD", () => {
     expect((await result.current.hydrateStockMovements()).length).toBe(before);
   });
 
-  it("TC-MSD-006: settling customer credit against a partly-returned invoice does not raise the debt", () => {
+  it("TC-MSD-006: settling customer credit against a partly-returned invoice does not raise the debt", async () => {
     // settleAllDues recomputed remaining from the ORIGINAL total, re-adding an
     // amount the return had already taken off — the exact mistake the receipt
     // path documents and avoids.
@@ -247,12 +381,12 @@ describe("money and stock defects — TC-MSD", () => {
 
     // An account sale of 1000, nothing paid.
     let invoiceId = "";
-    act(() => {
-      invoiceId = result.current.addSalesInvoice({
+    await act(async () => {
+      invoiceId = (await result.current.addSalesInvoice({
         invoiceNumber: "S-3", date: "2026-08-01", customerId, customerName: "عميل اختبار",
         lines: [line(productId, 10, 100)], total: 1000, amountReceived: 0,
         paymentType: "account", priceType: "retail",
-      }).id;
+      })).id;
     });
 
     // A 400 return taken as credit, not cash: the debt drops to 600.

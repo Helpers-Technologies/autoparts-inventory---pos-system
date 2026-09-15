@@ -95,6 +95,7 @@ import {
 } from "../lib/whatsappTemplate";
 import {
   productVehicleFitmentStatus,
+  branchStocksAfterSale,
   useAutoPartsPro,
   vehicleDisplayName,
 } from "../store/AutoPartsProContext";
@@ -111,7 +112,7 @@ import {
   type DeliveryDraft,
 } from "../features/shipping/DeliveryConfigurator";
 import { DeliveryReviewDialog } from "../features/shipping/DeliveryReviewDialog";
-import { BOSTA_PROVIDER_ID, useShipping } from "../store/ShippingContext";
+import { BOSTA_PROVIDER_ID, prepareDeliveryOrder, useShipping } from "../store/ShippingContext";
 import { ShippingProviderLogo } from "../features/shipping/ShippingProviderLogo";
 import { useAppLayoutControls } from "../components/layout/AppLayoutControls";
 
@@ -299,12 +300,11 @@ const POSProductCard = memo(function POSProductCard({
 export function POSPage() {
   const { currentUser } = useAuth();
   const { products: allProducts, customers: allCustomers } = useCatalog();
-  const { salesInvoices, addSalesInvoice, applyCustomerCredit } =
-    useInvoicing();
+  const { salesInvoices, addSalesInvoice } = useInvoicing();
   const { activeShift } = useShifts();
   const { customerBalance } = useReporting();
   const { settings } = useSettings();
-  const { createDeliveryOrder, providers: shippingProviders } = useShipping();
+  const { orders: deliveryOrders, providers: shippingProviders } = useShipping();
   const pro = useAutoPartsPro();
   const branchQuantity = pro.branchQuantity;
   const vehicleCatalog = useVehicleCatalog();
@@ -856,7 +856,7 @@ export function POSPage() {
   };
 
   // Save POS sales invoice
-  const submitSale = (confirmedDelivery = false) => {
+  const submitSale = async (confirmedDelivery = false) => {
     if (!activeShift) {
       toast.error(
         "الوردية مغلقة",
@@ -1014,82 +1014,102 @@ export function POSPage() {
       : Math.max(0, amountReceived - invoiceNet);
     const deliveryOrderId =
       delivery.method === "pickup" ? undefined : uid("delivery");
-
-    const inv = addSalesInvoice({
-      invoiceNumber,
-      date,
-      customerId,
-      customerName: customer.name,
-      deliveryMethod: delivery.method,
-      deliveryAddress: delivery.address,
-      shippingProviderId: delivery.providerId,
-      shippingProviderName: delivery.providerName,
-      shippingFee: delivery.shippingFee || undefined,
-      deliveryOrderId,
-      collectOnDelivery: delivery.collectOnDelivery || undefined,
-      driverId: delivery.driverId,
-      driverName: delivery.driverName,
-      lines: invLines,
-      total: invoiceNet,
-      discount: discount > 0 ? discount : undefined,
-      amountReceived: actualCashReceived,
-      overpayment: cashOverpayment > 0 ? cashOverpayment : undefined,
-      paymentType:
-        delivery.collectOnDelivery || remainingDue > 0
-          ? "account"
-          : paymentType,
-      paymentMethod,
-      priceType: aggregateSalesPriceType(invLines),
-      customerVehicleId: selectedVehicle?.id,
-      vehicleLabel: selectedVehicle
-        ? vehicleDisplayName(
-            selectedVehicle,
-            vehicleCatalog.vehicleMakes,
-            vehicleCatalog.vehicleModels,
+    const invoiceId = uid("sal");
+    const branchStocks = selectedBranchId
+      ? branchStocksAfterSale(
+          pro.branchStocks,
+          selectedBranchId,
+          invLines.map((line) => ({
+            productId: line.productId,
+            quantity: line.quantity,
+          })),
+        )
+      : undefined;
+    const deliveryOrder =
+      deliveryOrderId && delivery.address && delivery.method !== "pickup"
+        ? prepareDeliveryOrder(
+            {
+              id: deliveryOrderId,
+              invoiceId,
+              invoiceNumber,
+              customerId: customer.id,
+              customerName: customer.name,
+              branchId: selectedBranch?.id,
+              branchName: selectedBranch?.name,
+              method: delivery.method,
+              address: delivery.address,
+              shippingFee: delivery.shippingFee,
+              codAmount: delivery.collectOnDelivery ? invoiceNet : 0,
+              driverId: delivery.driverId,
+              driverName: delivery.driverName,
+              providerId: delivery.providerId,
+              providerName: delivery.providerName,
+              packageType: delivery.packageType,
+              itemsCount: invLines.reduce((sum, line) => sum + line.quantity, 0),
+              allowOpenPackage: delivery.allowOpenPackage,
+              notes:
+                delivery.shippingNotes?.trim() || notes.trim() || undefined,
+            },
+            deliveryOrders.length,
           )
-        : undefined,
-      branchId: selectedBranch?.id,
-      branchName: selectedBranch?.name,
-      notes: notes.trim() || undefined,
-    });
+        : undefined;
 
-    if (deliveryOrderId && delivery.address && delivery.method !== "pickup") {
-      createDeliveryOrder({
-        id: deliveryOrderId,
-        invoiceId: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        customerId: customer.id,
+    let inv;
+    try {
+      inv = await addSalesInvoice({
+        invoiceNumber,
+        date,
+        customerId,
         customerName: customer.name,
-        branchId: selectedBranch?.id,
-        branchName: selectedBranch?.name,
-        method: delivery.method,
-        address: delivery.address,
-        shippingFee: delivery.shippingFee,
-        codAmount: delivery.collectOnDelivery ? invoiceNet : 0,
+        deliveryMethod: delivery.method,
+        deliveryAddress: delivery.address,
+        shippingProviderId: delivery.providerId,
+        shippingProviderName: delivery.providerName,
+        shippingFee: delivery.shippingFee || undefined,
+        deliveryOrderId,
+        collectOnDelivery: delivery.collectOnDelivery || undefined,
         driverId: delivery.driverId,
         driverName: delivery.driverName,
-        providerId: delivery.providerId,
-        providerName: delivery.providerName,
-        packageType: delivery.packageType,
-        itemsCount: invLines.reduce((sum, line) => sum + line.quantity, 0),
-        allowOpenPackage: delivery.allowOpenPackage,
-        notes:
-          delivery.shippingNotes?.trim() || notes.trim() || undefined,
+        lines: invLines,
+        total: invoiceNet,
+        discount: discount > 0 ? discount : undefined,
+        amountReceived: actualCashReceived,
+        overpayment: cashOverpayment > 0 ? cashOverpayment : undefined,
+        paymentType:
+          delivery.collectOnDelivery || remainingDue > 0
+            ? "account"
+            : paymentType,
+        paymentMethod,
+        priceType: aggregateSalesPriceType(invLines),
+        customerVehicleId: selectedVehicle?.id,
+        vehicleLabel: selectedVehicle
+          ? vehicleDisplayName(
+              selectedVehicle,
+              vehicleCatalog.vehicleMakes,
+              vehicleCatalog.vehicleModels,
+            )
+          : undefined,
+        branchId: selectedBranch?.id,
+        branchName: selectedBranch?.name,
+        notes: notes.trim() || undefined,
+      }, {
+        invoiceId,
+        branchStocks,
+        deliveryOrders: deliveryOrder
+          ? [
+              deliveryOrder,
+              ...deliveryOrders.filter((item) => item.id !== deliveryOrder.id),
+            ]
+          : undefined,
+        customerCredit:
+          creditApplied > 0 ? { customerId, amount: creditApplied } : undefined,
       });
-    }
-
-    if (selectedBranchId) {
-      pro.consumeBranchStock(
-        selectedBranchId,
-        invLines.map((line) => ({
-          productId: line.productId,
-          quantity: line.quantity,
-        })),
+    } catch (error) {
+      toast.error(
+        "تعذر حفظ الفاتورة",
+        error instanceof Error ? error.message : undefined,
       );
-    }
-
-    if (creditApplied > 0) {
-      applyCustomerCredit(customerId, inv.id, creditApplied);
+      return false;
     }
 
     const issuedNum = parseInt(inv.invoiceNumber.replace(/\D/g, ""), 10);
@@ -1205,7 +1225,7 @@ export function POSPage() {
         if (canAddReturn) setIsReturnLookupOpen(true);
       } else if (e.key === "F10") {
         e.preventDefault();
-        submitSale();
+        void submitSale();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -1237,9 +1257,9 @@ export function POSPage() {
         currency={settings.currency}
         total={invoiceNet}
         onClose={() => setDeliveryReviewOpen(false)}
-        onConfirm={() => {
+        onConfirm={async () => {
           try {
-            if (submitSale(true)) setDeliveryReviewOpen(false);
+            if (await submitSale(true)) setDeliveryReviewOpen(false);
           } catch (error) {
             toast.error(
               "تعذر إتمام الطلب",

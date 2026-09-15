@@ -37,8 +37,9 @@ import type {
   OfflineEmployeeTransaction,
   OfflineEmployeeTransactionType,
   CashierShift,
+  SalesCommitEffects,
 } from "../types";
-import { lsClearAll, lsGet, lsLoadCollection, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, reloadStorageCache, pruneStorageMemoryCache, lsAppend, lsRemoveWhere, lsCount, lsMigrateToOldestFirst, lsIsOldestFirst } from "../lib/storage";
+import { lsClearAll, lsGet, lsLoadCollection, lsRemove, lsSet, lsSetBatch, lsSetBatchAwait, lsCommitSaleAwait, reloadStorageCache, pruneStorageMemoryCache, lsAppend, lsRemoveWhere, lsCount, lsMigrateToOldestFirst, lsIsOldestFirst } from "../lib/storage";
 import { hashPassword, verifyFallbackPassword } from "../lib/auth";
 import { normalizeUser } from "../lib/permissions";
 import { FEATURES, isAllowedByLicense, isFeatureEnabled } from "../lib/features";
@@ -92,6 +93,7 @@ import { VehicleCatalogProvider } from "./VehicleCatalogContext";
 import { AutoPartsProProvider } from "./AutoPartsProContext";
 import { ShippingProvider } from "./ShippingContext";
 import { stateOwnedPersistenceEntries } from "./persistenceBoundaries";
+import { DEFAULT_BRANCHES, reconcileBranchStocks } from "./AutoPartsProContext";
 
 interface AppState {
   auth: AuthState;
@@ -200,8 +202,9 @@ interface AppActions {
 
   // Sales invoices
   addSalesInvoice: (
-    inv: Omit<SalesInvoice, "id" | "createdAt" | "status" | "remaining">
-  ) => SalesInvoice;
+    inv: Omit<SalesInvoice, "id" | "createdAt" | "status" | "remaining">,
+    effects?: SalesCommitEffects,
+  ) => Promise<SalesInvoice>;
   updateSalesInvoice: (
     id: string,
     patch: Omit<SalesInvoice, "id" | "createdAt" | "customerId" | "customerName" | "status" | "remaining">
@@ -260,8 +263,9 @@ interface AppActions {
       paymentDueDate?: string;
       driverId?: string;
       driverName?: string;
-    }
-  ) => SalesInvoice;
+    },
+    effects?: Omit<SalesCommitEffects, "quotationId">,
+  ) => Promise<SalesInvoice>;
   deleteQuotation: (id: string) => void;
 
   // Cashbox
@@ -742,6 +746,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // lets the shutdown handler skip its synchronous full-state write when
   // everything is already persisted.
   const unflushedChangesRef = useRef(false);
+  const saleCommitInFlightRef = useRef(false);
+  const saleDurabilityRef = useRef<Promise<boolean> | null>(null);
 
   // ── Stock-movement ledger ────────────────────────────────────────────
   //
@@ -874,6 +880,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // lost because win.destroy() kills the pending debounce timer outright.
   const flushPendingWritesNow = useCallback(async (): Promise<boolean> => {
     if (isDesktop && (!auth.isAuthenticated || !desktopStorageHydrated)) return true;
+    // The main-process transaction already owns checkout's write set. An
+    // older React snapshot must not replace it while IPC acknowledgment is
+    // pending. The action's earlier await publishes its committed live state
+    // before this continuation flushes any remaining non-sale changes.
+    if (saleDurabilityRef.current) await saleDurabilityRef.current;
     const s = liveStateRef.current;
     const ok = await lsSetBatchAwait({
       autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
@@ -1011,30 +1022,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const timer = window.setTimeout(() => {
       lsSetBatch({
         autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-        settings,
-        products,
-        suppliers,
-        customers,
-        purchaseInvoices,
-        salesInvoices,
-        // stockMovements is deliberately absent: the ledger is written
-        // directly by its own helpers, one chunk at a time. Including it here
-        // would flush the in-memory CACHE — empty on most launches — straight
-        // over the real ledger on disk.
-        cashEntries,
-        nextProductCode,
-        nextSupplierCode,
-        nextCustomerCode,
-        users,
-        salesReturns,
-        purchaseReturns,
-        drivers,
-        auditLogs,
-        quotations,
-        stocktakes,
-        offlineEmployees,
-        offlineTransactions,
-        shifts,
+        ...stateOwnedPersistenceEntries(liveStateRef.current),
       });
       unflushedChangesRef.current = false;
     }, 2000);
@@ -1985,7 +1973,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Sales invoices
-  const addSalesInvoice: AppActions["addSalesInvoice"] = (inv) => {
+  const addSalesInvoice: AppActions["addSalesInvoice"] = async (inv, effects) => {
+    // The invoicing slice may keep this action while only catalog data has
+    // changed. Compute the transaction from the latest committed store,
+    // rather than that slice's older render closure.
+    const { products, salesInvoices, cashEntries, auditLogs, shifts, quotations, settings } =
+      liveStateRef.current;
+    const currentUser = currentUserRef.current;
+    if (saleCommitInFlightRef.current) {
+      throw new Error("يوجد حفظ فاتورة مبيعات قيد التنفيذ");
+    }
     if (
       isDesktop &&
       requiresCreditSalesFeature(
@@ -2000,97 +1997,242 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ) {
       throw new Error("ميزة البيع الآجل غير مفعّلة في الترخيص الحالي");
     }
-    const normalizedPayment = normalizeInitialSalesPayment({
-      amountReceived: inv.amountReceived,
-      overpayment: inv.overpayment,
-      paymentType: inv.paymentType,
-      paymentMethod: inv.paymentMethod,
-      collectOnDelivery: inv.collectOnDelivery,
-    });
-    const id = uid("sal");
-    const status = computeStatus(inv.total, normalizedPayment.amountReceived);
-    const remaining = Math.max(
-      0,
-      inv.total - normalizedPayment.amountReceived,
-    );
-    const invoicePriceType = inv.priceType ?? "wholesale";
-    const enrichedLines = inv.lines.map((l) => {
-      const lineWithPriceType = {
-        ...l,
-        priceType: l.priceType ?? (l.isRetailUnit ? "retail" : invoicePriceType),
-      };
-      if (l.costPrice !== undefined) return lineWithPriceType;
-      const prod = products.find((p) => p.id === l.productId);
-      return prod ? { ...lineWithPriceType, costPrice: prod.avgCost ?? prod.purchasePrice } : lineWithPriceType;
-    });
-    const invoiceCashierId = inv.createdByUserId ?? currentUser?.id;
-    const currentShift = shifts.find(
-      (shift) => shift.status === "open" && shift.cashierId === invoiceCashierId,
-    );
-    const full: SalesInvoice = {
-      ...inv,
-      ...normalizedPayment,
-      lines: enrichedLines,
-      id,
-      priceType: invoicePriceType,
-      createdByUserId: inv.createdByUserId ?? currentUser?.id,
-      shiftId: inv.shiftId ?? currentShift?.id,
-      status,
-      remaining,
-      createdAt: new Date().toISOString(),
-    };
-    setSalesInvoices((list) => [full, ...list]);
-    logAudit("invoice_sale_created", `${full.invoiceNumber} — ${full.customerName}`, `الإجمالي: ${full.total}`);
 
-    // stock decrements
-    setProducts((list) =>
-      list.map((p) => {
-        const matchingLines = inv.lines.filter((x) => x.productId === p.id);
-        return applySalesLinesToProductStock(p, matchingLines, "deduct");
-      })
-    );
-    const movements: StockMovement[] = inv.lines.map((l, idx) => ({
-      id: uid(`mov_s_${idx}`),
-      productId: l.productId,
-      productName: l.productName,
-      type: "sale",
-      quantity: -l.quantity,
-      reason: `فاتورة مبيعات ${inv.invoiceNumber}`,
-      referenceId: id,
-      referenceType: "sale",
-      date: inv.date,
-    }));
-    appendStockMovements(movements);
-
-    const totalCashReceived =
-      full.amountReceived + (full.overpayment ?? 0);
-    if (totalCashReceived > 0) {
-      const ce: CashEntry = {
-        id: uid("cash_s"),
-        type: "sales-receipt",
-        amount: totalCashReceived,
-        description: `تحصيل فاتورة مبيعات ${inv.invoiceNumber} — ${inv.customerName}`,
-        referenceId: id,
-        date: inv.date,
-        paymentMethod: full.paymentMethod,
-      };
-      setCashEntries((list) => [attachCashEntryToActiveShift(ce), ...list]);
-    }
-    // Include overpayment in the initial log entry so the log reflects the full
-    // amount the customer actually paid at creation time, not just amountReceived.
-    const initPaid = full.amountReceived + (full.overpayment ?? 0);
-    if (initPaid > 0) {
-      const initEntry: import("../types").PaymentLogEntry = {
-        id: uid("slog"),
-        date: inv.date,
-        amount: initPaid,
-        paymentMethod: full.paymentMethod ?? "cash",
-      };
-      setSalesInvoices((list) =>
-        list.map((s) => s.id === id ? { ...s, paymentLog: [initEntry] } : s)
+    saleCommitInFlightRef.current = true;
+    try {
+      const normalizedPayment = normalizeInitialSalesPayment({
+        amountReceived: inv.amountReceived,
+        overpayment: inv.overpayment,
+        paymentType: inv.paymentType,
+        paymentMethod: inv.paymentMethod,
+        collectOnDelivery: inv.collectOnDelivery,
+      });
+      const id = effects?.invoiceId ?? uid("sal");
+      const status = computeStatus(inv.total, normalizedPayment.amountReceived);
+      const remaining = Math.max(
+        0,
+        inv.total - normalizedPayment.amountReceived,
       );
+      const invoicePriceType = inv.priceType ?? "wholesale";
+      const enrichedLines = inv.lines.map((l) => {
+        const lineWithPriceType = {
+          ...l,
+          priceType: l.priceType ?? (l.isRetailUnit ? "retail" : invoicePriceType),
+        };
+        if (l.costPrice !== undefined) return lineWithPriceType;
+        const prod = products.find((p) => p.id === l.productId);
+        return prod ? { ...lineWithPriceType, costPrice: prod.avgCost ?? prod.purchasePrice } : lineWithPriceType;
+      });
+      const invoiceCashierId = inv.createdByUserId ?? currentUser?.id;
+      const currentShift = shifts.find(
+        (shift) => shift.status === "open" && shift.cashierId === invoiceCashierId,
+      );
+      const createdAt = new Date().toISOString();
+      let full: SalesInvoice = {
+        ...inv,
+        ...normalizedPayment,
+        lines: enrichedLines,
+        id,
+        priceType: invoicePriceType,
+        createdByUserId: inv.createdByUserId ?? currentUser?.id,
+        shiftId: inv.shiftId ?? currentShift?.id,
+        status,
+        remaining,
+        createdAt,
+      };
+
+      const initPaid = full.amountReceived + (full.overpayment ?? 0);
+      if (initPaid > 0) {
+        full = {
+          ...full,
+          paymentLog: [{
+            id: uid("slog"),
+            date: inv.date,
+            amount: initPaid,
+            paymentMethod: full.paymentMethod ?? "cash",
+          }],
+        };
+      }
+
+      let nextSalesInvoices = [full, ...salesInvoices];
+      const credit = effects?.customerCredit;
+      if (credit && credit.amount > 0) {
+        const target = nextSalesInvoices.find(
+          (item) => item.id === id && item.customerId === credit.customerId,
+        );
+        const sources = nextSalesInvoices
+          .filter(
+            (item) =>
+              item.customerId === credit.customerId &&
+              item.id !== id &&
+              (item.overpayment ?? 0) > 0,
+          )
+          .sort((a, b) => b.date.localeCompare(a.date));
+        const availableCredit = sources.reduce(
+          (sum, item) => sum + (item.overpayment ?? 0),
+          0,
+        );
+        const amount = Math.min(
+          credit.amount,
+          target?.remaining ?? 0,
+          availableCredit,
+        );
+        if (target && amount > 0) {
+          const updates = new Map<string, Partial<SalesInvoice>>();
+          const amountReceived = target.amountReceived + amount;
+          updates.set(id, {
+            amountReceived,
+            remaining: Math.max(0, target.total - amountReceived),
+            status: computeStatus(target.total, amountReceived),
+            paymentLog: [
+              ...(target.paymentLog ?? []),
+              {
+                id: uid("slog_cr"),
+                date: todayISO(),
+                amount,
+                paymentMethod: "credit",
+                notes: "رصيد دائن مستخدم",
+              },
+            ],
+          });
+          let toReduce = amount;
+          for (const source of sources) {
+            if (toReduce <= 0) break;
+            const reduced = Math.min(toReduce, source.overpayment ?? 0);
+            updates.set(source.id, {
+              overpayment:
+                Math.max(0, (source.overpayment ?? 0) - reduced) || undefined,
+            });
+            toReduce -= reduced;
+          }
+          nextSalesInvoices = nextSalesInvoices.map((item) => {
+            const patch = updates.get(item.id);
+            return patch ? { ...item, ...patch } : item;
+          });
+          full = nextSalesInvoices.find((item) => item.id === id)!;
+        }
+      }
+
+      const nextProducts = products.map((product) => {
+        const matchingLines = inv.lines.filter(
+          (line) => line.productId === product.id,
+        );
+        return applySalesLinesToProductStock(product, matchingLines, "deduct");
+      });
+      const movements: StockMovement[] = inv.lines.map((line, index) => ({
+        id: uid(`mov_s_${index}`),
+        productId: line.productId,
+        productName: line.productName,
+        type: "sale",
+        quantity: -line.quantity,
+        reason: `فاتورة مبيعات ${inv.invoiceNumber}`,
+        referenceId: id,
+        referenceType: "sale",
+        date: inv.date,
+      }));
+
+      let nextCashEntries = cashEntries;
+      // Credit applied above settles debt; only the original payment is cash.
+      const totalCashReceived = initPaid;
+      if (totalCashReceived > 0) {
+        const cashShift = shifts.find(
+          (shift) => shift.status === "open" && shift.cashierId === currentUser?.id,
+        );
+        const cashEntry: CashEntry = {
+          id: uid("cash_s"),
+          type: "sales-receipt",
+          amount: totalCashReceived,
+          description: `تحصيل فاتورة مبيعات ${inv.invoiceNumber} — ${inv.customerName}`,
+          referenceId: id,
+          date: inv.date,
+          paymentMethod: full.paymentMethod,
+          createdByUserId: currentUser?.id,
+          shiftId: cashShift?.id,
+          createdAt,
+        };
+        nextCashEntries = [cashEntry, ...cashEntries];
+      }
+
+      const auditEntries: AuditLog[] = [];
+      const auditUser = currentUserRef.current;
+      if (auditUser) {
+        if (effects?.deliveryOrders?.[0]?.invoiceId === id) {
+          const order = effects.deliveryOrders[0];
+          auditEntries.push({
+            id: uid("audit"),
+            action: "invoice_sale_updated",
+            entityLabel: inv.invoiceNumber,
+            userId: auditUser.id,
+            userName: auditUser.name,
+            timestamp: createdAt,
+            details: `إنشاء أمر توصيل ${order.orderNumber}`,
+          });
+        }
+        auditEntries.push({
+          id: uid("audit"),
+          action: "invoice_sale_created",
+          entityLabel: `${full.invoiceNumber} — ${full.customerName}`,
+          userId: auditUser.id,
+          userName: auditUser.name,
+          timestamp: createdAt,
+          details: `الإجمالي: ${full.total}`,
+        });
+      }
+      const nextAuditLogs = [...auditEntries, ...auditLogs].slice(0, 1000);
+      const nextQuotations = effects?.quotationId
+        ? quotations.map((quotation) =>
+            quotation.id === effects.quotationId
+              ? { ...quotation, status: "converted" as const, convertedInvoiceId: id }
+              : quotation,
+          )
+        : quotations;
+
+      const persistence: Record<string, unknown> = {
+        salesInvoices: nextSalesInvoices,
+        products: nextProducts,
+        cashEntries: nextCashEntries,
+        auditLogs: nextAuditLogs,
+        // Invoice forms without an explicit branch consume the default
+        // allocation in this same transaction, rather than relying on the
+        // Pro provider's later reconciliation/persistence effect.
+        branchStocks: effects?.branchStocks ?? reconcileBranchStocks(
+          lsGet("branchStocks", []),
+          nextProducts,
+          lsGet("branches", DEFAULT_BRANCHES),
+        ),
+      };
+      if (effects?.deliveryOrders) persistence.deliveryOrders = effects.deliveryOrders;
+      if (effects?.quotationId) persistence.quotations = nextQuotations;
+
+      const durability = lsCommitSaleAwait(persistence, movements);
+      saleDurabilityRef.current = durability;
+      const committed = await durability;
+      if (!committed) {
+        throw new Error("تعذر حفظ فاتورة المبيعات كاملة. لم يتم تنفيذ أي جزء منها.");
+      }
+
+      setSalesInvoices(nextSalesInvoices);
+      liveStateRef.current = {
+        ...liveStateRef.current,
+        salesInvoices: nextSalesInvoices,
+        products: nextProducts,
+        cashEntries: nextCashEntries,
+        auditLogs: nextAuditLogs,
+        quotations: nextQuotations,
+      };
+      setProducts(nextProducts);
+      setCashEntries(nextCashEntries);
+      setAuditLogs(nextAuditLogs);
+      if (effects?.quotationId) setQuotations(nextQuotations);
+      setStockMovements((list) =>
+        list.length > 0 ? [...movements.slice().reverse(), ...list] : list,
+      );
+      window.dispatchEvent(new Event("autoparts:sale-committed"));
+      return full;
+    } finally {
+      saleCommitInFlightRef.current = false;
+      saleDurabilityRef.current = null;
     }
-    return full;
   };
   const recordSalesReceipt: AppActions["recordSalesReceipt"] = (id, amount, paymentMethod, notes) => {
     if (amount <= 0) return;
@@ -2835,7 +2977,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit("quotation_deleted", name);
   };
 
-  const convertQuotation: AppActions["convertQuotation"] = (quotationId, opts) => {
+  const convertQuotation: AppActions["convertQuotation"] = async (quotationId, opts, effects) => {
+    const { quotations, products } = liveStateRef.current;
     const quot = quotations.find((q) => q.id === quotationId);
     if (!quot) throw new Error("Quotation not found");
     if (quot.status === "converted") throw new Error("Quotation already converted");
@@ -2869,7 +3012,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       throw new Error(`المخزون غير كافٍ — ${shortages.join(" • ")}`);
     }
     const conversion = quotationConversionFields(quot, opts.amountReceived);
-    const inv = addSalesInvoice({
+    return addSalesInvoice({
       invoiceNumber: opts.invoiceNumber,
       date: opts.date,
       customerId: quot.customerId,
@@ -2892,13 +3035,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       paymentDueDate: opts.paymentDueDate,
       notes: quot.notes,
       createdByUserId: undefined,
-    });
-    setQuotations((list) =>
-      list.map((q) =>
-        q.id === quotationId ? { ...q, status: "converted", convertedInvoiceId: inv.id } : q
-      )
-    );
-    return inv;
+    }, { ...effects, quotationId });
   };
 
   // Cashbox

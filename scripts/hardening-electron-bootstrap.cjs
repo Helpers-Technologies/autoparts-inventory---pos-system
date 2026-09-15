@@ -16,8 +16,9 @@ const blocked = [];
 const persistenceTrace = [];
 const originalHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, listener) => originalHandle(channel, async (event, ...args) => {
-  if (channel === 'storage:set-batch') {
-    persistenceTrace.push({ at: new Date().toISOString(), keys: Object.keys(args[0] || {}) });
+  if (channel === 'storage:set-batch' || channel === 'sales:commit') {
+    persistenceTrace.push({ channel, at: new Date().toISOString(), keys: Object.keys(args[0] || {}) });
+    fs.writeFileSync(path.join(path.dirname(dbPath), 'persistence-trace.json'), JSON.stringify(persistenceTrace, null, 2));
   }
   return listener(event, ...args);
 });

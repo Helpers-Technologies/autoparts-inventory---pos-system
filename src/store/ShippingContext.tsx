@@ -234,6 +234,37 @@ function eventFor(
   };
 }
 
+export function prepareDeliveryOrder(
+  input: CreateDeliveryOrderInput,
+  existingOrderCount: number,
+  timestamp = new Date().toISOString(),
+): DeliveryOrder {
+  return {
+    ...input,
+    id: input.id ?? uid("delivery"),
+    orderNumber: `DLV-${String(existingOrderCount + 1).padStart(5, "0")}`,
+    packageType: input.packageType ?? "SMALL",
+    status:
+      input.method === "branch_driver" && input.driverId ? "assigned" : "ready",
+    events: [
+      {
+        ...eventFor(
+          input.method === "branch_driver" && input.driverId
+            ? "assigned"
+            : "ready",
+          input.method === "branch_driver" && input.driverId
+            ? "تم تعيين سائق الفرع"
+            : "أمر التوصيل جاهز",
+          "system",
+        ),
+        occurredAt: timestamp,
+      },
+    ],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 function externalValue(payload: unknown, paths: string[]): string | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   for (const path of paths) {
@@ -291,7 +322,9 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
     );
     setProviders(withMissingDefaults(storedProviders));
     setRates(lsGet("shippingRates", []));
-    setOrders(lsGet("deliveryOrders", []));
+    const storedOrders = lsGet<DeliveryOrder[]>("deliveryOrders", []);
+    ordersRef.current = storedOrders;
+    setOrders(storedOrders);
   }, []);
 
   useEffect(() => {
@@ -313,17 +346,23 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
     lsSetBatch({
       shippingProviders: providers,
       shippingRates: rates,
-      deliveryOrders: orders,
+      deliveryOrders: ordersRef.current,
     });
   }, [auth.isAuthenticated, authenticatedIdentity, hydratedIdentity, isDesktop, providers, rates, orders]);
 
   useEffect(() => {
     window.addEventListener("autoparts:pro-data-restored", reloadShippingData);
-    return () =>
+    window.addEventListener("autoparts:sale-committed", reloadShippingData);
+    return () => {
       window.removeEventListener(
         "autoparts:pro-data-restored",
         reloadShippingData,
       );
+      window.removeEventListener(
+        "autoparts:sale-committed",
+        reloadShippingData,
+      );
+    };
   }, [reloadShippingData]);
 
   const addProvider = useCallback(
@@ -398,29 +437,7 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
   const createDeliveryOrder = useCallback(
     (input: CreateDeliveryOrderInput) => {
       const timestamp = new Date().toISOString();
-      const order: DeliveryOrder = {
-        ...input,
-        id: input.id ?? uid("delivery"),
-        orderNumber: `DLV-${String(orders.length + 1).padStart(5, "0")}`,
-        packageType: input.packageType ?? "SMALL",
-        status:
-          input.method === "branch_driver" && input.driverId
-            ? "assigned"
-            : "ready",
-        events: [
-          eventFor(
-            input.method === "branch_driver" && input.driverId
-              ? "assigned"
-              : "ready",
-            input.method === "branch_driver" && input.driverId
-              ? "تم تعيين سائق الفرع"
-              : "أمر التوصيل جاهز",
-            "system",
-          ),
-        ],
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
+      const order = prepareDeliveryOrder(input, orders.length, timestamp);
       setOrders((items) => [
         order,
         ...items.filter((item) => item.id !== order.id),

@@ -5389,6 +5389,83 @@ function registerIpc() {
     }
   });
 
+  // A completed sale is one durable business operation. The renderer prepares
+  // the physical rows for the invoice, stock, cash, audit, branch/shipping and
+  // stock-ledger collections; this handler validates that narrow write set and
+  // commits every row in one SQLCipher transaction before the UI reports
+  // success. Throwing anywhere inside better-sqlite3's transaction rolls the
+  // whole operation back.
+  const SALE_COMMIT_PREFIXES = [
+    `${STORE_PREFIX}salesInvoices`,
+    `${STORE_PREFIX}products`,
+    `${STORE_PREFIX}cashEntries`,
+    `${STORE_PREFIX}auditLogs`,
+    `${STORE_PREFIX}stockMovements`,
+    `${STORE_PREFIX}branchStocks`,
+    `${STORE_PREFIX}deliveryOrders`,
+    `${STORE_PREFIX}quotations`,
+  ];
+  ipcMain.handle("sales:commit", (event, entries) => {
+    if (!sessionCanMutateModule(event, "salesInvoices", "add")) return false;
+    if (!entries || typeof entries !== "object") return false;
+    const rows = Object.entries(entries);
+    if (rows.length === 0) return false;
+    if (
+      ["salesInvoices", "products", "cashEntries", "auditLogs"].some(
+        (name) => !Object.hasOwn(entries, `${STORE_PREFIX}${name}#meta`),
+      )
+    ) return false;
+    if (
+      rows.some(
+        ([key, value]) =>
+          typeof value !== "string" ||
+          !SALE_COMMIT_PREFIXES.some(
+            (prefix) => key === prefix || key.startsWith(`${prefix}#`),
+          ) ||
+          !isRendererStorageKey(key) ||
+          !canMutateRendererStorage(event, key),
+      )
+    ) {
+      return false;
+    }
+    try {
+      for (const [, value] of rows) JSON.parse(value);
+      const failAfter = Number.parseInt(
+        process.env.HW_E2E === "1"
+          ? process.env.PARTFLOW_HARDENING_FAIL_SALE_COMMIT_AFTER_WRITES || "0"
+          : "0",
+        10,
+      );
+      const failCollection = process.env.HW_E2E === "1"
+        ? process.env.PARTFLOW_HARDENING_FAIL_SALE_COMMIT_AFTER_COLLECTION
+        : undefined;
+      let writes = 0;
+      const tx = openDatabase().transaction(() => {
+        for (const [key, value] of rows) {
+          getStmtSet().run(
+            String(key),
+            normalizeRendererStorageValue(key, value),
+            new Date().toISOString(),
+          );
+          writes += 1;
+          if (
+            (failAfter > 0 && writes >= failAfter) ||
+            (failCollection && (
+              key === `${STORE_PREFIX}${failCollection}` ||
+              key.startsWith(`${STORE_PREFIX}${failCollection}#`)
+            ))
+          ) {
+            throw new Error("Injected sale commit failure");
+          }
+        }
+      });
+      tx();
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   ipcMain.handle("storage:export", (event) => {
     if (!hasOwnerSession(event)) {
       return { version: 1, timestamp: new Date().toISOString(), rows: [] };

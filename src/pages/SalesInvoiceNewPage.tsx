@@ -41,7 +41,7 @@ import {
   type DeliveryDraft,
 } from "../features/shipping/DeliveryConfigurator";
 import { DeliveryReviewDialog } from "../features/shipping/DeliveryReviewDialog";
-import { BOSTA_PROVIDER_ID, useShipping } from "../store/ShippingContext";
+import { BOSTA_PROVIDER_ID, prepareDeliveryOrder, useShipping } from "../store/ShippingContext";
 
 interface LineDraft {
   id: string;
@@ -162,9 +162,8 @@ export function SalesInvoiceNewPage() {
     () => allCustomers.filter((c) => !c.archived),
     [allCustomers],
   );
-  const { salesInvoices, addSalesInvoice, applyCustomerCredit } =
-    useInvoicing();
-  const { createDeliveryOrder } = useShipping();
+  const { salesInvoices, addSalesInvoice } = useInvoicing();
+  const { orders: deliveryOrders } = useShipping();
   const { settings } = useSettings();
   const pro = useAutoPartsPro();
   const vehicleCatalog = useVehicleCatalog();
@@ -495,7 +494,7 @@ export function SalesInvoiceNewPage() {
     setLines((arr) => arr.filter((l) => l.id !== id));
   }
 
-  function submit(confirmedDelivery = false) {
+  async function submit(confirmedDelivery = false) {
     if (!customerId) {
       toast.error("اختر العميل");
       return;
@@ -653,68 +652,87 @@ export function SalesInvoiceNewPage() {
       : Math.max(0, amountReceived - invoiceNet);
     const deliveryOrderId =
       delivery.method === "pickup" ? undefined : uid("delivery");
+    const invoiceId = uid("sal");
+    const deliveryOrder =
+      deliveryOrderId && delivery.address && delivery.method !== "pickup"
+        ? prepareDeliveryOrder(
+            {
+              id: deliveryOrderId,
+              invoiceId,
+              invoiceNumber,
+              customerId: customer.id,
+              customerName: customer.name,
+              method: delivery.method,
+              address: delivery.address,
+              shippingFee: delivery.shippingFee,
+              codAmount: delivery.collectOnDelivery ? invoiceNet : 0,
+              driverId: delivery.driverId,
+              driverName: delivery.driverName,
+              providerId: delivery.providerId,
+              providerName: delivery.providerName,
+              packageType: delivery.packageType,
+              itemsCount: invLines.reduce((sum, line) => sum + line.quantity, 0),
+              allowOpenPackage: delivery.allowOpenPackage,
+              notes:
+                delivery.shippingNotes?.trim() || notes.trim() || undefined,
+            },
+            deliveryOrders.length,
+          )
+        : undefined;
 
-    const inv = addSalesInvoice({
-      invoiceNumber,
-      date,
-      customerId,
-      customerName: customer.name,
-      driverId: delivery.driverId || driverId || undefined,
-      driverName:
-        delivery.driverName ||
-        (driverId ? drivers.find((d) => d.id === driverId)?.name : undefined),
-      deliveryMethod: delivery.method,
-      deliveryAddress: delivery.address,
-      shippingProviderId: delivery.providerId,
-      shippingProviderName: delivery.providerName,
-      shippingFee: delivery.shippingFee || undefined,
-      deliveryOrderId,
-      collectOnDelivery: delivery.collectOnDelivery || undefined,
-      lines: invLines,
-      total: invoiceNet,
-      discount: discount > 0 ? discount : undefined,
-      amountReceived: actualCashReceived,
-      overpayment: cashOverpayment > 0 ? cashOverpayment : undefined,
-      paymentType: effectivePaymentType,
-      paymentMethod,
-      paymentMethodLabel:
-        paymentMethod === "other" && paymentMethodLabel.trim()
-          ? paymentMethodLabel.trim()
-          : undefined,
-      priceType: aggregateSalesPriceType(invLines),
-      paymentDueDate: effectiveDueDate,
-      customerVehicleId: selectedVehicle?.id,
-      vehicleLabel: selectedVehicle
-        ? vehicleDisplayName(selectedVehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels)
-        : undefined,
-      notes: notes.trim() || undefined,
-    });
-
-    if (deliveryOrderId && delivery.address && delivery.method !== "pickup") {
-      createDeliveryOrder({
-        id: deliveryOrderId,
-        invoiceId: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        customerId: customer.id,
+    let inv;
+    try {
+      inv = await addSalesInvoice({
+        invoiceNumber,
+        date,
+        customerId,
         customerName: customer.name,
-        method: delivery.method,
-        address: delivery.address,
-        shippingFee: delivery.shippingFee,
-        codAmount: delivery.collectOnDelivery ? invoiceNet : 0,
-        driverId: delivery.driverId,
-        driverName: delivery.driverName,
-        providerId: delivery.providerId,
-        providerName: delivery.providerName,
-        packageType: delivery.packageType,
-        itemsCount: invLines.reduce((sum, line) => sum + line.quantity, 0),
-        allowOpenPackage: delivery.allowOpenPackage,
-        notes:
-          delivery.shippingNotes?.trim() || notes.trim() || undefined,
+        driverId: delivery.driverId || driverId || undefined,
+        driverName:
+          delivery.driverName ||
+          (driverId ? drivers.find((d) => d.id === driverId)?.name : undefined),
+        deliveryMethod: delivery.method,
+        deliveryAddress: delivery.address,
+        shippingProviderId: delivery.providerId,
+        shippingProviderName: delivery.providerName,
+        shippingFee: delivery.shippingFee || undefined,
+        deliveryOrderId,
+        collectOnDelivery: delivery.collectOnDelivery || undefined,
+        lines: invLines,
+        total: invoiceNet,
+        discount: discount > 0 ? discount : undefined,
+        amountReceived: actualCashReceived,
+        overpayment: cashOverpayment > 0 ? cashOverpayment : undefined,
+        paymentType: effectivePaymentType,
+        paymentMethod,
+        paymentMethodLabel:
+          paymentMethod === "other" && paymentMethodLabel.trim()
+            ? paymentMethodLabel.trim()
+            : undefined,
+        priceType: aggregateSalesPriceType(invLines),
+        paymentDueDate: effectiveDueDate,
+        customerVehicleId: selectedVehicle?.id,
+        vehicleLabel: selectedVehicle
+          ? vehicleDisplayName(selectedVehicle, vehicleCatalog.vehicleMakes, vehicleCatalog.vehicleModels)
+          : undefined,
+        notes: notes.trim() || undefined,
+      }, {
+        invoiceId,
+        deliveryOrders: deliveryOrder
+          ? [
+              deliveryOrder,
+              ...deliveryOrders.filter((item) => item.id !== deliveryOrder.id),
+            ]
+          : undefined,
+        customerCredit:
+          creditApplied > 0 ? { customerId, amount: creditApplied } : undefined,
       });
-    }
-
-    if (creditApplied > 0) {
-      applyCustomerCredit(customerId, inv.id, creditApplied);
+    } catch (error) {
+      toast.error(
+        "تعذر حفظ الفاتورة",
+        error instanceof Error ? error.message : undefined,
+      );
+      return false;
     }
 
     const issuedNum = parseInt(inv.invoiceNumber.replace(/\D/g, ""), 10);
@@ -746,9 +764,9 @@ export function SalesInvoiceNewPage() {
         currency={settings.currency}
         total={invoiceNet}
         onClose={() => setDeliveryReviewOpen(false)}
-        onConfirm={() => {
+        onConfirm={async () => {
           try {
-            if (submit(true)) setDeliveryReviewOpen(false);
+            if (await submit(true)) setDeliveryReviewOpen(false);
           } catch (error) {
             toast.error(
               "تعذر إتمام الطلب",

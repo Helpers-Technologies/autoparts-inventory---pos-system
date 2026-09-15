@@ -31,6 +31,12 @@ function makeDesktop() {
           for (const [k, v] of Object.entries(batch)) rows.set(k, v);
           return true;
         },
+        commitSale: async (batch: Record<string, string>) => {
+          // This is the dedicated main-process sale transaction.
+          if (rejectKey && Object.keys(batch).some((k) => k === rejectKey)) return false;
+          for (const [k, v] of Object.entries(batch)) rows.set(k, v);
+          return true;
+        },
         remove: (key: string) => { rows.delete(key); return true; },
         clearPrefix: () => true,
       },
@@ -448,5 +454,84 @@ describe("the durable flush used on quit and restore", () => {
     desktop.rejectWritesTo(`${PREFIX}salesInvoices#meta`);
     const ok = await storage.lsSetBatchAwait({ salesInvoices: invoices(600) });
     expect(ok).toBe(false);
+  });
+});
+
+describe("the durable sale boundary", () => {
+  it("refuses to replace a historical ledger whose manifest is missing", async () => {
+    desktop.rows.set(`${PREFIX}stockMovements`, TOMBSTONE);
+    desktop.rows.set(`${PREFIX}stockMovements#0000`, JSON.stringify([
+      { id: "historical-movement", date: "2026-09-14" },
+    ]));
+    const before = new Map(desktop.rows);
+    expect(await storage.lsCommitSaleAwait(
+      { salesInvoices: [], products: [], cashEntries: [], auditLogs: [] },
+      [{ id: "new-movement", date: "2026-09-15" }],
+    )).toBe(false);
+    expect(desktop.rows).toEqual(before);
+  });
+
+  it("blocks a stale timer batch while sale commit acknowledgment is pending", async () => {
+    const before = [{ id: "sale-before", total: 10 }];
+    storage.lsSetBatch({ salesInvoices: before, stockMovements: [] });
+    let acknowledge: ((committed: boolean) => void) | undefined;
+    const next = [{ id: "sale-after", total: 20 }, ...before];
+    desktop.api.storage.commitSale = async (rows) => {
+      for (const [key, value] of Object.entries(rows)) desktop.rows.set(key, value);
+      return new Promise<boolean>((resolve) => { acknowledge = resolve; });
+    };
+    const committing = storage.lsCommitSaleAwait(
+      { salesInvoices: next, products: [], cashEntries: [], auditLogs: [] },
+      [{ id: "mov-1", date: "2026-09-15" }],
+    );
+    storage.lsSetBatch({ salesInvoices: before });
+    expect(JSON.parse(desktop.rows.get(`${PREFIX}salesInvoices#0000`)!))
+      .toEqual(next);
+    expect(acknowledge).toBeDefined();
+    acknowledge!(true);
+    expect(await committing).toBe(true);
+    expect(storage.lsGet("salesInvoices", [])).toEqual(next);
+  });
+
+  it("commits invoice, stock, cash and ledger append together", async () => {
+    const sale = [{ id: "sale-1", total: 50 }];
+    const products = [{ id: "p-1", quantity: 9 }];
+    const cash = [{ id: "cash-1", amount: 50 }];
+    const movement = { id: "mov-1", productId: "p-1", date: "2026-09-15" };
+
+    const ok = await storage.lsCommitSaleAwait(
+      { salesInvoices: sale, products, cashEntries: cash, auditLogs: [] },
+      [movement],
+    );
+
+    expect(ok).toBe(true);
+    expect(storage.lsGet("salesInvoices", [])).toEqual(sale);
+    expect(storage.lsGet("products", [])).toEqual(products);
+    expect(storage.lsGet("cashEntries", [])).toEqual(cash);
+    expect(JSON.parse(desktop.rows.get(`${PREFIX}stockMovements#meta`)!))
+      .toMatchObject({ total: 1 });
+    expect(JSON.parse(desktop.rows.get(`${PREFIX}stockMovements#0000`)!))
+      .toEqual([movement]);
+  });
+
+  it("leaves disk and renderer cache unchanged when the transaction rejects", async () => {
+    const before = [{ id: "sale-before", total: 10 }];
+    storage.lsSetBatch({ salesInvoices: before, stockMovements: [] });
+    const diskBefore = new Map(desktop.rows);
+    desktop.rejectWritesTo(`${PREFIX}cashEntries#meta`);
+
+    const ok = await storage.lsCommitSaleAwait(
+      {
+        salesInvoices: [{ id: "sale-after", total: 20 }, ...before],
+        products: [{ id: "p-1", quantity: 8 }],
+        cashEntries: [{ id: "cash-1", amount: 20 }],
+        auditLogs: [],
+      },
+      [{ id: "mov-rejected", productId: "p-1", date: "2026-09-15" }],
+    );
+
+    expect(ok).toBe(false);
+    expect(desktop.rows).toEqual(diskBefore);
+    expect(storage.lsGet("salesInvoices", [])).toEqual(before);
   });
 });

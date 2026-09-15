@@ -497,6 +497,7 @@ declare global {
         /** Every row of one collection, for those held back from getBatch. */
         getCollection?: (name: string) => Promise<Record<string, string>>;
         setBatch: (entries: Record<string, string>) => Promise<boolean>;
+        commitSale: (entries: Record<string, string>) => Promise<boolean>;
       };
       backup: {
         writeFile: (

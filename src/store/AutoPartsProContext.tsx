@@ -198,6 +198,33 @@ export interface AutoPartsProContextValue {
   reloadProData: () => void;
 }
 
+export function branchStocksAfterSale(
+  rows: BranchStock[],
+  branchId: string,
+  lines: Array<{ productId: string; quantity: number }>,
+  updatedAt = new Date().toISOString(),
+): BranchStock[] {
+  const soldByProduct = new Map<string, number>();
+  for (const line of lines) {
+    soldByProduct.set(
+      line.productId,
+      (soldByProduct.get(line.productId) ?? 0) + line.quantity,
+    );
+  }
+  return rows.map((row) =>
+    row.branchId === branchId && soldByProduct.has(row.productId)
+      ? {
+          ...row,
+          quantity: Math.max(
+            0,
+            row.quantity - soldByProduct.get(row.productId)!,
+          ),
+          updatedAt,
+        }
+      : row,
+  );
+}
+
 const AutoPartsProContext = createContext<AutoPartsProContextValue | null>(null);
 
 export function AutoPartsProProvider({ children }: { children: ReactNode }) {
@@ -215,6 +242,8 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   const [warrantyClaims, setWarrantyClaims] = useState<WarrantyClaim[]>(() => lsGet("warrantyClaims", []));
   const [branches, setBranches] = useState<Branch[]>(() => lsGet("branches", DEFAULT_BRANCHES));
   const [branchStocks, setBranchStocks] = useState<BranchStock[]>(() => lsGet("branchStocks", initialBranchStocks(products)));
+  const branchStocksRef = useRef(branchStocks);
+  useEffect(() => { branchStocksRef.current = branchStocks; }, [branchStocks]);
   const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>(() => lsGet("stockTransfers", []));
   const [priceTiers, setPriceTiers] = useState<PriceTier[]>(() => lsGet("priceTiers", DEFAULT_PRICE_TIERS));
   // Hard execution lock for transferStock — a double-click fires two calls
@@ -237,7 +266,9 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     setCustomerVehicles(lsGet("customerVehicles", []));
     setWarrantyClaims(lsGet("warrantyClaims", []));
     setBranches(storedBranches.length ? storedBranches : DEFAULT_BRANCHES);
-    setBranchStocks(lsGet("branchStocks", initialBranchStocks(productsRef.current)));
+    const storedBranchStocks = lsGet("branchStocks", initialBranchStocks(productsRef.current));
+    branchStocksRef.current = storedBranchStocks;
+    setBranchStocks(storedBranchStocks);
     setStockTransfers(lsGet("stockTransfers", []));
     setPriceTiers(lsGet("priceTiers", DEFAULT_PRICE_TIERS));
   }, []);
@@ -263,14 +294,18 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isDesktop && hydratedIdentity !== authenticatedIdentity) return;
     const timer = window.setTimeout(() => {
-      lsSetBatch({ customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers });
+      lsSetBatch({ customerVehicles, warrantyClaims, branches, branchStocks: branchStocksRef.current, stockTransfers, priceTiers });
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [auth.isAuthenticated, authenticatedIdentity, hydratedIdentity, isDesktop, customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers]);
 
   useEffect(() => {
     window.addEventListener("autoparts:pro-data-restored", reloadProData);
-    return () => window.removeEventListener("autoparts:pro-data-restored", reloadProData);
+    window.addEventListener("autoparts:sale-committed", reloadProData);
+    return () => {
+      window.removeEventListener("autoparts:pro-data-restored", reloadProData);
+      window.removeEventListener("autoparts:sale-committed", reloadProData);
+    };
   }, [reloadProData]);
 
   const addCustomerVehicle = useCallback((input: NewCustomerVehicle) => {
@@ -380,12 +415,7 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   }, [branchStocks, stockTransfers.length, logAudit]);
 
   const consumeBranchStock = useCallback((branchId: string, lines: Array<{ productId: string; quantity: number }>) => {
-    const soldByProduct = new Map<string, number>();
-    for (const line of lines) soldByProduct.set(line.productId, (soldByProduct.get(line.productId) ?? 0) + line.quantity);
-    const now = new Date().toISOString();
-    setBranchStocks((rows) => rows.map((row) => row.branchId === branchId && soldByProduct.has(row.productId)
-      ? { ...row, quantity: Math.max(0, row.quantity - soldByProduct.get(row.productId)!), updatedAt: now }
-      : row));
+    setBranchStocks((rows) => branchStocksAfterSale(rows, branchId, lines));
   }, []);
 
   // Routes incoming purchase-invoice stock to the branch that actually

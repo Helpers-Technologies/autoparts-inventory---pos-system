@@ -146,6 +146,7 @@ contextBridge.exposeInMainWorld("desktopAPI", {
     // the startup payload.
     getCollection: (name) => ipcRenderer.invoke("storage:get-collection", name),
     setBatch: (entries) => ipcRenderer.invoke("storage:set-batch", entries),
+    commitSale: (entries) => ipcRenderer.invoke("sales:commit", entries),
   },
   backup: {
     writeFile: (dir, fileName, content, passphrase) =>

@@ -423,6 +423,18 @@ export interface SalesInvoice {
   createdAt: string;
 }
 
+export interface SalesCommitEffects {
+  /** Preallocated so related rows can reference the invoice in the same commit. */
+  invoiceId?: ID;
+  /** Fully derived branch rows after the sale. */
+  branchStocks?: BranchStock[];
+  /** Fully derived delivery-order rows after the sale. */
+  deliveryOrders?: DeliveryOrder[];
+  customerCredit?: { customerId: ID; amount: number };
+  /** Set when the sale converts an existing quotation. */
+  quotationId?: ID;
+}
+
 export type DeliveryMethod = "pickup" | "branch_driver" | "shipping_company";
 
 export interface CustomerAddressSnapshot {

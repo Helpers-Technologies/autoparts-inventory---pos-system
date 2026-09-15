@@ -723,6 +723,7 @@ const _lastChunkCount = new Map<string, number>();
  *  identity instead of by re-serializing it. Holds references to objects the
  *  app already has in state, so it costs one pointer per record, not a copy. */
 const _lastArray = new Map<string, readonly unknown[]>();
+const _pendingBusinessKeys = new Set<string>();
 
 /**
  * True when the chunk at [start,end) would serialize to exactly what is already
@@ -828,6 +829,9 @@ export function lsSetBatch(entries: Record<string, unknown>): void {
   const batch: Record<string, string> = {};
   let changeCount = 0;
   for (const [key, value] of Object.entries(entries)) {
+    // A timer prepared before checkout must not enqueue an old snapshot
+    // while a durable business transaction is awaiting its acknowledgment.
+    if (_pendingBusinessKeys.has(key)) continue;
     const fullKey = PREFIX + key;
     // Skip keys whose object reference hasn't changed since last flush
     if (_lastFlushedRef.get(key) === value) continue;
@@ -944,6 +948,175 @@ export async function lsSetBatchAwait(entries: Record<string, unknown>): Promise
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Persists every row that makes up one completed sale in a single desktop
+ * transaction. Collection rows are prepared without touching the optimistic
+ * cache; the cache advances only after the main process acknowledges commit.
+ * That keeps a rejected sale invisible both after restart and in the current
+ * renderer.
+ */
+export async function lsCommitSaleAwait<T extends ChronologicalRecord>(
+  entries: Record<string, unknown>,
+  stockMovementsToAppend: readonly T[],
+): Promise<boolean> {
+  const rows: Record<string, string> = {};
+  const entryArrays = new Map<string, readonly unknown[]>();
+  let appendedChunkCount: number | null = null;
+
+  try {
+    for (const [key, value] of Object.entries(entries)) {
+      if (!CHUNKED_KEYS.has(key) || !Array.isArray(value)) {
+        rows[PREFIX + key] = JSON.stringify(value);
+        continue;
+      }
+
+      const chunks = Math.ceil(value.length / CHUNK_SIZE);
+      for (let i = 0; i < chunks; i++) {
+        rows[chunkKey(key, i)] = JSON.stringify(
+          value.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE),
+        );
+      }
+      rows[metaKey(key)] = JSON.stringify({
+        chunks,
+        size: CHUNK_SIZE,
+        total: value.length,
+      });
+      rows[PREFIX + key] = CHUNKED_TOMBSTONE;
+      const previousChunks = Math.max(_lastChunkCount.get(key) ?? 0, chunks);
+      for (let i = chunks; i < previousChunks; i++) {
+        rows[chunkKey(key, i)] = "[]";
+      }
+      entryArrays.set(key, value);
+    }
+
+    if (stockMovementsToAppend.length > 0) {
+      const key = "stockMovements";
+      const legacy = readRow(PREFIX + key);
+      if (legacy !== null && legacy !== CHUNKED_TOMBSTONE) {
+        const parsed = JSON.parse(legacy);
+        if (!Array.isArray(parsed)) return false;
+        const all = [...parsed, ...stockMovementsToAppend].sort(
+          compareOldestFirstByDateAndId,
+        );
+        const chunks = Math.ceil(all.length / CHUNK_SIZE);
+        for (let i = 0; i < chunks; i++) {
+          rows[chunkKey(key, i)] = JSON.stringify(
+            all.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE),
+          );
+        }
+        rows[metaKey(key)] = JSON.stringify({
+          chunks,
+          size: CHUNK_SIZE,
+          total: all.length,
+        });
+        rows[PREFIX + key] = CHUNKED_TOMBSTONE;
+        rows[`${PREFIX}${key}#order`] = ORDER_OLDEST_FIRST;
+        appendedChunkCount = chunks;
+      } else {
+        const rawMeta = readRow(metaKey(key));
+        if (rawMeta === null) {
+          // A tombstone says historical chunks are authoritative. A missing
+          // manifest is corruption, never permission to replace that history
+          // with a new empty ledger.
+          if (legacy === CHUNKED_TOMBSTONE) return false;
+          // Brand-new shops have no ledger rows yet. Establish the empty
+          // chunked representation and the first append inside this sale's
+          // transaction instead of requiring a separate initialization write.
+          const all = [...stockMovementsToAppend].sort(
+            compareOldestFirstByDateAndId,
+          );
+          const chunks = Math.ceil(all.length / CHUNK_SIZE);
+          for (let i = 0; i < chunks; i++) {
+            rows[chunkKey(key, i)] = JSON.stringify(
+              all.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE),
+            );
+          }
+          rows[metaKey(key)] = JSON.stringify({
+            chunks,
+            size: CHUNK_SIZE,
+            total: all.length,
+          });
+          rows[PREFIX + key] = CHUNKED_TOMBSTONE;
+          rows[`${PREFIX}${key}#order`] = ORDER_OLDEST_FIRST;
+          appendedChunkCount = chunks;
+        } else {
+          const meta = JSON.parse(rawMeta) as { chunks?: number; total?: number };
+          let chunkCount = Number(meta.chunks);
+          let total = Number(meta.total);
+          if (!Number.isInteger(chunkCount) || chunkCount < 0) return false;
+          if (!Number.isInteger(total) || total < 0) return false;
+
+          let index = chunkCount === 0 ? 0 : chunkCount - 1;
+          let current: T[] = [];
+          if (chunkCount > 0) {
+            const raw = readRow(chunkKey(key, index));
+            if (raw === null) return false;
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return false;
+            current = parsed as T[];
+            if (current.length >= CHUNK_SIZE) {
+              index = chunkCount;
+              current = [];
+            }
+          }
+          for (const item of stockMovementsToAppend) {
+            if (current.length >= CHUNK_SIZE) {
+              rows[chunkKey(key, index)] = JSON.stringify(current);
+              index += 1;
+              current = [];
+            }
+            current.push(item);
+          }
+          rows[chunkKey(key, index)] = JSON.stringify(current);
+          chunkCount = index + 1;
+          total += stockMovementsToAppend.length;
+          rows[metaKey(key)] = JSON.stringify({
+            chunks: chunkCount,
+            size: CHUNK_SIZE,
+            total,
+          });
+          appendedChunkCount = chunkCount;
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[storage] Failed to prepare sale transaction:", error);
+    return false;
+  }
+
+  if (Object.keys(rows).length === 0) return false;
+  const businessKeys = [...Object.keys(entries), "stockMovements"];
+  for (const key of businessKeys) _pendingBusinessKeys.add(key);
+  try {
+    let committed = false;
+    if (window.desktopAPI?.storage?.commitSale) {
+      committed = (await window.desktopAPI.storage.commitSale(rows)) !== false;
+    } else if (!window.desktopAPI?.storage) {
+      for (const [rowKey, json] of Object.entries(rows)) {
+        localStorage.setItem(rowKey, json);
+      }
+      committed = true;
+    }
+    if (!committed) return false;
+
+    for (const [rowKey, json] of Object.entries(rows)) _cache.set(rowKey, json);
+    for (const [key, value] of Object.entries(entries)) {
+      _lastFlushedRef.set(key, value);
+    }
+    for (const [key, value] of entryArrays) rememberPersistedArray(key, value);
+    if (appendedChunkCount !== null) {
+      _lastChunkCount.set("stockMovements", appendedChunkCount);
+      _lastArray.delete("stockMovements");
+      _lastFlushedRef.delete("stockMovements");
+    }
+    return true;
+  } catch {
+    return false;
+  } finally {
+    for (const key of businessKeys) _pendingBusinessKeys.delete(key);
   }
 }
 

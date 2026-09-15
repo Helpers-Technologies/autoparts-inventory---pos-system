@@ -11,6 +11,7 @@ import type {
   SalesInvoice,
   SalesReturn,
   StockMovement,
+  SalesCommitEffects,
 } from "../types";
 
 export interface InvoicingContextValue {
@@ -47,8 +48,9 @@ export interface InvoicingContextValue {
       paymentDueDate?: string;
       driverId?: string;
       driverName?: string;
-    }
-  ) => SalesInvoice;
+    },
+    effects?: Omit<SalesCommitEffects, "quotationId">,
+  ) => Promise<SalesInvoice>;
   deleteQuotation: (id: string) => void;
   salesInvoices: SalesInvoice[];
   purchaseInvoices: PurchaseInvoice[];
@@ -66,8 +68,9 @@ export interface InvoicingContextValue {
   closeShift: (shiftId: ID, closingCashActual: number, note?: string) => CashierShift;
   getShiftSummary: (shiftId: ID) => CashierShift;
   addSalesInvoice: (
-    inv: Omit<SalesInvoice, "id" | "createdAt" | "status" | "remaining">
-  ) => SalesInvoice;
+    inv: Omit<SalesInvoice, "id" | "createdAt" | "status" | "remaining">,
+    effects?: SalesCommitEffects,
+  ) => Promise<SalesInvoice>;
   updateSalesInvoice: (
     id: string,
     patch: Omit<SalesInvoice, "id" | "createdAt" | "customerId" | "customerName" | "status" | "remaining">

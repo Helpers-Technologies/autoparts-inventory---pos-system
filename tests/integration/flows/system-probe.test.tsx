@@ -87,7 +87,7 @@ describe("PROBE-A — bulk catalog inserts (ImportPage path)", () => {
     expect(code).toBe("P001"); // ImportPage dedup relies on this
   });
 
-  it("P03 [BUG-01 fixed]: two addCustomer calls inside ONE event handler get DISTINCT codes", () => {
+  it("P03 [BUG-01 fixed]: two addCustomer calls inside ONE event handler get DISTINCT codes", async () => {
     const { result } = mountStore();
     let c1: string | undefined, c2: string | undefined;
     act(() => {
@@ -101,13 +101,13 @@ describe("PROBE-A — bulk catalog inserts (ImportPage path)", () => {
 // ── P04: delete a sales invoice that already has a return ────────────────────
 
 describe("PROBE-B — delete sales invoice after a partial return", () => {
-  function runScenario() {
+  async function runScenario() {
     const { result } = mountStore();
     let prodId = "", invId = "";
     act(() => { prodId = result.current.addProduct(baseProduct({ quantity: 100 })).id; });
     const openingCash = result.current.currentCashBalance();
-    act(() => {
-      invId = result.current.addSalesInvoice({
+    await act(async () => {
+      invId = (await result.current.addSalesInvoice({
         invoiceNumber: "INV-PB-1",
         date: "2026-06-01",
         customerId: "CUST-PB",
@@ -117,7 +117,7 @@ describe("PROBE-B — delete sales invoice after a partial return", () => {
         amountReceived: 500,
         paymentType: "cash",
         priceType: "wholesale",
-      }).id;
+      })).id;
     });
     act(() => {
       result.current.addSalesReturn({
@@ -134,8 +134,8 @@ describe("PROBE-B — delete sales invoice after a partial return", () => {
     return { result, prodId, invId, openingCash };
   }
 
-  it("P04a [BUG-03 fixed]: deleting an invoice that has returns is blocked", () => {
-    const { result, prodId, invId } = runScenario();
+  it("P04a [BUG-03 fixed]: deleting an invoice that has returns is blocked", async () => {
+    const { result, prodId, invId } = await runScenario();
     let ok = true;
     act(() => { ok = result.current.deleteSalesInvoice(invId); });
     expect(ok).toBe(false);
@@ -144,8 +144,8 @@ describe("PROBE-B — delete sales invoice after a partial return", () => {
     expect(result.current.products.find((p) => p.id === prodId)?.quantity).toBe(93);
   });
 
-  it("P04b [BUG-03 fixed]: the blocked delete leaves the cashbox untouched", () => {
-    const { result, invId, openingCash } = runScenario();
+  it("P04b [BUG-03 fixed]: the blocked delete leaves the cashbox untouched", async () => {
+    const { result, invId, openingCash } = await runScenario();
     act(() => { result.current.deleteSalesInvoice(invId); });
     // received 500, refunded 150 — both must survive the blocked delete
     expect(result.current.currentCashBalance()).toBe(openingCash + 350);
@@ -200,7 +200,7 @@ describe("PROBE-D — referential integrity for quotations", () => {
 // ── P07: employee monthly stats date boundaries ───────────────────────────────
 
 describe("PROBE-E — employeeSalesStats month boundaries (TZ-sensitive)", () => {
-  it("P07 [BUG-04 fixed]: a receipt collected on Dec 31 is counted inside December of the same year", () => {
+  it("P07 [BUG-04 fixed]: a receipt collected on Dec 31 is counted inside December of the same year", async () => {
     const { result } = mountStore();
     let userId = "";
     act(() => {
@@ -209,8 +209,8 @@ describe("PROBE-E — employeeSalesStats month boundaries (TZ-sensitive)", () =>
         permissions: undefined as never, salesCommissionPct: 10, monthlySalary: 3000,
       }).id;
     });
-    act(() => {
-      result.current.addSalesInvoice({
+    await act(async () => {
+      (await result.current.addSalesInvoice({
         invoiceNumber: "INV-PE-1",
         date: "2026-12-31",
         customerId: "CUST-PE",
@@ -221,7 +221,7 @@ describe("PROBE-E — employeeSalesStats month boundaries (TZ-sensitive)", () =>
         paymentType: "cash",
         priceType: "wholesale",
         createdByUserId: userId,
-      });
+      }));
     });
     const stats = result.current.employeeSalesStats(userId, "2026-12");
     expect(stats.totalCollected).toBe(1000);
@@ -231,18 +231,18 @@ describe("PROBE-E — employeeSalesStats month boundaries (TZ-sensitive)", () =>
 // ── P07b: paying the balance after a return must settle to zero ───────────────
 
 describe("PROBE-RET — pay after return reaches zero (not the returned amount)", () => {
-  it("sales: 1000 invoice, paid 600, return 250, then pay 150 → remaining 0, paid", () => {
+  it("sales: 1000 invoice, paid 600, return 250, then pay 150 → remaining 0, paid", async () => {
     const { result } = mountStore();
     let pid = "";
     act(() => { pid = result.current.addProduct(baseProduct({ name: "ريت-بيع", quantity: 1000 })).id; });
     let invId = "";
-    act(() => {
-      invId = result.current.addSalesInvoice({
+    await act(async () => {
+      invId = (await result.current.addSalesInvoice({
         invoiceNumber: "INV-RET-S", date: "2026-06-01",
         customerId: "C-RET", customerName: "عميل",
         lines: [makeLine(pid, 100, 10)], total: 1000, amountReceived: 600,
         paymentType: "account", priceType: "wholesale",
-      }).id;
+      })).id;
     });
     act(() => {
       result.current.addSalesReturn({
@@ -288,25 +288,25 @@ describe("PROBE-RET — pay after return reaches zero (not the returned amount)"
 // ── P08/P09/P10: dues, credits & settlement (control group) ──────────────────
 
 describe("PROBE-F — customer dues / credit lifecycle", () => {
-  it("P08: settleAllDues moves overpayment credit to the oldest unpaid invoice", () => {
+  it("P08: settleAllDues moves overpayment credit to the oldest unpaid invoice", async () => {
     const { result } = mountStore();
     let inv1 = "";
-    act(() => {
-      inv1 = result.current.addSalesInvoice({
+    await act(async () => {
+      inv1 = (await result.current.addSalesInvoice({
         invoiceNumber: "INV-PF-1", date: "2026-01-01",
         customerId: "CUST-PF", customerName: "عميل",
         lines: [makeLine("g1", 1, 100)], total: 100, amountReceived: 0,
         paymentType: "account", priceType: "wholesale",
-      }).id;
+      })).id;
     });
-    act(() => {
-      result.current.addSalesInvoice({
+    await act(async () => {
+      (await result.current.addSalesInvoice({
         invoiceNumber: "INV-PF-2", date: "2026-02-01",
         customerId: "CUST-PF", customerName: "عميل",
         lines: [makeLine("g2", 1, 100)], total: 100,
         amountReceived: 100, overpayment: 30,
         paymentType: "cash", priceType: "wholesale",
-      });
+      }));
     });
     let settled = 0;
     act(() => { settled = result.current.settleAllDues("CUST-PF"); });
@@ -317,17 +317,17 @@ describe("PROBE-F — customer dues / credit lifecycle", () => {
     expect(result.current.customerCredit("CUST-PF")).toBe(0);
   });
 
-  it("P09: overpaying a receipt produces credit, full cash in, consistent balance", () => {
+  it("P09: overpaying a receipt produces credit, full cash in, consistent balance", async () => {
     const { result } = mountStore();
     let invId = "";
     const opening = mountCash(result);
-    act(() => {
-      invId = result.current.addSalesInvoice({
+    await act(async () => {
+      invId = (await result.current.addSalesInvoice({
         invoiceNumber: "INV-PF-3", date: "2026-06-01",
         customerId: "CUST-PF9", customerName: "عميل",
         lines: [makeLine("g3", 1, 100)], total: 100, amountReceived: 0,
         paymentType: "account", priceType: "wholesale",
-      }).id;
+      })).id;
     });
     act(() => { result.current.recordSalesReceipt(invId, 130); });
     const inv = result.current.salesInvoices.find((i) => i.id === invId)!;
@@ -339,26 +339,26 @@ describe("PROBE-F — customer dues / credit lifecycle", () => {
     expect(result.current.currentCashBalance()).toBe(opening + 130);
   });
 
-  it("P10: cancel-with-credit then settle uses the credit on a later invoice", () => {
+  it("P10: cancel-with-credit then settle uses the credit on a later invoice", async () => {
     const { result } = mountStore();
     let invA = "", invB = "";
-    act(() => {
-      invA = result.current.addSalesInvoice({
+    await act(async () => {
+      invA = (await result.current.addSalesInvoice({
         invoiceNumber: "INV-PF-A", date: "2026-03-01",
         customerId: "CUST-PF10", customerName: "عميل",
         lines: [makeLine("g4", 2, 100)], total: 200, amountReceived: 200,
         paymentType: "cash", priceType: "wholesale",
-      }).id;
+      })).id;
     });
     act(() => { result.current.cancelSalesInvoice(invA, "credit"); });
     expect(result.current.customerCredit("CUST-PF10")).toBe(200);
-    act(() => {
-      invB = result.current.addSalesInvoice({
+    await act(async () => {
+      invB = (await result.current.addSalesInvoice({
         invoiceNumber: "INV-PF-B", date: "2026-04-01",
         customerId: "CUST-PF10", customerName: "عميل",
         lines: [makeLine("g5", 1, 150)], total: 150, amountReceived: 0,
         paymentType: "account", priceType: "wholesale",
-      }).id;
+      })).id;
     });
     let settled = 0;
     act(() => { settled = result.current.settleAllDues("CUST-PF10"); });
@@ -512,7 +512,7 @@ describe("PROBE-I — importBackup", () => {
 // ── P14: quotation conversion ────────────────────────────────────────────────
 
 describe("PROBE-J — quotation → invoice conversion", () => {
-  it("P14: conversion keeps net total, caps received, deducts stock once, blocks re-convert", () => {
+  it("P14: conversion keeps net total, caps received, deducts stock once, blocks re-convert", async () => {
     const { result } = mountStore();
     let prodId = "", quotId = "";
     act(() => { prodId = result.current.addProduct(baseProduct({ quantity: 50 })).id; });
@@ -526,8 +526,8 @@ describe("PROBE-J — quotation → invoice conversion", () => {
       }).id;
     });
     let invTotal = 0, invReceived = 0, invOver = 0;
-    act(() => {
-      const inv = result.current.convertQuotation(quotId, {
+    await act(async () => {
+      const inv = await result.current.convertQuotation(quotId, {
         invoiceNumber: "INV-PJ-1", date: "2026-06-02",
         paymentType: "cash", priceType: "wholesale", amountReceived: 1000,
       });
@@ -538,17 +538,17 @@ describe("PROBE-J — quotation → invoice conversion", () => {
     expect(invOver).toBe(100);      // excess becomes credit
     expect(result.current.products.find((p) => p.id === prodId)?.quantity).toBe(40);
     expect(result.current.quotations.find((q) => q.id === quotId)?.status).toBe("converted");
-    expect(() => result.current.convertQuotation(quotId, {
+    await expect(result.current.convertQuotation(quotId, {
       invoiceNumber: "INV-PJ-2", date: "2026-06-03",
       paymentType: "cash", priceType: "wholesale", amountReceived: 0,
-    })).toThrow();
+    })).rejects.toThrow();
   });
 });
 
 // ── P17: quotation conversion stock guard ────────────────────────────────────
 
 describe("PROBE-M — quotation conversion stock guard (BUG-08 fixed)", () => {
-  it("P17: converting a quotation that exceeds stock throws and changes nothing", () => {
+  it("P17: converting a quotation that exceeds stock throws and changes nothing", async () => {
     const { result } = mountStore();
     let prodId = "", quotId = "";
     act(() => { prodId = result.current.addProduct(baseProduct({ quantity: 5 })).id; });
@@ -561,12 +561,12 @@ describe("PROBE-M — quotation conversion stock guard (BUG-08 fixed)", () => {
       }).id;
     });
     const invoicesBefore = result.current.salesInvoices.length;
-    expect(() =>
+    await expect(
       result.current.convertQuotation(quotId, {
         invoiceNumber: "INV-PM-1", date: "2026-06-02",
         paymentType: "cash", priceType: "wholesale", amountReceived: 0,
       })
-    ).toThrow(/المخزون غير كاف/);
+    ).rejects.toThrow(/المخزون غير كاف/);
     expect(result.current.products.find((p) => p.id === prodId)?.quantity).toBe(5);
     expect(result.current.salesInvoices.length).toBe(invoicesBefore);
     expect(result.current.quotations.find((q) => q.id === quotId)?.status).toBe("draft");
@@ -597,13 +597,13 @@ describe("PROBE-N — audit-log invoice restore", () => {
     let prodId = "", invId = "";
     act(() => { prodId = result.current.addProduct(baseProduct({ quantity: 100 })).id; });
     const openingCash = result.current.currentCashBalance();
-    act(() => {
-      invId = result.current.addSalesInvoice({
+    await act(async () => {
+      invId = (await result.current.addSalesInvoice({
         invoiceNumber: "INV-PN-1", date: "2026-06-10",
         customerId: "CUST-PN", customerName: "عميل",
         lines: [makeLine(prodId, 10, 50)], total: 500, amountReceived: 500,
         paymentType: "cash", priceType: "wholesale",
-      }).id;
+      })).id;
     });
     act(() => { result.current.deleteSalesInvoice(invId); });
     expect(result.current.products.find((p) => p.id === prodId)?.quantity).toBe(100);

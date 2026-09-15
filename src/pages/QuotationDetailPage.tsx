@@ -30,7 +30,7 @@ import { todayISO } from "../lib/utils";
 import { useFeatures } from "../lib/useFeatures";
 import { buildWhatsappHref } from "../lib/whatsappTemplate";
 import { aggregateSalesPriceType } from "../lib/salesPrice";
-import { productVehicleFitmentStatus, useAutoPartsPro } from "../store/AutoPartsProContext";
+import { branchStocksAfterSale, productVehicleFitmentStatus, useAutoPartsPro } from "../store/AutoPartsProContext";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 
 function nextInvoiceNumber(existing: string[]): string {
@@ -114,7 +114,7 @@ export function QuotationDetailPage() {
     });
   }
 
-  function handleConvert() {
+  async function handleConvert() {
     if (!invoiceNumber.trim()) {
       toast.error("أدخل رقم الفاتورة");
       return;
@@ -137,7 +137,16 @@ export function QuotationDetailPage() {
     }
     const driver = drivers.find((d) => d.id === driverId);
     try {
-      const inv = convertQuotation(quot!.id, {
+      const branchLines = quot!.lines.map((line) => {
+        const product = products.find((item) => item.id === line.productId);
+        return {
+          productId: line.productId,
+          quantity: line.isRetailUnit && product?.piecesPerUnit
+            ? line.quantity / product.piecesPerUnit
+            : line.quantity,
+        };
+      });
+      const inv = await convertQuotation(quot!.id, {
         invoiceNumber: invoiceNumber.trim(),
         date: invDate,
         paymentType,
@@ -148,18 +157,11 @@ export function QuotationDetailPage() {
         paymentDueDate: paymentType === "account" && paymentDueDate ? paymentDueDate : undefined,
         driverId: driverId || undefined,
         driverName: driver?.name,
+      }, {
+        branchStocks: quot!.branchId
+          ? branchStocksAfterSale(pro.branchStocks, quot!.branchId, branchLines)
+          : undefined,
       });
-      if (quot!.branchId) {
-        pro.consumeBranchStock(quot!.branchId, quot!.lines.map((line) => {
-          const product = products.find((item) => item.id === line.productId);
-          return {
-            productId: line.productId,
-            quantity: line.isRetailUnit && product?.piecesPerUnit
-              ? line.quantity / product.piecesPerUnit
-              : line.quantity,
-          };
-        }));
-      }
       const issuedNum = parseInt(inv.invoiceNumber.replace(/\D/g, ""), 10);
       if (!Number.isNaN(issuedNum)) {
         const storedMax = parseInt(localStorage.getItem("seq_sales_invoice") || "0", 10);
