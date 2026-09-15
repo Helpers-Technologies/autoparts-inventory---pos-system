@@ -20,6 +20,7 @@ describe("renderer persistence ownership", () => {
           products: [{ id: "product-1" }],
           salesInvoices: [{ id: "invoice-1" }],
           stockMovements,
+          mobileStockOpReceipts: [],
         }),
       ).toEqual({
         products: [{ id: "product-1" }],

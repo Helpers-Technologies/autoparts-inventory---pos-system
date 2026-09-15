@@ -15,12 +15,41 @@ const allowed = value => {
 const blocked = [];
 const persistenceTrace = [];
 const originalHandle = ipcMain.handle.bind(ipcMain);
+const mobileFixturePath = process.env.PARTFLOW_HARDENING_MOBILE_FIXTURE_PATH;
+let mobileFixture;
+if (mobileFixturePath) {
+  const fixtureTarget = path.resolve(mobileFixturePath);
+  if (!fixtureTarget.startsWith(work + path.sep)) throw new Error('ISOLATED_MOBILE_FIXTURE_REQUIRED');
+  mobileFixture = JSON.parse(fs.readFileSync(fixtureTarget, 'utf8'));
+}
+const mobileTracePath = path.join(path.dirname(dbPath), 'mobile-network.json');
+const mobileTrace = fs.existsSync(mobileTracePath) ? JSON.parse(fs.readFileSync(mobileTracePath, 'utf8')) : { fetches: [], acknowledgements: [] };
+const saveMobileTrace = () => {
+  fs.writeFileSync(mobileTracePath + '.tmp', JSON.stringify(mobileTrace, null, 2));
+  fs.renameSync(mobileTracePath + '.tmp', mobileTracePath);
+};
 ipcMain.handle = (channel, listener) => originalHandle(channel, async (event, ...args) => {
   if (channel === 'storage:set-batch' || channel === 'sales:commit') {
     persistenceTrace.push({ channel, at: new Date().toISOString(), keys: Object.keys(args[0] || {}) });
     fs.writeFileSync(path.join(path.dirname(dbPath), 'persistence-trace.json'), JSON.stringify(persistenceTrace, null, 2));
   }
-  return listener(event, ...args);
+  const result = await listener(event, ...args);
+  // Substitute the remote transport only after the real IPC listener has
+  // validated permission and, for acknowledgements, durable receipts.
+  if (mobileFixture && result?.error === 'not_configured') {
+    if (channel === 'mobile-stock-ops:fetch') {
+      mobileTrace.fetches.push({ pid: process.pid, at: new Date().toISOString() });
+      saveMobileTrace();
+      return { ok: true, ops: mobileFixture.ops };
+    }
+    if (channel === 'mobile-stock-ops:resolve') {
+      const ok = mobileTrace.acknowledgements.length >= mobileFixture.ackFailures;
+      mobileTrace.acknowledgements.push({ pid: process.pid, at: new Date().toISOString(), ok, results: args[0]?.results });
+      saveMobileTrace();
+      return ok ? { ok: true } : { ok: false, error: 'injected_acknowledgement_failure' };
+    }
+  }
+  return result;
 });
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async function(input, ...args) {

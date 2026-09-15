@@ -4,7 +4,7 @@
  * A generic state snapshot must never replace them with their unloaded
  * fallback value.
  */
-const DIRECT_PERSISTENCE_KEYS = new Set(["stockMovements"]);
+const DIRECT_PERSISTENCE_KEYS = new Set(["stockMovements", "mobileStockOpReceipts"]);
 
 const AUXILIARY_PERSISTENCE_KEYS = new Set([
   "customerVehicles", "warrantyClaims", "branches", "branchStocks",

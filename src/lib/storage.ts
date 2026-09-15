@@ -1121,6 +1121,28 @@ export async function lsCommitSaleAwait<T extends ChronologicalRecord>(
 }
 
 
+/** Prevent stale debounce writes until an external business commit is adopted. */
+export async function withPendingPersistenceCollections<T>(keys: readonly string[], action: () => Promise<T>): Promise<T> {
+  for (const key of keys) _pendingBusinessKeys.add(key);
+  try { return await action(); }
+  finally { for (const key of keys) _pendingBusinessKeys.delete(key); }
+}
+
+/** Adopt acknowledged main-process rows, without fetching historical ledgers. */
+export function adoptCommittedStorageRows(rows: Record<string, string>): void {
+  const changedKeys = new Set<string>();
+  for (const [key, json] of Object.entries(rows)) {
+    if (!key.startsWith(PREFIX)) throw new Error("invalid_committed_storage_key");
+    _cache.set(key, json);
+    changedKeys.add(key.slice(PREFIX.length).split("#")[0]);
+  }
+  for (const key of changedKeys) {
+    _lastArray.delete(key);
+    _lastFlushedRef.delete(key);
+  }
+  rememberChunkCounts();
+}
+
 export function lsRemove(key: string): void {
   const fullKey = PREFIX + key;
   const remove = (k: string) => {

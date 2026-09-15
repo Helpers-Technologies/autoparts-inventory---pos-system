@@ -1,4 +1,4 @@
-import type { Product } from "../../types";
+import type { AuditLog, BranchStock, Product, StockMovement } from "../../types";
 
 /**
  * Turning a phone's scan into a stock change the desktop can defend.
@@ -36,6 +36,19 @@ export interface MobileStockOpResult {
   appliedDeltaMilli?: number;
   resultingQuantityMilli?: number;
 }
+
+export type MobileStockCommitResult =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      results: MobileStockOpResult[];
+      newResults: MobileStockOpResult[];
+      storageRows: Record<string, string>;
+      products?: Product[];
+      branchStocks?: BranchStock[];
+      auditLogs?: AuditLog[];
+      movements?: StockMovement[];
+    };
 
 export interface PlannedStockChange {
   op: MobileStockOp;

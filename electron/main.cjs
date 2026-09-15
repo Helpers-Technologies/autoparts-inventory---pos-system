@@ -5184,6 +5184,9 @@ function registerIpc() {
   function canMutateRendererStorage(event, key) {
     if (!ownerExistsInStore()) return false;
     if (!getSession(event)) return false;
+    // Operation receipts belong to the inventory transaction. A routine raw
+    // renderer write must never remove or replace the evidence of processing.
+    if (String(key).startsWith(`${STORE_PREFIX}mobileStockOpReceipts`)) return false;
     if (String(key) === `${STORE_PREFIX}users`) return hasOwnerSession(event);
     return true;
   }
@@ -5311,7 +5314,7 @@ function registerIpc() {
   // Excluding it here is what actually saves the time. Not parsing it in the
   // renderer helps, but the rows still had to be read out of SQLCipher and
   // structure-cloned across IPC before anything could paint.
-  const LAZY_COLLECTION_PREFIXES = [`${STORE_PREFIX}stockMovements#`];
+  const LAZY_COLLECTION_PREFIXES = [`${STORE_PREFIX}stockMovements#`, `${STORE_PREFIX}mobileStockOpReceipts#`];
 
   ipcMain.handle("storage:get-batch", (event) => {
     if (!canReadRendererStorage(event)) return {};
@@ -6094,9 +6097,41 @@ function registerIpc() {
     }
     return result;
   });
-  ipcMain.handle("mobile-stock-ops:fetch", () => fetchMobileStockOps());
-  ipcMain.handle("mobile-stock-ops:resolve", (event, payload) =>
-    resolveMobileStockOps(payload?.results));
+  const { commitMobileStockOperations, receiptKey } = require("./mobile-stock-transaction.cjs");
+  const canApplyMobileStock = event => sessionCanMutateModule(event, "inventory", "adjust") && isMobileCompanionFeatureLicensed();
+  ipcMain.handle("mobile-stock-ops:fetch", (event) =>
+    canApplyMobileStock(event) ? fetchMobileStockOps() : { ok: false, error: "not_authorized" });
+  ipcMain.handle("mobile-stock-ops:commit", (event, ops) => {
+    if (!canApplyMobileStock(event)) return { ok: false, error: "not_authorized" };
+    try {
+      return commitMobileStockOperations({
+        ops,
+        user: getSessionUser(event),
+        read: storageGet,
+        write: (key, value) => getStmtSet().run(key, value, new Date().toISOString()),
+        transaction: action => openDatabase().transaction(action)(),
+        failAfter: HW_E2E ? Number(process.env.PARTFLOW_HARDENING_FAIL_MOBILE_AFTER_WRITES || 0) : 0,
+      });
+    } catch (error) {
+      console.error("[mobile-stock] Transaction rejected:", error.message);
+      return { ok: false, error: "commit_failed" };
+    }
+  });
+  ipcMain.handle("mobile-stock-ops:resolve", (event, payload) => {
+    if (!canApplyMobileStock(event)) return { ok: false, error: "not_authorized" };
+    if (!Array.isArray(payload?.results) || payload.results.length > 100) return { ok: false, error: "invalid_results" };
+    try {
+      const results = payload.results.map(result => {
+        if (typeof result?.clientOpId !== "string" || result.clientOpId.length > 80) throw new Error("invalid_operation_id");
+        const receipt = JSON.parse(storageGet(receiptKey(result.clientOpId)) || "null");
+        if (!receipt || receipt.clientOpId !== result.clientOpId || !receipt.result) throw new Error("missing_operation_receipt");
+        return receipt.result;
+      });
+      return resolveMobileStockOps(results);
+    } catch {
+      return { ok: false, error: "missing_operation_receipt" };
+    }
+  });
 
   ipcMain.handle("print:route", (event, route) => {
     if (!getSession(event)) return { ok: false, error: "not_authenticated" };

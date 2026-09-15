@@ -95,6 +95,8 @@ import { AutoPartsProProvider } from "./AutoPartsProContext";
 import { ShippingProvider } from "./ShippingContext";
 import { hasAuxiliaryPersistenceOwners, shutdownPersistenceEntries, stateOwnedPersistenceEntries } from "./persistenceBoundaries";
 import { DEFAULT_BRANCHES, reconcileBranchStocks } from "./AutoPartsProContext";
+import { adoptCommittedStorageRows, withPendingPersistenceCollections } from "../lib/storage";
+import type { MobileStockOp, MobileStockCommitResult } from "../features/mobile/mobileStockOps";
 
 interface AppState {
   auth: AuthState;
@@ -171,6 +173,8 @@ interface AppActions {
     reason: string,
     looseDelta?: number
   ) => void;
+
+  applyMobileStockOps: (ops: MobileStockOp[]) => Promise<MobileStockCommitResult>;
 
   // Suppliers
   addSupplier: (s: Omit<Supplier, "id" | "createdAt">) => Supplier;
@@ -1541,6 +1545,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       logAudit("stock_adjusted", prod.name, `${delta > 0 ? "+" : ""}${delta} ${prod.unit}${looseNote} — ${reason}`);
     }
   };
+
+  const applyMobileStockOps = useCallback(async (ops: MobileStockOp[]): Promise<MobileStockCommitResult> => {
+    const commit = window.desktopAPI?.license?.commitMobileStockOps;
+    if (!commit || !currentUserRef.current || saleCommitInFlightRef.current) return { ok: false, error: "not_ready" };
+    // Checkout and automatic inventory application share a hard execution
+    // lock. Persist pending desktop edits before main reads authoritative stock.
+    saleCommitInFlightRef.current = true;
+    try {
+      if (!await flushPendingWritesNow()) return { ok: false, error: "flush_failed" };
+      const operation = withPendingPersistenceCollections(["products", "branchStocks", "stockMovements", "auditLogs"], async () => {
+        const result = await commit(ops);
+        if (!result.ok) return result;
+        adoptCommittedStorageRows(result.storageRows);
+        if (result.products && result.auditLogs) {
+          setProducts(result.products);
+          setAuditLogs(result.auditLogs);
+          liveStateRef.current = { ...liveStateRef.current, products: result.products, auditLogs: result.auditLogs };
+          if (stockMovementsHydrated && result.movements) {
+            const ledger = [...result.movements.slice().reverse(), ...stockMovementsRef.current];
+            stockMovementsRef.current = ledger;
+            setStockMovements(ledger);
+          }
+          window.dispatchEvent(new Event("autoparts:stock-committed"));
+        }
+        return result;
+      });
+      // Close waits for cache/state adoption as well as main's acknowledgement.
+      saleDurabilityRef.current = operation.then(result => result.ok, () => false);
+      return await operation;
+    } finally { saleDurabilityRef.current = null; saleCommitInFlightRef.current = false; }
+  }, [flushPendingWritesNow, stockMovementsHydrated]);
 
   // Suppliers
   const addSupplier: AppActions["addSupplier"] = (s) => {
@@ -3871,6 +3906,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateProduct,
       deleteProduct,
       adjustStock,
+      applyMobileStockOps,
       addSupplier,
       updateSupplier,
       deleteSupplier,
@@ -4080,7 +4116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       products, suppliers, customers, drivers, stocktakes,
       offlineEmployees, offlineTransactions,
       nextProductCode, nextSupplierCode, nextCustomerCode,
-      addProduct, updateProduct, deleteProduct, archiveProduct, adjustStock,
+      addProduct, updateProduct, deleteProduct, archiveProduct, adjustStock, applyMobileStockOps,
       addSupplier, updateSupplier, deleteSupplier, archiveSupplier,
       addCommissionTier, updateCommissionTier, deleteCommissionTier,
       addCustomer, updateCustomer, deleteCustomer, archiveCustomer,
@@ -4090,7 +4126,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addStocktake, updateStocktakeItems, applyStocktake, deleteStocktake,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [products, suppliers, customers, drivers, stocktakes, offlineEmployees, offlineTransactions, nextProductCode, nextSupplierCode, nextCustomerCode]
+    [products, suppliers, customers, drivers, stocktakes, offlineEmployees, offlineTransactions, nextProductCode, nextSupplierCode, nextCustomerCode, applyMobileStockOps]
   );
 
   const shiftsValue = useMemo(

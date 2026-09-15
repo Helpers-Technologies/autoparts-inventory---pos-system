@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { CommissionTier, Customer, Driver, ID, OfflineEmployee, OfflineEmployeeTransaction, OfflineEmployeeTransactionType, Product, Stocktake, Supplier } from "../types";
+import type { MobileStockOp, MobileStockCommitResult } from "../features/mobile/mobileStockOps";
 
 export interface CatalogContextValue {
   products: Product[];
@@ -21,6 +22,7 @@ export interface CatalogContextValue {
   deleteProduct: (id: string) => boolean;
   archiveProduct: (id: string, archived: boolean) => void;
   adjustStock: (productId: string, delta: number, reason: string, looseDelta?: number) => void;
+  applyMobileStockOps: (ops: MobileStockOp[]) => Promise<MobileStockCommitResult>;
   addSupplier: (s: Omit<Supplier, "id" | "createdAt">) => Supplier;
   updateSupplier: (id: string, patch: Partial<Supplier>) => void;
   deleteSupplier: (id: string) => boolean;

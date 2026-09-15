@@ -2,13 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useCatalog } from "../../store/CatalogContext";
 import { useToast } from "../../components/ui/Toast";
 import { useFeatures } from "../../lib/useFeatures";
-import {
-  planStockOps,
-  resultForChange,
-  summarizeBatch,
-  type MobileStockOp,
-  type MobileStockOpResult,
-} from "./mobileStockOps";
+import type { MobileStockOp } from "./mobileStockOps";
 
 /** How often the desktop looks for work queued by a phone. */
 const POLL_INTERVAL_MS = 20_000;
@@ -22,6 +16,7 @@ export interface MobileStockOpsState {
   lastCheckedAt: string | null;
   lastAppliedAt: string | null;
   busy: boolean;
+  lastError: string | null;
 }
 
 /**
@@ -31,18 +26,16 @@ export interface MobileStockOpsState {
  * desktop reflects it without anyone pressing anything. So this polls, applies,
  * and reports back — no approval step.
  *
- * That decision has a cost and the design pays it deliberately: every applied
- * operation goes through `adjustStock`, which is the same path the desktop's
- * own stocktake uses, so each one leaves a stock movement AND an audit entry
- * naming the phone and the person who scanned it. Automatic is not the same as
- * invisible — the owner can see every change and reverse it.
+ * Main commits each stock effect, movement, audit entry and operation receipt
+ * together. A failed acknowledgement can be retried with the stored result,
+ * even after restart, without applying the inventory change again.
  *
  * Polling rather than push: a push can be missed, and a warehouse phone with
  * bad signal is the normal case. A poll that finds nothing costs one small
  * request; a missed push costs a stock discrepancy nobody can explain.
  */
 export function useMobileStockOps(): MobileStockOpsState {
-  const { products, adjustStock } = useCatalog();
+  const { applyMobileStockOps } = useCatalog();
   const toast = useToast();
   const mobileCompanionEnabled = useFeatures().isEnabled("mobileCompanion");
 
@@ -52,19 +45,18 @@ export function useMobileStockOps(): MobileStockOpsState {
     lastCheckedAt: null,
     lastAppliedAt: null,
     busy: false,
+    lastError: null,
   });
 
   // The effect below must not restart every time a product changes — applying
   // an operation changes products, which would otherwise cancel and restart
   // the very timer that applied it.
-  const productsRef = useRef(products);
-  const adjustStockRef = useRef(adjustStock);
+  const applyStockRef = useRef(applyMobileStockOps);
   const runningRef = useRef(false);
   // Written in an effect, not during render: a ref assigned while rendering is
   // a value React is free to discard, and the compiler flags it.
   useEffect(() => {
-    productsRef.current = products;
-    adjustStockRef.current = adjustStock;
+    applyStockRef.current = applyMobileStockOps;
   });
 
   const drainOnce = useCallback(async () => {
@@ -76,45 +68,47 @@ export function useMobileStockOps(): MobileStockOpsState {
       const fetched = await api.fetchMobileStockOps();
       const checkedAt = new Date().toISOString();
       if (!fetched?.ok || !Array.isArray(fetched.ops) || fetched.ops.length === 0) {
-        setState((current) => ({ ...current, busy: false, lastCheckedAt: checkedAt }));
+        setState((current) => ({ ...current, busy: false, lastCheckedAt: checkedAt, lastError: fetched?.ok ? null : fetched?.error ?? "fetch_failed" }));
         return;
       }
 
-      const plan = planStockOps(fetched.ops as MobileStockOp[], productsRef.current);
-      const results: MobileStockOpResult[] = [...plan.rejected];
-      for (const change of plan.changes) {
-        // Zero-delta counts still resolve, but writing a movement of zero
-        // would add noise to the ledger without adding information.
-        if (change.delta !== 0) {
-          adjustStockRef.current(change.op.productId, change.delta, change.reason);
-        }
-        results.push(resultForChange(change));
+      const committed = await applyStockRef.current(fetched.ops as MobileStockOp[]);
+      if (!committed.ok) {
+        setState(current => ({ ...current, busy: false, lastCheckedAt: checkedAt, lastError: committed.error }));
+        return;
       }
+      const applied = committed.newResults.filter(result => result.status === "applied").length;
+      const rejected = committed.newResults.length - applied;
+
+      setState(current => ({
+        ...current, appliedCount: current.appliedCount + applied,
+        rejectedCount: current.rejectedCount + rejected, lastCheckedAt: checkedAt,
+        lastAppliedAt: applied ? checkedAt : current.lastAppliedAt,
+      }));
 
       // Reported back even if the desktop is about to close: an operation the
       // phone never hears about is one the storeman will scan again.
-      await api.resolveMobileStockOps?.(results);
+      const acknowledgement = await api.resolveMobileStockOps?.(committed.results);
 
       setState((current) => ({
-        appliedCount: current.appliedCount + plan.changes.length,
-        rejectedCount: current.rejectedCount + plan.rejected.length,
+        ...current,
         lastCheckedAt: checkedAt,
-        lastAppliedAt: plan.changes.length ? checkedAt : current.lastAppliedAt,
         busy: false,
+        lastError: acknowledgement?.ok ? null : acknowledgement?.error ?? "acknowledgement_failed",
       }));
 
-      if (plan.changes.length || plan.rejected.length) {
-        const detail = summarizeBatch(plan);
-        if (plan.rejected.length) {
+      if (applied || rejected) {
+        const detail = [applied ? `${applied} عملية اتطبّقت` : "", rejected ? `${rejected} اترفضت` : ""].filter(Boolean).join(" · ");
+        if (rejected) {
           toast.info("وصلت عمليات مخزون من الموبايل", `${detail} — راجع المرفوض من تطبيق الموبايل.`);
         } else {
           toast.success("وصلت عمليات مخزون من الموبايل", detail);
         }
       }
-    } catch {
+    } catch (error) {
       // A warehouse with no signal is the normal case, not an exception worth
       // a dialog. The next tick tries again.
-      setState((current) => ({ ...current, busy: false }));
+      setState((current) => ({ ...current, busy: false, lastError: error instanceof Error ? error.message : "processing_failed" }));
     } finally {
       runningRef.current = false;
     }

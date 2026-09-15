@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("desktopAPI", {
     // Stock work scanned on a phone: pulled down, applied by the renderer
     // (which owns the store), then reported back. See fetchMobileStockOps.
     fetchMobileStockOps: () => ipcRenderer.invoke("mobile-stock-ops:fetch"),
+    commitMobileStockOps: (ops) => ipcRenderer.invoke("mobile-stock-ops:commit", ops),
     resolveMobileStockOps: (results) =>
       ipcRenderer.invoke("mobile-stock-ops:resolve", { results }),
     listMobileDevices: () => ipcRenderer.invoke("license:list-mobile-devices"),

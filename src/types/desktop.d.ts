@@ -14,6 +14,7 @@ import type {
   MfaStatus,
   MfaUserStatus,
 } from "./index";
+import type { MobileStockOp, MobileStockCommitResult } from "../features/mobile/mobileStockOps";
 
 export {};
 
@@ -122,6 +123,7 @@ declare global {
          * Stock work queued by a phone in the warehouse. The desktop applies
          * it — a phone never writes a quantity — and reports back what it did.
          */
+        commitMobileStockOps: (ops: MobileStockOp[]) => Promise<MobileStockCommitResult>;
         fetchMobileStockOps: () => Promise<
           | {
               ok: true;

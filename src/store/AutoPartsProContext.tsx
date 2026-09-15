@@ -332,9 +332,11 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     window.addEventListener("autoparts:pro-data-restored", reloadProData);
     window.addEventListener("autoparts:sale-committed", reloadCommittedBranchStocks);
+    window.addEventListener("autoparts:stock-committed", reloadCommittedBranchStocks);
     return () => {
       window.removeEventListener("autoparts:pro-data-restored", reloadProData);
       window.removeEventListener("autoparts:sale-committed", reloadCommittedBranchStocks);
+      window.removeEventListener("autoparts:stock-committed", reloadCommittedBranchStocks);
     };
   }, [reloadProData, reloadCommittedBranchStocks]);
 
