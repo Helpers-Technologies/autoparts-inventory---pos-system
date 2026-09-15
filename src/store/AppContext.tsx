@@ -91,6 +91,7 @@ import { UsersContext } from "./UsersContext";
 import { VehicleCatalogProvider } from "./VehicleCatalogContext";
 import { AutoPartsProProvider } from "./AutoPartsProContext";
 import { ShippingProvider } from "./ShippingContext";
+import { stateOwnedPersistenceEntries } from "./persistenceBoundaries";
 
 interface AppState {
   auth: AuthState;
@@ -876,7 +877,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const s = liveStateRef.current;
     const ok = await lsSetBatchAwait({
       autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-      ...s,
+      ...stateOwnedPersistenceEntries(s),
     });
     unflushedChangesRef.current = false;
     return ok;
@@ -886,7 +887,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!advancedSecurityEnabled || !settings.autoBackupEnabled) return;
 
-    function checkAndBackup() {
+    async function checkAndBackup() {
       // Only back up while authenticated — otherwise we'd snapshot the empty
       // pre-login seed and stamp lastBackupDate against it.
       if (isDesktop && !currentUserRef.current) return;
@@ -906,11 +907,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       if (shouldBackup) {
+        await lsLoadCollection("stockMovements");
+        const durableStockMovements = lsGet<StockMovement[]>(
+          "stockMovements",
+          [],
+        ).slice().reverse();
         const safeUsers = redactUserPasswordHashes(s.users);
         const data = {
           version: "1.0",
           timestamp: now.toISOString(),
-          state: { ...s, users: safeUsers },
+          state: {
+            ...s,
+            stockMovements: durableStockMovements,
+            users: safeUsers,
+          },
         };
         try {
           lsSet("inventory_auto_backup_internal", data);
@@ -923,8 +933,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    checkAndBackup(); // run once immediately on mount / when enabled
-    const timer = window.setInterval(checkAndBackup, 30 * 60 * 1000); // then every 30 min
+    void checkAndBackup(); // run once immediately on mount / when enabled
+    const timer = window.setInterval(() => {
+      void checkAndBackup();
+    }, 30 * 60 * 1000); // then every 30 min
     return () => window.clearInterval(timer);
   }, [advancedSecurityEnabled, settings.autoBackupEnabled, isDesktop]); // isDesktop is constant at runtime; effectively re-schedules only when the user toggles the setting
 
@@ -941,7 +953,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         lsSetBatch({
           autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-          ...liveStateRef.current,
+          ...stateOwnedPersistenceEntries(liveStateRef.current),
         });
       } catch {
         // Ignore serialization errors during shutdown
@@ -3274,7 +3286,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // --- Backup & Export ---
 
-  const buildBackupData = useCallback(() => {
+  const buildBackupData = useCallback(async () => {
+    // The ledger is deliberately absent from the startup cache. Fetch its
+    // authoritative rows before creating any backup; otherwise an unopened
+    // inventory-history screen would turn a complete shop into a plausible
+    // looking backup with an empty ledger.
+    await lsLoadCollection("stockMovements");
     // SECURITY: Strip passwordHash from exported user data
     const safeUsers = redactUserPasswordHashes(users);
     return {
@@ -3320,7 +3337,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const exportBackup: AppActions["exportBackup"] = useCallback(async (passphrase?: string) => {
     logAudit("backup_created", "تصدير نسخة احتياطية يدوية", "صيغة hwbak");
-    const content = JSON.stringify(buildBackupData(), null, 2);
+    const content = JSON.stringify(await buildBackupData(), null, 2);
     const canEncrypt = Boolean(window.desktopAPI?.backup?.encryptContent);
     let fileContent = content;
     let fileName = `backup_${todayISO()}.hwbak`;
@@ -3354,7 +3371,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const dir = (dirOverride ?? settings.backupPath)?.trim();
     if (!dir) return { ok: false, error: "no_path" };
     if (!window.desktopAPI?.backup) return { ok: false, error: "not_desktop" };
-    const content = JSON.stringify(buildBackupData(), null, 2);
+    const content = JSON.stringify(await buildBackupData(), null, 2);
     const result = await window.desktopAPI.backup.writeFile(dir, backupFileName(new Date()), content);
     if (result.ok) {
       setSettings((s) => ({ ...s, lastBackupDate: new Date().toISOString() }));

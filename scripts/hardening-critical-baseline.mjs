@@ -7,8 +7,11 @@ import { _electron, expect } from '@playwright/test';
 const require = createRequire(import.meta.url);
 const electron = require('electron');
 const root = process.cwd();
-const work = path.join(root, 'reports/production-hardening-2026-09/phase-0');
-const source = JSON.parse(fs.readFileSync(path.join(root, 'reports/system-audit-2026-09-14/load-small.json'), 'utf8')).sourceDb;
+const phase = process.env.PARTFLOW_HARDENING_PHASE || 'phase-0';
+const work = path.join(root, 'reports/production-hardening-2026-09', phase);
+fs.mkdirSync(work, { recursive: true });
+const source = process.env.PARTFLOW_HARDENING_SOURCE_DB ||
+  JSON.parse(fs.readFileSync(path.join(root, 'reports/system-audit-2026-09-14/load-small.json'), 'utf8')).sourceDb;
 const results = [];
 const save = () => fs.writeFileSync(path.join(work, 'critical-reproduction.json'), JSON.stringify(results, null, 2));
 export async function startApp(db) {
@@ -107,7 +110,8 @@ export async function stop(handle, forced = false) {
   }
 }
 if (path.resolve(process.argv[1] || '') === path.join(root, 'scripts/hardening-critical-baseline.mjs')) {
-for (const mode of ['login-close-no-business-writes', 'graceful-immediate-sale', 'abrupt-immediate-sale', 'abrupt-after-durable-sale', 'two-branch-login']) {
+const requestedModes = new Set(process.argv.slice(2));
+for (const mode of ['login-close-no-business-writes', 'graceful-immediate-sale', 'abrupt-immediate-sale', 'abrupt-after-durable-sale', 'two-branch-login'].filter(mode => requestedModes.size === 0 || requestedModes.has(mode))) {
   const folder = fs.mkdtempSync(path.join(work, mode + '-'));
   const db = path.join(folder, 'autoparts-inventory.secure.sqlite');
   fs.copyFileSync(source, db);

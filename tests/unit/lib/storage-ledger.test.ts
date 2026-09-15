@@ -23,6 +23,11 @@ function makeDesktop() {
       storage: {
         get: (k: string) => (rows.has(k) ? rows.get(k)! : null),
         getBatch: async () => Object.fromEntries(rows),
+        getCollection: async (name: string) => Object.fromEntries(
+          [...rows].filter(([key]) =>
+            key === `${PREFIX}${name}` || key.startsWith(`${PREFIX}${name}#`),
+          ),
+        ),
         set: (k: string, v: string) => { rows.set(k, v); return true; },
         setBatch: (batch: Record<string, string>) => {
           for (const [k, v] of Object.entries(batch)) rows.set(k, v);
@@ -294,6 +299,29 @@ describe("removing an invoice's movements", () => {
 });
 
 describe("scanning without loading everything", () => {
+  it("loads the authoritative lazy ledger before backup-style reads", async () => {
+    storage.lsSetBatch({ stockMovements: Array.from({ length: 1200 }, (_, i) => mv(i)) });
+    const persisted = new Map(desktop.rows);
+
+    await freshModule(persisted);
+    desktop.api.storage.getBatch = async () => Object.fromEntries(
+      [...desktop.rows].filter(([key]) =>
+        !key.startsWith(`${PREFIX}stockMovements#`) ||
+        key.endsWith("#meta") ||
+        key.endsWith("#order"),
+      ),
+    );
+    // Model a bridge that enforces lazy reads instead of falling back to one
+    // synchronous IPC call per missing chunk.
+    desktop.api.storage.get = () => null;
+    await storage.reloadStorageCache();
+    expect(storage.lsGet<Mv[]>("stockMovements", [])).toEqual([]);
+
+    await storage.lsLoadCollection("stockMovements");
+    expect(storage.lsGet<Mv[]>("stockMovements", []).map((item) => item.id))
+      .toEqual(Array.from({ length: 1200 }, (_, i) => mv(i).id));
+  });
+
   it("filters across all chunks", async () => {
     storage.lsSetBatch({ stockMovements: Array.from({ length: 3000 }, (_, i) => mv(i)) });
     await freshModule(new Map(desktop.rows));

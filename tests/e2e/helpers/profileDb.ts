@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 
 /**
@@ -101,4 +103,30 @@ export function countCollectionsOnDisk(dbPath: string, names: string[]): Record<
   } finally {
     db.close();
   }
+}
+
+export type CollectionFingerprint = {
+  count: number;
+  sha256: string;
+  idsSha256: string;
+};
+
+/** Exact durable content and identity fingerprint for one collection. */
+export function fingerprintCollectionOnDisk(
+  dbPath: string,
+  name: string,
+): CollectionFingerprint {
+  // The SQLite addon is compiled for Electron's embedded Node ABI in desktop
+  // development. Playwright itself may run on a different system Node, so the
+  // independent reader runs under Electron's matching Node runtime.
+  const electron = createRequire(import.meta.url)("electron") as string;
+  const reader = fileURLToPath(new URL("./profileDbReader.cjs", import.meta.url));
+  const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
+  const output = execFileSync(electron, [reader, dbPath, name], {
+    encoding: "utf8",
+    env,
+    windowsHide: true,
+    timeout: 120_000,
+  });
+  return JSON.parse(output) as CollectionFingerprint;
 }
