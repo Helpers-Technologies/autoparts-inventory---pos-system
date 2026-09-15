@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -26,6 +27,7 @@ import { uid } from "../lib/utils";
 import { useAuth } from "./AuthContext";
 import { useCatalog } from "./CatalogContext";
 import { useAuditLog } from "./AuditLogContext";
+import { registerAuxiliaryPersistenceOwner } from "./persistenceBoundaries";
 
 export const MAIN_BRANCH_ID = "branch_main";
 
@@ -243,9 +245,24 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   const [branches, setBranches] = useState<Branch[]>(() => lsGet("branches", DEFAULT_BRANCHES));
   const [branchStocks, setBranchStocks] = useState<BranchStock[]>(() => lsGet("branchStocks", initialBranchStocks(products)));
   const branchStocksRef = useRef(branchStocks);
-  useEffect(() => { branchStocksRef.current = branchStocks; }, [branchStocks]);
+  useLayoutEffect(() => { branchStocksRef.current = branchStocks; }, [branchStocks]);
   const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>(() => lsGet("stockTransfers", []));
   const [priceTiers, setPriceTiers] = useState<PriceTier[]>(() => lsGet("priceTiers", DEFAULT_PRICE_TIERS));
+  const persistenceRef = useRef({ customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers });
+  useLayoutEffect(() => {
+    persistenceRef.current = { customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers };
+  }, [customerVehicles, warrantyClaims, branches, branchStocks, stockTransfers, priceTiers]);
+  useLayoutEffect(() => {
+    if (isDesktop && (!authenticatedIdentity || hydratedIdentity !== authenticatedIdentity)) return;
+    return registerAuxiliaryPersistenceOwner((state) => {
+      const snapshot = persistenceRef.current;
+      // A stocktake can update the catalog just before shutdown, before this
+      // provider's reconciliation effect runs. Use the same live products that
+      // the closing transaction writes, preserving existing correction rules.
+      const currentProducts = Array.isArray(state.products) ? state.products as Product[] : productsRef.current;
+      return { ...snapshot, branchStocks: reconcileBranchStocks(snapshot.branchStocks, currentProducts, snapshot.branches) };
+    });
+  }, [authenticatedIdentity, hydratedIdentity, isDesktop]);
   // Hard execution lock for transferStock — a double-click fires two calls
   // before React re-renders, so both would read the same stale `branchStocks`
   // availability snapshot and both could pass the check. The lock rejects the
@@ -273,6 +290,14 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     setPriceTiers(lsGet("priceTiers", DEFAULT_PRICE_TIERS));
   }, []);
 
+  const reloadCommittedBranchStocks = useCallback(() => {
+    // A sale owns branch stock only. Reloading every Pro collection here would
+    // discard a transfer (or vehicle/branch edit) still awaiting its debounce.
+    const stored = lsGet<BranchStock[]>("branchStocks", []);
+    branchStocksRef.current = stored;
+    setBranchStocks(stored);
+  }, []);
+
   useEffect(() => {
     if (!authenticatedIdentity) {
       setHydratedIdentity(isDesktop ? null : "web");
@@ -283,16 +308,21 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   }, [authenticatedIdentity, isDesktop, reloadProData]);
 
   useEffect(() => {
+    if (isDesktop && (
+      !authenticatedIdentity || hydratedIdentity !== authenticatedIdentity
+    )) return;
     setBranchStocks((current) => {
       const next = reconcileBranchStocks(current, products, branches);
       const before = current.map((row) => `${row.branchId}:${row.productId}:${row.quantity}`).sort().join("|");
       const after = next.map((row) => `${row.branchId}:${row.productId}:${row.quantity}`).sort().join("|");
       return before === after ? current : next;
     });
-  }, [products, branches]);
+  }, [products, branches, authenticatedIdentity, hydratedIdentity, isDesktop]);
 
   useEffect(() => {
-    if (isDesktop && hydratedIdentity !== authenticatedIdentity) return;
+    if (isDesktop && (
+      !authenticatedIdentity || hydratedIdentity !== authenticatedIdentity
+    )) return;
     const timer = window.setTimeout(() => {
       lsSetBatch({ customerVehicles, warrantyClaims, branches, branchStocks: branchStocksRef.current, stockTransfers, priceTiers });
     }, 1200);
@@ -301,12 +331,12 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     window.addEventListener("autoparts:pro-data-restored", reloadProData);
-    window.addEventListener("autoparts:sale-committed", reloadProData);
+    window.addEventListener("autoparts:sale-committed", reloadCommittedBranchStocks);
     return () => {
       window.removeEventListener("autoparts:pro-data-restored", reloadProData);
-      window.removeEventListener("autoparts:sale-committed", reloadProData);
+      window.removeEventListener("autoparts:sale-committed", reloadCommittedBranchStocks);
     };
-  }, [reloadProData]);
+  }, [reloadProData, reloadCommittedBranchStocks]);
 
   const addCustomerVehicle = useCallback((input: NewCustomerVehicle) => {
     const now = new Date().toISOString();

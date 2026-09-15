@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -92,7 +93,7 @@ import { UsersContext } from "./UsersContext";
 import { VehicleCatalogProvider } from "./VehicleCatalogContext";
 import { AutoPartsProProvider } from "./AutoPartsProContext";
 import { ShippingProvider } from "./ShippingContext";
-import { stateOwnedPersistenceEntries } from "./persistenceBoundaries";
+import { hasAuxiliaryPersistenceOwners, shutdownPersistenceEntries, stateOwnedPersistenceEntries } from "./persistenceBoundaries";
 import { DEFAULT_BRANCHES, reconcileBranchStocks } from "./AutoPartsProContext";
 
 interface AppState {
@@ -863,7 +864,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const stockMovementCount = useCallback(() => lsCount("stockMovements"), []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     liveStateRef.current = {
       settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
       stockMovements, cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users,
@@ -888,7 +889,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const s = liveStateRef.current;
     const ok = await lsSetBatchAwait({
       autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-      ...stateOwnedPersistenceEntries(s),
+      ...shutdownPersistenceEntries(s),
     });
     unflushedChangesRef.current = false;
     return ok;
@@ -957,14 +958,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // current state without needing to re-register on every state change.
   useEffect(() => {
     const handleBeforeUnload = () => {
-      // Everything already flushed by the debounced batch write — skip the
-      // redundant write so shutdown stays instant.
-      if (!unflushedChangesRef.current) return;
+      // Other providers have their own debounce windows, so the root's dirty
+      // flag alone cannot establish that every collection has been flushed.
+      if (!unflushedChangesRef.current && !hasAuxiliaryPersistenceOwners()) return;
       if (isDesktop && (!auth.isAuthenticated || !desktopStorageHydrated)) return;
       try {
         lsSetBatch({
           autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-          ...stateOwnedPersistenceEntries(liveStateRef.current),
+          ...shutdownPersistenceEntries(liveStateRef.current),
         });
       } catch {
         // Ignore serialization errors during shutdown

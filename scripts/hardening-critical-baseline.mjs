@@ -82,7 +82,7 @@ export async function stableCapture(page) {
   }
   throw new Error('STORAGE_DID_NOT_STABILIZE_IN_60S');
 }
-async function openPos(page) {
+export async function openPos(page) {
   await page.evaluate(() => { location.hash = '/pos'; });
   await page.getByPlaceholder('ابحث عن منتج بالاسم أو الرمز...').waitFor({ timeout: 90000 });
   const floating = page.getByPlaceholder('مثال: 500');
@@ -97,7 +97,7 @@ async function openPos(page) {
   }
   await page.locator('[data-testid="pos-product-tile"]:not([disabled])').first().waitFor({ timeout: 45000 });
 }
-async function sell(page, rejected = false) {
+export async function sell(page, rejected = false) {
   const tiles = page.locator('[data-testid="pos-product-tile"]');
   const index = await tiles.evaluateAll(items => items.findIndex(el => !el.disabled && Number((el.textContent.match(/متاح:\s*([\d.,]+)/) || [])[1]?.replaceAll(',', '')) > 0));
   if (index < 0) throw new Error('NO_AVAILABLE_FIXTURE_PRODUCT');
@@ -116,7 +116,7 @@ async function sell(page, rejected = false) {
   // Termination probes stop at the actual success state, before another UI cycle.
   return { product, completionMs: Date.now() - start };
 }
-function native(operation, db, output) {
+export function native(operation, db, output) {
   execFileSync(electron, [path.join(root, 'scripts/hardening-db-probe.cjs'), operation, db, ...(output ? [output] : [])], { cwd: root, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, timeout: 120000 });
   return output ? JSON.parse(fs.readFileSync(output, 'utf8')) : undefined;
 }
@@ -174,6 +174,21 @@ for (const mode of ['login-close-no-business-writes', 'graceful-immediate-sale',
     result.restartExit = await stop(h);
     h = null;
     result.afterReopenClose = native('inspect', db, path.join(folder, 'native-after-reopen-close.json'));
+    if (mode === 'login-close-no-business-writes') {
+      const expected = result.beforeLogin.collections.stockMovements;
+      expect(result.afterClose.collections.stockMovements).toEqual(expected);
+      expect(result.afterRestart.stockMovements).toEqual(expected);
+      expect(result.afterReopenClose.collections.stockMovements).toEqual(expected);
+      result.assertionsPassed = true;
+    }
+    if (mode === 'two-branch-login') {
+      expect(result.afterClose.collections.branchStocks).toEqual(result.beforeLogin.collections.branchStocks);
+      expect(result.afterReopenClose.collections.branchStocks).toEqual(result.beforeLogin.collections.branchStocks);
+      const expected = { ...result.beforeLogin.collections.branchStocks };
+      delete expected.rows;
+      expect(result.afterRestart.branchStocks).toEqual(expected);
+      result.assertionsPassed = true;
+    }
     if (mode.endsWith('-sale')) {
       for (const name of ['salesInvoices', 'cashEntries', 'products', 'stockMovements', 'branchStocks']) {
         const afterClose = { ...result.afterClose.collections[name] };
