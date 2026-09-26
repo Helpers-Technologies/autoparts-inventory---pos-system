@@ -31,6 +31,7 @@ import { performance } from "node:perf_hooks";
 
 const sourceDb = process.env.PARTFLOW_STRESS_DB;
 const datasetPath = process.env.PARTFLOW_STRESS_DATASET;
+const routeFilter = process.env.PARTFLOW_PERF_ROUTE?.trim();
 
 type RouteResult = {
   path: string;
@@ -254,7 +255,9 @@ test.describe("full-system performance audit", () => {
     fs.copyFileSync(resolvedSource, dbPath);
 
     const ids = resolveIds();
-    const routes = [...STATIC_ROUTES, ...detailRoutes(ids)];
+    const allRoutes = [...STATIC_ROUTES, ...detailRoutes(ids)];
+    const routes = routeFilter ? allRoutes.filter(([route]) => route === routeFilter) : allRoutes;
+    if (!routes.length) throw new Error(`performance route not found: ${routeFilter}`);
     console.log(`[perf] ${routes.length} routes; isolated database: ${dbPath}`);
 
     const report: {
@@ -323,6 +326,7 @@ test.describe("full-system performance audit", () => {
       await page.getByRole("button", { name: "تسجيل الدخول" }).click();
       await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible({ timeout: 240_000 });
       report.loginMs = performance.now() - loginStarted;
+      console.log(`[perf] login ${Math.round(report.loginMs)}ms`);
       await dismissWhatsNew(page);
 
       // The first debounced persistence pass is a one-off cost. Letting it
@@ -397,6 +401,7 @@ test.describe("full-system performance audit", () => {
           };
         }
         report.routes.push(result);
+        console.log(`[perf] ${result.path} ${Math.round(result.milliseconds)}ms ${result.outcome}`);
 
         // Is the app still there? Once it is not, every later measurement is
         // noise and reporting it as data would be worse than stopping.
@@ -415,6 +420,7 @@ test.describe("full-system performance audit", () => {
       // "not measured" when it actually meant "threw, and nobody wrote down
       // why". A measurement that can fail silently is worse than none, because
       // it gets mistaken for one.
+      if (!routeFilter) {
       const step = async (name: string, body: () => Promise<void>) => {
         if (report.abortedAfter) return;
         try {
@@ -533,6 +539,7 @@ test.describe("full-system performance audit", () => {
             report.operations.heapAfterMB - report.operations.heapBaselineMB;
         }
       });
+      }
 
       const metrics = await electronApp.evaluate(async ({ app }) => ({
         metrics: app.getAppMetrics().map((m) => ({

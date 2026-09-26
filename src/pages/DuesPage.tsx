@@ -36,6 +36,7 @@ import { hasPermission } from "../lib/permissions";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { useAutoPartsPro, vehicleDisplayName } from "../store/AutoPartsProContext";
 import { buildWhatsappHref } from "../lib/whatsappTemplate";
+import { groupByKey, latestValueByKey } from "../lib/grouping";
 
 type DueStatus = "overdue" | "today" | "soon" | "scheduled" | "undated";
 type PartyType = "customer" | "supplier";
@@ -269,18 +270,40 @@ export function DuesPage() {
       .sort((a, b) => b.invoice.remaining - a.invoice.remaining);
   }, [purchaseInvoices, supplierLookup]);
 
+  const salesDueRowsByCustomer = useMemo(
+    () => groupByKey(salesDueRows, (row) => row.invoice.customerId),
+    [salesDueRows]
+  );
+  const purchaseDueRowsBySupplier = useMemo(
+    () => groupByKey(purchaseDueRows, (row) => row.invoice.supplierId),
+    [purchaseDueRows]
+  );
+  const customerLastActivity = useMemo(
+    () =>
+      latestValueByKey(
+        salesInvoices,
+        (invoice) => invoice.customerId,
+        (invoice) => invoice.date,
+        (invoice) => !invoice.cancelled
+      ),
+    [salesInvoices]
+  );
+  const supplierLastActivity = useMemo(
+    () =>
+      latestValueByKey(
+        purchaseInvoices,
+        (invoice) => invoice.supplierId,
+        (invoice) => invoice.date
+      ),
+    [purchaseInvoices]
+  );
+
   const partyRows = useMemo<PartyBalanceRow[]>(() => {
     const customerRows: PartyBalanceRow[] = customers
       .map((customer) => {
         const balance = customerBalance(customer.id);
-        const relatedDueRows = salesDueRows.filter(
-          (row) => row.invoice.customerId === customer.id
-        );
-        const lastActivity = salesInvoices
-          .filter((invoice) => invoice.customerId === customer.id && !invoice.cancelled)
-          .map((invoice) => invoice.date)
-          .sort()
-          .at(-1);
+        const relatedDueRows = salesDueRowsByCustomer.get(customer.id) ?? [];
+        const lastActivity = customerLastActivity.get(customer.id);
 
         return {
           id: customer.id,
@@ -303,14 +326,8 @@ export function DuesPage() {
     const supplierRows: PartyBalanceRow[] = suppliers
       .map((supplier) => {
         const balance = supplierBalance(supplier.id);
-        const relatedInvoices = purchaseDueRows.filter(
-          (row) => row.invoice.supplierId === supplier.id
-        );
-        const lastActivity = purchaseInvoices
-          .filter((invoice) => invoice.supplierId === supplier.id)
-          .map((invoice) => invoice.date)
-          .sort()
-          .at(-1);
+        const relatedInvoices = purchaseDueRowsBySupplier.get(supplier.id) ?? [];
+        const lastActivity = supplierLastActivity.get(supplier.id);
 
         return {
           id: supplier.id,
@@ -336,10 +353,10 @@ export function DuesPage() {
     suppliers,
     customerBalance,
     supplierBalance,
-    salesDueRows,
-    salesInvoices,
-    purchaseDueRows,
-    purchaseInvoices,
+    salesDueRowsByCustomer,
+    customerLastActivity,
+    purchaseDueRowsBySupplier,
+    supplierLastActivity,
   ]);
 
   const filteredSalesRows = useMemo(() => {
@@ -402,9 +419,8 @@ export function DuesPage() {
         let matches = includesTerm(row.name, row.code, row.phone)(term);
         if (!matches) {
           if (row.type === "customer") {
-            matches = salesDueRows.some(
+            matches = (salesDueRowsByCustomer.get(row.id) ?? []).some(
               (due) =>
-                due.invoice.customerId === row.id &&
                 includesTerm(
                   due.invoice.invoiceNumber,
                   due.vehicleLabel,
@@ -415,9 +431,8 @@ export function DuesPage() {
                 )(term)
             );
           } else {
-            matches = purchaseDueRows.some(
+            matches = (purchaseDueRowsBySupplier.get(row.id) ?? []).some(
               (due) =>
-                due.invoice.supplierId === row.id &&
                 includesTerm(due.invoice.invoiceNumber, due.partsSearch)(term)
             );
           }
@@ -428,13 +443,13 @@ export function DuesPage() {
       if (directionFilter !== "all" && row.direction !== directionFilter) return false;
       if (branchFilter !== "all") {
         if (row.type === "customer") {
-          const hasBranchInvoice = salesDueRows.some(
-            (due) => due.invoice.customerId === row.id && due.invoice.branchId === branchFilter
+          const hasBranchInvoice = (salesDueRowsByCustomer.get(row.id) ?? []).some(
+            (due) => due.invoice.branchId === branchFilter
           );
           if (!hasBranchInvoice) return false;
         } else {
-          const hasBranchInvoice = purchaseDueRows.some(
-            (due) => due.invoice.supplierId === row.id && due.invoice.branchId === branchFilter
+          const hasBranchInvoice = (purchaseDueRowsBySupplier.get(row.id) ?? []).some(
+            (due) => due.invoice.branchId === branchFilter
           );
           if (!hasBranchInvoice) return false;
         }
@@ -455,7 +470,7 @@ export function DuesPage() {
     }
 
     return result;
-  }, [partyFilter, partyRows, purchaseDueRows, query, salesDueRows, directionFilter, branchFilter, minAmount, maxAmount, sortBy]);
+  }, [partyFilter, partyRows, purchaseDueRowsBySupplier, query, salesDueRowsByCustomer, directionFilter, branchFilter, minAmount, maxAmount, sortBy]);
 
   const filteredPurchaseRows = useMemo(() => {
     const term = query.trim().toLowerCase();
