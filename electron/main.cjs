@@ -139,6 +139,10 @@ const {
   isChunkedTombstone,
 } = require("./storage-security.cjs");
 const {
+  describeKey: describeRendererMutationKey,
+  authorizeStorageBatch,
+} = require("./storage-mutation-policy.cjs");
+const {
   collectMacAddresses,
   pickPrimaryMac,
   buildFingerprintMaterial,
@@ -5187,8 +5191,15 @@ function registerIpc() {
     // Operation receipts belong to the inventory transaction. A routine raw
     // renderer write must never remove or replace the evidence of processing.
     if (String(key).startsWith(`${STORE_PREFIX}mobileStockOpReceipts`)) return false;
-    if (String(key) === `${STORE_PREFIX}users`) return hasOwnerSession(event);
-    return true;
+    return Boolean(describeRendererMutationKey(String(key)));
+  }
+
+  function authorizedRendererRows(event, entries) {
+    return authorizeStorageBatch(entries, {
+      user: getSessionUser(event),
+      read: storageGet,
+      normalize: normalizeRendererStorageValue,
+    });
   }
 
   // isRendererStorageKey, redactStorageRowForExport, storageValueForRenderer
@@ -5268,7 +5279,7 @@ function registerIpc() {
       event.returnValue = null;
       return;
     }
-    if (!isRendererStorageKey(key) || !canReadRendererStorage(event)) {
+    if (!isRendererStorageKey(key) || !describeRendererMutationKey(String(key)) || !canReadRendererStorage(event)) {
       event.returnValue = null;
       return;
     }
@@ -5280,18 +5291,22 @@ function registerIpc() {
       return false;
     }
     try {
-      const saved = storageSet(
-        String(key),
-        normalizeRendererStorageValue(key, value),
-      );
+      const allowed = authorizedRendererRows(event, { [String(key)]: value });
+      const normalized = allowed[String(key)];
+      if (normalized === undefined) return false;
+      const saved = storageSet(String(key), normalized);
       if (String(key) === `${STORE_PREFIX}users`) cleanupMfaForMissingUsers();
       return saved;
-    } catch {
+    } catch (error) {
+      if (HW_E2E) console.error("[storage:set] rejected:", error?.message || error);
       return false;
     }
   });
   ipcMain.handle("storage:remove", (event, key) => {
-    if (!isRendererStorageKey(key) || !canMutateRendererStorage(event, key)) {
+    // Collection removal is never part of normal renderer persistence. Keep
+    // it as an owner-only maintenance primitive and still restrict it to the
+    // explicit application-key catalogue.
+    if (!hasOwnerSession(event) || !isRendererStorageKey(key) || !describeRendererMutationKey(String(key))) {
       return false;
     }
     return storageRemove(String(key));
@@ -5323,7 +5338,7 @@ function registerIpc() {
       .all(`${STORE_PREFIX}%`);
     const result = {};
     for (const row of rows) {
-      if (!isRendererStorageKey(row.key)) continue;
+      if (!isRendererStorageKey(row.key) || !describeRendererMutationKey(row.key)) continue;
       // The manifest and the tombstone still travel — they are two small rows
       // and the renderer needs them to know the ledger exists and how big it
       // is. Only the chunks holding the records are held back.
@@ -5342,13 +5357,13 @@ function registerIpc() {
   ipcMain.handle("storage:get-collection", (event, name) => {
     if (!canReadRendererStorage(event)) return {};
     const base = `${STORE_PREFIX}${String(name || "")}`;
-    if (!isRendererStorageKey(base)) return {};
+    if (!isRendererStorageKey(base) || !describeRendererMutationKey(base)) return {};
     const rows = openDatabase()
       .prepare("SELECT key, value FROM kv_store WHERE key = ? OR key LIKE ?")
       .all(base, `${base}#%`);
     const result = {};
     for (const row of rows) {
-      if (!isRendererStorageKey(row.key)) continue;
+      if (!isRendererStorageKey(row.key) || !describeRendererMutationKey(row.key)) continue;
       result[row.key] = storageValueForRenderer(row.key, row.value);
     }
     return result;
@@ -5358,36 +5373,18 @@ function registerIpc() {
     if (!entries || typeof entries !== "object") return false;
     try {
       let usersWereUpdated = false;
-      // Keys skipped by policy (e.g. a non-owner session's routine flush
-      // skipping the `users` key) are NOT failures — the transaction still
-      // commits every key the caller was authorized to write. Only a genuine
-      // per-key write error (bad payload, constraint violation) should make
-      // the caller's await see this as a failed, undurable batch — that's
-      // what importBackup relies on to report an honest restore result.
-      let writeErrors = 0;
+      const allowed = authorizedRendererRows(event, entries);
       const tx = openDatabase().transaction(() => {
-        for (const [key, value] of Object.entries(entries)) {
-          if (
-            !isRendererStorageKey(key) ||
-            !canMutateRendererStorage(event, key)
-          )
-            continue;
-          try {
-            getStmtSet().run(
-              String(key),
-              normalizeRendererStorageValue(key, value),
-              new Date().toISOString(),
-            );
-            if (String(key) === `${STORE_PREFIX}users`) usersWereUpdated = true;
-          } catch {
-            writeErrors++;
-          }
+        for (const [key, value] of Object.entries(allowed)) {
+          getStmtSet().run(String(key), value, new Date().toISOString());
+          if (String(key) === `${STORE_PREFIX}users`) usersWereUpdated = true;
         }
       });
       tx();
       if (usersWereUpdated) cleanupMfaForMissingUsers();
-      return writeErrors === 0;
-    } catch {
+      return true;
+    } catch (error) {
+      if (HW_E2E) console.error("[storage:set-batch] rejected:", error?.message || error);
       return false;
     }
   });
@@ -5432,19 +5429,20 @@ function registerIpc() {
       return false;
     }
     try {
-      for (const [, value] of rows) JSON.parse(value);
+      const allowed = authorizedRendererRows(event, entries);
+      if (Object.keys(allowed).length !== rows.length) return false;
       const failAfter = Number.parseInt(
-        process.env.HW_E2E === "1"
+        HW_E2E
           ? process.env.PARTFLOW_HARDENING_FAIL_SALE_COMMIT_AFTER_WRITES || "0"
           : "0",
         10,
       );
-      const failCollection = process.env.HW_E2E === "1"
+      const failCollection = HW_E2E
         ? process.env.PARTFLOW_HARDENING_FAIL_SALE_COMMIT_AFTER_COLLECTION
         : undefined;
       let writes = 0;
       const tx = openDatabase().transaction(() => {
-        for (const [key, value] of rows) {
+        for (const [key, value] of Object.entries(allowed)) {
           getStmtSet().run(
             String(key),
             normalizeRendererStorageValue(key, value),
@@ -5464,7 +5462,8 @@ function registerIpc() {
       });
       tx();
       return true;
-    } catch {
+    } catch (error) {
+      if (HW_E2E) console.error("[sales:commit] rejected:", error?.message || error);
       return false;
     }
   });
@@ -5486,23 +5485,27 @@ function registerIpc() {
   ipcMain.handle("storage:import", (event, payload) => {
     if (!hasOwnerSession(event) || !payload || !Array.isArray(payload.rows))
       return { ok: false };
-    const insert = openDatabase().prepare(
-      "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-    );
-    const tx = openDatabase().transaction((rows) => {
-      for (const row of rows) {
-        if (typeof row.key === "string" && typeof row.value === "string") {
-          if (!isRendererStorageKey(row.key)) continue;
-          insert.run(
-            row.key,
-            normalizeRendererStorageValue(row.key, row.value),
-            row.updated_at || new Date().toISOString(),
-          );
+    try {
+      const entries = {};
+      for (const row of payload.rows) {
+        if (!row || typeof row.key !== "string" || typeof row.value !== "string" || Object.hasOwn(entries, row.key)) {
+          return { ok: false, error: "invalid_backup_rows" };
         }
+        entries[row.key] = row.value;
       }
-    });
-    tx(payload.rows);
-    return { ok: true };
+      const allowed = authorizedRendererRows(event, entries);
+      if (Object.keys(allowed).length !== payload.rows.length) return { ok: false, error: "not_authorized" };
+      const insert = openDatabase().prepare(
+        "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+      );
+      openDatabase().transaction(() => {
+        for (const row of payload.rows) insert.run(row.key, allowed[row.key], row.updated_at || new Date().toISOString());
+      })();
+      cleanupMfaForMissingUsers();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "invalid_backup" };
+    }
   });
 
   ipcMain.handle("license:get-machine-code", () => getMachineCode());
@@ -5599,19 +5602,21 @@ function registerIpc() {
     if (!archive.ok) return archive;
     // Same write path and same key filter as storage:import, so a crafted
     // archive can no more reach a protected key than a crafted backup file.
+    let allowed;
+    try {
+      allowed = authorizedRendererRows(event, archive.state);
+      if (Object.keys(allowed).length !== Object.keys(archive.state).length) throw new Error("incomplete_archive");
+    } catch {
+      return { ok: false, error: "invalid_archive" };
+    }
     const insert = openDatabase().prepare(
       "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
     );
-    let restored = 0;
     const now = new Date().toISOString();
     openDatabase().transaction(() => {
-      for (const [key, value] of Object.entries(archive.state)) {
-        if (typeof key !== "string" || typeof value !== "string") continue;
-        if (!isRendererStorageKey(key)) continue;
-        insert.run(key, normalizeRendererStorageValue(key, value), now);
-        restored += 1;
-      }
+      for (const [key, value] of Object.entries(allowed)) insert.run(key, value, now);
     })();
+    const restored = Object.keys(allowed).length;
     // The audit log lives in the renderer's own store (autoparts_inventory_v1::
     // auditLogs) and has just been overwritten by the archive, so there is no
     // durable place to record this from here — the renderer writes the entry
@@ -5687,8 +5692,7 @@ function registerIpc() {
     if (apiKey && (apiKey.length < 12 || apiKey.length > 8192)) {
       return { ok: false, error: "invalid_api_key" };
     }
-    if (apiKey) storeIntegrationSecret(BOSTA_API_KEY, apiKey);
-    if (payload?.enabled && !readIntegrationSecret(BOSTA_API_KEY)) {
+    if (payload?.enabled && !apiKey && !readIntegrationSecret(BOSTA_API_KEY)) {
       return { ok: false, error: "api_key_missing" };
     }
     const current = readJsonKey(BOSTA_CONFIG_KEY, {});
@@ -5717,13 +5721,10 @@ function registerIpc() {
     if (webhookHeaderValue && webhookHeaderValue.length > 2048) {
       return { ok: false, error: "invalid_webhook_header" };
     }
-    if (webhookHeaderValue)
-      storeIntegrationSecret(BOSTA_WEBHOOK_HEADER_VALUE, webhookHeaderValue);
     if (webhookPollToken) {
       if (webhookPollToken.length < 24 || webhookPollToken.length > 2048) {
         return { ok: false, error: "invalid_webhook_poll_token" };
       }
-      storeIntegrationSecret(BOSTA_WEBHOOK_POLL_TOKEN, webhookPollToken);
     }
     const effectiveHeaderValue =
       webhookHeaderValue || readIntegrationSecret(BOSTA_WEBHOOK_HEADER_VALUE);
@@ -5742,6 +5743,11 @@ function registerIpc() {
     ) {
       return { ok: false, error: "invalid_webhook_relay_url" };
     }
+    // All fields have passed validation. Store secrets only now so an invalid
+    // webhook field cannot partially rotate credentials behind a failed form.
+    if (apiKey) storeIntegrationSecret(BOSTA_API_KEY, apiKey);
+    if (webhookHeaderValue) storeIntegrationSecret(BOSTA_WEBHOOK_HEADER_VALUE, webhookHeaderValue);
+    if (webhookPollToken) storeIntegrationSecret(BOSTA_WEBHOOK_POLL_TOKEN, webhookPollToken);
     writeJsonKey(BOSTA_CONFIG_KEY, {
       ...current,
       enabled: Boolean(payload?.enabled),
@@ -6146,6 +6152,7 @@ function registerIpc() {
     return printRoute(route);
   });
   ipcMain.handle("print:current-window", async (event) => {
+    if (!getSession(event) && !internalPrintWebContents.has(event.sender.id)) return { ok: false, error: "not_authorized" };
     try {
       const printOpts = getInvoicePrintOptions();
       return new Promise((resolve) => {
@@ -6165,6 +6172,7 @@ function registerIpc() {
     }
   });
   ipcMain.handle("print:save-current-pdf", async (event) => {
+    if (!getSession(event) && !internalPrintWebContents.has(event.sender.id)) return { ok: false, error: "not_authorized" };
     const ownerWindow = BrowserWindow.fromWebContents(event.sender);
     const baseName =
       printDocumentNames.get(event.sender.id) ||
@@ -6268,6 +6276,7 @@ function registerIpc() {
     }
   });
   ipcMain.handle("print:close-current-window", (event) => {
+    if (!getSession(event) && !internalPrintWebContents.has(event.sender.id)) return { ok: false, error: "not_authorized" };
     const ownerWindow = BrowserWindow.fromWebContents(event.sender);
     if (ownerWindow && !ownerWindow.isDestroyed()) {
       ownerWindow.close();
@@ -6277,6 +6286,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("dialog:select-directory", async (event) => {
+    if (!hasOwnerSession(event)) return null;
     // E2E mode cannot drive a native dialog; return a real writable dir instead.
     if (HW_E2E) return os.tmpdir();
     const ownerWindow = BrowserWindow.fromWebContents(event.sender);
@@ -6289,6 +6299,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("backup:select-directory", async (event) => {
+    if (!hasOwnerSession(event)) return null;
     if (HW_E2E) return os.tmpdir();
     const ownerWindow = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(ownerWindow, {
@@ -6362,7 +6373,8 @@ function registerIpc() {
   ipcMain.handle("updates:get-status", () => {
     return { ok: true, ...getUpdateStatusForRenderer() };
   });
-  ipcMain.handle("updates:check-now", async () => {
+  ipcMain.handle("updates:check-now", async (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
     try {
       const result = await checkForUpdateOnline("manual");
       return { ok: true, ...result };
@@ -6370,7 +6382,8 @@ function registerIpc() {
       return { ok: false, error: "check_failed" };
     }
   });
-  ipcMain.handle("updates:download", async () => {
+  ipcMain.handle("updates:download", async (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
     try {
       const ok = await downloadUpdate();
       return { ok };
@@ -6378,13 +6391,16 @@ function registerIpc() {
       return { ok: false, error: "download_failed" };
     }
   });
-  ipcMain.handle("updates:install", () => {
+  ipcMain.handle("updates:install", (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
     return { ok: installUpdate() };
   });
-  ipcMain.handle("updates:cancel-download", () => {
+  ipcMain.handle("updates:cancel-download", (event) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
     return { ok: cancelDownload() };
   });
-  ipcMain.handle("updates:skip-release", (_event, releaseId) => {
+  ipcMain.handle("updates:skip-release", (event, releaseId) => {
+    if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
     if (!releaseId || typeof releaseId !== "string") return { ok: false };
     if (
       _updateState.release &&

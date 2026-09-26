@@ -55,8 +55,35 @@ if (operation === 'branches' || operation === 'branch-workflows' || operation ==
       put('settings', { ...settings, features: { ...settings.features, mobileCompanion: true } });
     }
   })();
+} else if (operation === 'permissions' || operation === 'permissions-sales') {
+  const users = get('users');
+  const owner = users.find(user => user.role === 'owner');
+  if (!owner?.passwordHash) throw new Error('FIXTURE_OWNER_REQUIRED');
+  const actions = {
+    pos: ['view','createSale','openShift','closeShift','viewShifts','supervisorOverride','applyDiscount','holdCart'],
+    products: ['view','add','edit','delete','printBarcode'], inventory: ['view','adjust','stocktakes','transfers'],
+    purchaseInvoices: ['view','add','edit','pay','delete','purchasingAssistant'],
+    salesInvoices: ['view','add','edit','receive','cancel','delete'],
+    customers: ['view','add','edit','delete'], suppliers: ['view','add','edit','delete','commissions'],
+    drivers: ['view','add','edit','delete'], returns: ['view','add','approve'], alerts: ['view'],
+    cashbox: ['view','add','spend','editOpeningBalance'], reports: ['view','analytics','export'],
+  };
+  const salesEmployee = operation === 'permissions-sales';
+  const permissions = Object.fromEntries(Object.entries(actions).map(([module, names]) => [module, Object.fromEntries(names.map(name => [name, false]))]));
+  if (salesEmployee) {
+    permissions.pos.view = true; permissions.pos.createSale = true; permissions.pos.openShift = true; permissions.pos.closeShift = true;
+    permissions.products.view = true; permissions.inventory.view = true;
+    permissions.salesInvoices.view = true; permissions.salesInvoices.add = true;
+    permissions.customers.view = true; permissions.cashbox.view = true;
+    put('autoPartsStarterCatalogVersion', 3);
+  }
+  put('users', [...users.filter(user => user.id !== 'denied-user' && user.id !== 'sales-user'), {
+    id: salesEmployee ? 'sales-user' : 'denied-user', username: salesEmployee ? 'salesemployee' : 'denied', name: salesEmployee ? 'Sales employee fixture' : 'Denied employee fixture', role: 'employee',
+    passwordHash: owner.passwordHash, createdAt: '2026-01-01T00:00:00Z',
+    permissions,
+  }]);
 } else if (operation === 'inspect') {
-  const result = { at: new Date().toISOString(), file: target, integrity: db.pragma('integrity_check'), collections: {} };
+  const result = { at: new Date().toISOString(), file: target, integrity: db.pragma('integrity_check'), permissionProbe: get('auditPermissionProbe'), collections: {} };
   for (const name of ['products', 'customers', 'branches', 'branchStocks', 'salesInvoices', 'cashEntries', 'stockMovements', 'shifts', 'salesReturns', 'purchaseReturns', 'stockTransfers', 'stocktakes']) {
     const value = get(name);
     const rows = Array.isArray(value) ? value : [];

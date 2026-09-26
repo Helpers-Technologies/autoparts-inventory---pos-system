@@ -452,8 +452,12 @@ function normalizeProduct(product: LegacyProduct): Product {
   };
 }
 
-function loadProductsWithStarterCatalog(): Product[] {
+function loadProductsWithStarterCatalog(allowCatalogInstall = true): Product[] {
   const stored = lsGet<LegacyProduct[]>("products", seedProducts).map(normalizeProduct);
+  // Installing a new starter-catalog revision mutates the real product list.
+  // An employee who merely signs in must not inherit product.add authority
+  // from this startup convenience; the next owner session performs it.
+  if (!allowCatalogInstall) return stored;
   const installedVersion = lsGet<number>("autoPartsStarterCatalogVersion", 0);
   if (installedVersion >= AUTO_PARTS_STARTER_CATALOG_VERSION) return stored;
   return mergeAutoPartsStarterCatalog(stored, seedProducts);
@@ -631,10 +635,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAuditLogs((list) => [entry, ...list].slice(0, 1000));
   }, []);
 
-  const loadStoredStateFromDesktop = useCallback(() => {
+  const loadStoredStateFromDesktop = useCallback((allowCatalogInstall = false) => {
     const storedSettings = lsGet<Settings>("settings", seedSettings);
     setSettings(applyLicenseSettings(storedSettings, licenseStatus));
-    setProducts(loadProductsWithStarterCatalog());
+    setProducts(loadProductsWithStarterCatalog(allowCatalogInstall));
     const storedSuppliers = lsGet<Supplier[]>("suppliers", seedSuppliers);
     setSuppliers(storedSuppliers);
     setCustomers(lsGet<Customer[]>("customers", seedCustomers));
@@ -1061,7 +1065,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: "not_authenticated" };
       }
     }
-    loadStoredStateFromDesktop();
+    loadStoredStateFromDesktop(user.role === "owner");
     setDesktopStorageHydrated(true);
     const updatedUser = normalizeUser(user);
     setUsers((list) =>

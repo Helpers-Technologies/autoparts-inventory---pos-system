@@ -14,6 +14,13 @@ const allowed = value => {
 };
 const blocked = [];
 const persistenceTrace = [];
+const mainErrors = [];
+const originalConsoleError = console.error.bind(console);
+console.error = (...args) => {
+  mainErrors.push({ at: new Date().toISOString(), message: args.map(value => value instanceof Error ? value.message : String(value)).join(' ') });
+  fs.writeFileSync(path.join(path.dirname(dbPath), 'main-errors.json'), JSON.stringify(mainErrors, null, 2));
+  originalConsoleError(...args);
+};
 const originalHandle = ipcMain.handle.bind(ipcMain);
 const mobileFixturePath = process.env.PARTFLOW_HARDENING_MOBILE_FIXTURE_PATH;
 let mobileFixture;
@@ -29,11 +36,25 @@ const saveMobileTrace = () => {
   fs.renameSync(mobileTracePath + '.tmp', mobileTracePath);
 };
 ipcMain.handle = (channel, listener) => originalHandle(channel, async (event, ...args) => {
+  let persistenceEntry;
   if (channel === 'storage:set-batch' || channel === 'sales:commit') {
-    persistenceTrace.push({ channel, at: new Date().toISOString(), keys: Object.keys(args[0] || {}) });
+    const rows = args[0] || {};
+    persistenceEntry = {
+      channel,
+      at: new Date().toISOString(),
+      keys: Object.keys(rows),
+      manifests: Object.fromEntries(Object.entries(rows).filter(([key]) => key.endsWith('#meta')).map(([key, value]) => {
+        try { return [key, JSON.parse(value)]; } catch { return [key, 'invalid']; }
+      })),
+    };
+    persistenceTrace.push(persistenceEntry);
     fs.writeFileSync(path.join(path.dirname(dbPath), 'persistence-trace.json'), JSON.stringify(persistenceTrace, null, 2));
   }
   const result = await listener(event, ...args);
+  if (persistenceEntry) {
+    persistenceEntry.result = result;
+    fs.writeFileSync(path.join(path.dirname(dbPath), 'persistence-trace.json'), JSON.stringify(persistenceTrace, null, 2));
+  }
   // Substitute the remote transport only after the real IPC listener has
   // validated permission and, for acknowledgements, durable receipts.
   if (mobileFixture && result?.error === 'not_configured') {
