@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_SETTLE_MS = 3500;
@@ -42,6 +43,17 @@ async function waitForWritable(filePath) {
   );
 }
 
+async function hashFile(filePath) {
+  const hash = crypto.createHash("sha256");
+  const handle = await fs.open(filePath, "r");
+  try {
+    for await (const chunk of handle.createReadStream({ autoClose: false })) hash.update(chunk);
+  } finally {
+    await handle.close();
+  }
+  return hash.digest("hex");
+}
+
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== "win32") return;
 
@@ -51,4 +63,15 @@ exports.default = async function afterPack(context) {
   );
 
   await waitForWritable(exePath);
+
+  // Signing hooks can run before app.asar exists in newer electron-builder
+  // releases. Generate the startup integrity sidecar here, after packaging has
+  // completed, so every supported builder version puts it in the final app and
+  // installer payload.
+  const resourcesDir = path.join(context.appOutDir, "resources");
+  const asarPath = path.join(resourcesDir, "app.asar");
+  const integrityPath = path.join(resourcesDir, "asar-integrity.sha256");
+  const hash = await hashFile(asarPath);
+  await fs.writeFile(integrityPath, `${hash}\n`, "utf8");
+  console.log(`[after-pack] wrote asar-integrity.sha256 (${hash.slice(0, 12)}...)`);
 };
