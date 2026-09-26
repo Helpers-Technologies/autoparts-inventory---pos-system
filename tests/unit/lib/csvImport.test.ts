@@ -80,11 +80,11 @@ describe("downloadCsv", () => {
       return "blob:mock-url";
     });
     const revokeBlobUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    const createEl = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+    const createEl = vi.spyOn(document, "createElement").mockImplementation(((tag: string) => {
       const el = realCreate(tag);
       if (tag === "a") anchor = el as HTMLAnchorElement;
       return el;
-    });
+    }) as typeof document.createElement);
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     downloadCsv("export.csv", [

@@ -27,7 +27,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { screen, waitFor, cleanup } from "@testing-library/react";
-import { SettingsPage } from "../../src/pages/SettingsPage";
+import { BackupAndRestorePage } from "../../src/pages/BackupAndRestorePage";
 import { renderWithProviders } from "../helpers/render";
 import { lsSet } from "../../src/lib/storage";
 import { seedSettings } from "../../src/data/seed";
@@ -65,11 +65,15 @@ vi.mock("../../src/store/AuditLogContext", () => ({
   }),
 }));
 
+vi.mock("../../src/lib/useFeatures", () => ({
+  useFeatures: () => ({ isEnabled: () => true }),
+}));
+
 // The page reads the catalogue to answer "how many parts use this quality
 // grade / condition / warranty term?" before letting one be deleted. An empty
 // catalogue is all this test needs — it never opens that dialog.
 vi.mock("../../src/store/CatalogContext", () => ({
-  useCatalog: () => ({ products: [] }),
+  useCatalog: () => ({ products: [], addProduct: vi.fn(), addCustomer: vi.fn() }),
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -104,7 +108,7 @@ describe("SettingsPage — internal backup restore confirmation", () => {
     lsSet("inventory_auto_backup_internal", { fake: "backup-payload" });
 
     const user = userEvent.setup();
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<BackupAndRestorePage />);
 
     await user.click(screen.getByRole("button", { name: INTERNAL_BACKUP_BUTTON }));
 
@@ -126,7 +130,7 @@ describe("SettingsPage — internal backup restore confirmation", () => {
 
   it("shows a 'no backup' error toast and never opens the ConfirmDialog when no internal backup is stored", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<BackupAndRestorePage />);
 
     await user.click(screen.getByRole("button", { name: INTERNAL_BACKUP_BUTTON }));
 

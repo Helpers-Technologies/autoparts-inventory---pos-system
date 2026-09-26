@@ -15,8 +15,8 @@ import {
   setPermission,
   createPermissions,
 } from "../../../src/lib/permissions";
-import type { AppUser, PermissionModule } from "../../../src/lib/permissions";
-import type { UserPermissions } from "../../../src/types";
+import type { PermissionModule } from "../../../src/lib/permissions";
+import type { AppUser, UserPermissions } from "../../../src/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,7 +113,7 @@ describe("TC-PER-MATRIX-004 — normalizePermissions invariants", () => {
         ),
       ])
     )
-  ) as fc.Arbitrary<UserPermissions>;
+  ) as unknown as fc.Arbitrary<UserPermissions>;
 
   it("if any non-view action is true, view is forced true", () =>
     fc.assert(

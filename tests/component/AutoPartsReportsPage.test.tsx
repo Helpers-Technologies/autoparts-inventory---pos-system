@@ -161,6 +161,7 @@ const owner: AppUser = {
   role: "owner",
   passwordHash: "[REDACTED]",
   permissions: createPermissions(true),
+  createdAt: "2026-01-01T00:00:00.000Z",
 };
 
 const settings = {

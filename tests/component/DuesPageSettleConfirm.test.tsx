@@ -53,9 +53,10 @@ const SALE: SalesInvoice = {
   total: 1000,
   amountReceived: 0,
   remaining: 1000,
+  status: "unpaid",
   paymentType: "account",
   priceType: "retail",
-  dueDate: "2026-08-15",
+  paymentDueDate: "2026-08-15",
   createdAt: "2026-08-01T00:00:00.000Z",
 };
 

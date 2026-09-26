@@ -24,8 +24,7 @@ import { useAuditLog } from "../store/AuditLogContext";
 import { useToast } from "../components/ui/Toast";
 import { lsGet } from "../lib/storage";
 import { FEATURES, FEATURE_CATEGORIES, FEATURE_CATEGORY_BY_KEY, defaultFeatureState, isAllowedByLicense, type FeatureDef, type FeatureKey } from "../lib/features";
-import { Save, Eye, Download, Upload, Database, FileSpreadsheet, ShieldCheck, Clock, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ListChecks, ChevronDown, ChevronUp, Gift, RefreshCw, Smartphone, ShieldAlert, CheckCircle2, LogOut, Link2Off, Laptop, Globe, TabletSmartphone, CloudUpload, CloudDownload } from "lucide-react";
-import type { LinkedMobileDevice } from "../types/desktop";
+import { Save, Eye, FileSpreadsheet, Image as ImageIcon, Trash2, FolderOpen, Boxes, Lock, Copy, KeyRound, MessageCircle, PackagePlus, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
 import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import {
   DEFAULT_INVOICE_WHATSAPP_TEMPLATE,
@@ -33,7 +32,6 @@ import {
 } from "../lib/whatsappTemplate";
 import { MfaPolicyCard } from "../components/security/MfaPolicyCard";
 import { TwoFactorSecurityPanel } from "../components/security/TwoFactorSecurityPanel";
-import { UpdateSettingsCard } from "../components/updates/UpdateSettingsCard";
 
 const SUPPORT_WHATSAPP = "201118445625";
 const FEATURE_PREVIEW_LIMIT = 8;
@@ -125,24 +123,6 @@ function planDisplayLabel(license?: { plan?: string; features?: string[] } | nul
   return "الباقة الشاملة";
 }
 
-const DEVICE_PLATFORM_ICONS = {
-  android: Smartphone,
-  ios: Smartphone,
-  web: Globe,
-  windows: Laptop,
-  macos: Laptop,
-  linux: Laptop,
-} as const;
-
-const DEVICE_PLATFORM_LABELS: Record<string, string> = {
-  android: "أندرويد",
-  ios: "آيفون / آيباد",
-  web: "متصفح",
-  windows: "ويندوز",
-  macos: "ماك",
-  linux: "لينكس",
-};
-
 /** Absolute date plus a coarse "how long ago", which is what an owner scanning
  *  the list actually wants to know about a device they don't recognise. */
 function formatDeviceMoment(value: string | null): string {
@@ -160,93 +140,8 @@ function formatDeviceMoment(value: string | null): string {
   return `${date} (منذ ${Math.floor(hours / 24)} يوم)`;
 }
 
-function MobileDeviceRow({
-  device, busy, onSignOut, onUnlink,
-}: {
-  device: LinkedMobileDevice;
-  busy: boolean;
-  onSignOut: () => void;
-  onUnlink: () => void;
-}) {
-  const Icon = (device.platform && DEVICE_PLATFORM_ICONS[device.platform]) || TabletSmartphone;
-  const online = device.activeSessions > 0 && !device.revoked;
-  return (
-    <li className={cn(
-      "rounded-xl border p-3",
-      device.revoked ? "border-line bg-surface-muted/50 opacity-70" : "border-line bg-surface",
-    )}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300">
-            <Icon className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="truncate text-sm font-bold text-ink">{device.deviceName}</span>
-              {device.revoked ? (
-                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
-                  ملغي
-                </span>
-              ) : online ? (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                  جلسة نشطة
-                </span>
-              ) : (
-                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-bold text-ink-muted">
-                  مسجل خروج
-                </span>
-              )}
-            </div>
-            <div className="mt-1 space-y-0.5 text-xs leading-5 text-ink-muted">
-              <div>
-                {device.userDisplayName} · {device.userRole === "owner" ? "مالك" : "مشرف"}
-                {device.platform ? ` · ${DEVICE_PLATFORM_LABELS[device.platform] ?? device.platform}` : ""}
-                {device.appVersion ? ` · إصدار ${device.appVersion}` : ""}
-              </div>
-              <div>تاريخ الربط: {formatDeviceMoment(device.createdAt)}</div>
-              <div>آخر نشاط: {formatDeviceMoment(device.lastSeenAt)}</div>
-            </div>
-          </div>
-        </div>
-        {!device.revoked && (
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button type="button" variant="ghost" disabled={busy || !online} onClick={onSignOut}>
-              <LogOut className="h-4 w-4" /> تسجيل خروج
-            </Button>
-            <Button type="button" variant="ghost" disabled={busy} onClick={onUnlink}>
-              <Link2Off className="h-4 w-4" /> إلغاء الربط
-            </Button>
-          </div>
-        )}
-      </div>
-    </li>
-  );
-}
-
-function MobileRequirement({ ok, title, description }: { ok: boolean; title: string; description: string }) {
-  return (
-    <div className={cn(
-      "flex items-start gap-3 rounded-xl border p-3",
-      ok
-        ? "border-emerald-200 bg-emerald-50/55 dark:border-emerald-500/25 dark:bg-emerald-500/10"
-        : "border-rose-200 bg-rose-50/55 dark:border-rose-500/25 dark:bg-rose-500/10",
-    )}>
-      <span className={cn(
-        "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg",
-        ok ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
-      )}>
-        {ok ? <CheckCircle2 className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
-      </span>
-      <span className="min-w-0">
-        <span className="block text-sm font-bold text-ink">{title}</span>
-        <span className="mt-0.5 block text-xs leading-5 text-ink-muted">{description}</span>
-      </span>
-    </div>
-  );
-}
-
 export function SettingsPage() {
-  const { settings, updateSettings, exportBackup, importBackup, backupToPath, exportToExcel, licenseStatus, activateLicense, currentUser } = useApp();
+  const { settings, updateSettings, importBackup, licenseStatus, activateLicense, currentUser } = useApp();
   const toast = useToast();
   const { auditLogs, clearAuditLogs } = useAuditLog();
   const [form, setForm] = useState(settings);
@@ -267,52 +162,12 @@ export function SettingsPage() {
   const [licenseDialogOpen, setLicenseDialogOpen] = useState(false);
   const [newSerial, setNewSerial] = useState("");
   const [applyingSerial, setApplyingSerial] = useState(false);
-  // Transient secret for password-protected MANUAL export/restore. Never
-  // persisted — lives only for the current Settings view.
-  const [backupPassphrase, setBackupPassphrase] = useState("");
   const [pendingRestore, setPendingRestore] = useState<{ file: File; pass?: string; isProtected: boolean } | null>(null);
   const [pendingInternalRestore, setPendingInternalRestore] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTab, setPreviewTab] = useState<"invoice" | "whatsapp">("invoice");
   const [whatsappTemplateExpanded, setWhatsappTemplateExpanded] = useState(false);
   const [mfaRefreshKey, setMfaRefreshKey] = useState(0);
-  const [mobileLinkStatus, setMobileLinkStatus] = useState<
-    | { state: "loading" }
-    | { state: "unavailable" }
-    | {
-        state: "ready";
-        allowedRole: boolean;
-        featureLicensed: boolean;
-        twoFactorLicensed: boolean;
-        mfaEnabled: boolean;
-      }
-  >({ state: "loading" });
-  const [mobileLinkDialogOpen, setMobileLinkDialogOpen] = useState(false);
-  const [mobilePassword, setMobilePassword] = useState("");
-  const [mobileTotpCode, setMobileTotpCode] = useState("");
-  const [mobileDeviceLabel, setMobileDeviceLabel] = useState("هاتف الإدارة");
-  const [mobilePairingLoading, setMobilePairingLoading] = useState(false);
-  const [mobilePairingError, setMobilePairingError] = useState("");
-  const [mobilePairingResult, setMobilePairingResult] = useState<{ activationCode: string; expiresAt: string } | null>(null);
-  const [mobileDevices, setMobileDevices] = useState<
-    | { state: "idle" }
-    | { state: "loading" }
-    | { state: "ready"; devices: LinkedMobileDevice[] }
-    | { state: "error"; error: string }
-  >({ state: "idle" });
-  const [cloudArchive, setCloudArchive] = useState<
-    | { state: "unavailable" }
-    | { state: "loading" }
-    | {
-        state: "ready";
-        featureLicensed: boolean;
-        configured: boolean;
-        lastArchivedAt: string | null;
-        lastError: { message: string; at: string } | null;
-        serviceAvailable: boolean;
-      }
-  >({ state: "loading" });
-  const [cloudArchiveRefreshKey, setCloudArchiveRefreshKey] = useState(0);
   const [cloudArchiveBusy, setCloudArchiveBusy] = useState(false);
   const [cloudPassphraseDialogOpen, setCloudPassphraseDialogOpen] = useState(false);
   const [cloudAccountPassword, setCloudAccountPassword] = useState("");
@@ -325,9 +180,6 @@ export function SettingsPage() {
   const [cloudRestorePreview, setCloudRestorePreview] = useState<
     { capturedAt: string | null; appVersion: string | null; keyCount: number } | null
   >(null);
-  const [devicePendingRevoke, setDevicePendingRevoke] = useState<LinkedMobileDevice | null>(null);
-  const [deviceRevokeBusy, setDeviceRevokeBusy] = useState(false);
-  const [deviceRefreshKey, setDeviceRefreshKey] = useState(0);
   const [showAllFeatures, setShowAllFeatures] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<FeatureDef | null>(null);
   const [referralHistoryOpen, setReferralHistoryOpen] = useState(false);
@@ -353,50 +205,6 @@ export function SettingsPage() {
   const whatsappTemplateRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => setForm(settings), [settings]);
-
-  useEffect(() => {
-    let active = true;
-    const api = window.desktopAPI?.license?.getMobileLinkStatus;
-    if (!currentUser || !api) {
-      setMobileLinkStatus({ state: "unavailable" });
-      return () => { active = false; };
-    }
-    setMobileLinkStatus({ state: "loading" });
-    void api().then((result) => {
-      if (!active) return;
-      if (!result.ok) {
-        setMobileLinkStatus({ state: "unavailable" });
-        return;
-      }
-      setMobileLinkStatus({
-        state: "ready",
-        allowedRole: result.allowedRole,
-        featureLicensed: result.featureLicensed,
-        twoFactorLicensed: result.twoFactorLicensed,
-        mfaEnabled: result.mfaEnabled,
-      });
-    }).catch(() => {
-      if (active) setMobileLinkStatus({ state: "unavailable" });
-    });
-    return () => { active = false; };
-  }, [currentUser?.id, licenseStatus?.license?.licenseId, mfaRefreshKey]);
-
-  useEffect(() => {
-    let active = true;
-    const api = window.desktopAPI?.license?.getCloudArchiveStatus;
-    if (!api || currentUser?.role !== "owner") {
-      setCloudArchive({ state: "unavailable" });
-      return () => { active = false; };
-    }
-    setCloudArchive({ state: "loading" });
-    void api().then((result) => {
-      if (!active) return;
-      setCloudArchive(result.ok ? { state: "ready", ...result } : { state: "unavailable" });
-    }).catch(() => {
-      if (active) setCloudArchive({ state: "unavailable" });
-    });
-    return () => { active = false; };
-  }, [currentUser?.id, currentUser?.role, cloudArchiveRefreshKey]);
 
   const CLOUD_ARCHIVE_ERRORS: Record<string, string> = {
     not_authorized: "النسخ الاحتياطي السحابي متاح للمالك فقط",
@@ -434,28 +242,10 @@ export function SettingsPage() {
       setCloudAccountPassword("");
       setCloudPassphrase("");
       setCloudPassphraseConfirm("");
-      setCloudArchiveRefreshKey((key) => key + 1);
       toast.success("تم تفعيل النسخة السحابية", "احتفظ بكلمة السر — من غيرها لا يمكن استرجاع النسخة");
       return;
     }
     setCloudPassphraseError(CLOUD_ARCHIVE_ERRORS[result.error || ""] || "تعذر حفظ الإعداد");
-  }
-
-  async function runCloudArchiveSync() {
-    const api = window.desktopAPI?.license?.syncCloudArchiveNow;
-    if (!api) return;
-    setCloudArchiveBusy(true);
-    const result = await api();
-    setCloudArchiveBusy(false);
-    setCloudArchiveRefreshKey((key) => key + 1);
-    if (result.ok) {
-      toast.success(
-        result.skipped ? "النسخة السحابية محدَّثة بالفعل" : "تم رفع نسخة سحابية جديدة",
-        result.skipped ? "لا توجد تغييرات منذ آخر رفع" : `${result.keyCount ?? 0} مجموعة بيانات`,
-      );
-      return;
-    }
-    toast.error("تعذر رفع النسخة", CLOUD_ARCHIVE_ERRORS[result.error || ""] || result.error || "");
   }
 
   async function previewCloudRestore() {
@@ -487,116 +277,6 @@ export function SettingsPage() {
     // anything short of a reload would show a mix of old and new records.
     toast.success("تمت الاستعادة", "سيتم إعادة تشغيل الواجهة الآن");
     setTimeout(() => window.location.reload(), 1200);
-  }
-
-  // Only fetched once the same gate that guards pairing has passed, so an
-  // unlicensed or unauthorised install never even asks the portal.
-  const mobileDevicesEligible =
-    mobileLinkStatus.state === "ready" &&
-    mobileLinkStatus.featureLicensed &&
-    mobileLinkStatus.twoFactorLicensed &&
-    mobileLinkStatus.allowedRole;
-
-  useEffect(() => {
-    let active = true;
-    const api = window.desktopAPI?.license?.listMobileDevices;
-    if (!mobileDevicesEligible || !api) {
-      setMobileDevices({ state: "idle" });
-      return () => { active = false; };
-    }
-    setMobileDevices({ state: "loading" });
-    void api().then((result) => {
-      if (!active) return;
-      setMobileDevices(
-        result.ok
-          ? { state: "ready", devices: result.devices }
-          : { state: "error", error: result.error },
-      );
-    }).catch(() => {
-      if (active) setMobileDevices({ state: "error", error: "online_service_unavailable" });
-    });
-    return () => { active = false; };
-  }, [mobileDevicesEligible, deviceRefreshKey]);
-
-  async function revokeMobileDevice(device: LinkedMobileDevice, keepTrust: boolean) {
-    const api = window.desktopAPI?.license?.revokeMobileDevice;
-    if (!api) return;
-    setDeviceRevokeBusy(true);
-    const result = await api(device.id, keepTrust);
-    setDeviceRevokeBusy(false);
-    setDevicePendingRevoke(null);
-    if (result.ok) {
-      toast.success(
-        keepTrust ? "تم تسجيل خروج الجهاز" : "تم إلغاء ربط الجهاز",
-        keepTrust
-          ? `${device.deviceName} هيحتاج تسجيل دخول بالحساب و2FA`
-          : `${device.deviceName} هيحتاج كود ربط جديد`,
-      );
-      setDeviceRefreshKey((key) => key + 1);
-      return;
-    }
-    const messages: Record<string, string> = {
-      not_authorized: "الميزة متاحة للمالك أو المشرف المصرح له فقط",
-      mobile_feature_not_licensed: "ميزة ربط الهاتف غير مفعلة في الترخيص الحالي",
-      two_factor_not_licensed: "يجب تفعيل ميزة المصادقة الثنائية على الترخيص",
-      license_inactive: "ترخيص البرنامج غير نشط",
-      device_not_found: "الجهاز غير موجود أو تم إلغاؤه بالفعل",
-      online_service_unavailable: "تعذر الاتصال بخدمة الربط؛ تحقق من الإنترنت",
-    };
-    toast.error("تعذر تنفيذ العملية", messages[result.error] || result.error);
-  }
-
-  function openMobilePairingDialog() {
-    setMobilePassword("");
-    setMobileTotpCode("");
-    setMobilePairingError("");
-    setMobilePairingResult(null);
-    setMobileLinkDialogOpen(true);
-  }
-
-  async function createMobilePairing() {
-    if (!mobilePassword || !/^\d{6}$/.test(mobileTotpCode)) {
-      setMobilePairingError("اكتب كلمة مرور حسابك وكود Authenticator المكوّن من 6 أرقام");
-      return;
-    }
-    const api = window.desktopAPI?.license?.createMobilePairing;
-    if (!api) {
-      setMobilePairingError("إنشاء كود الربط متاح من برنامج سطح المكتب فقط");
-      return;
-    }
-    setMobilePairingLoading(true);
-    setMobilePairingError("");
-    const result = await api(mobilePassword, mobileTotpCode, mobileDeviceLabel.trim() || undefined);
-    setMobilePairingLoading(false);
-    if (result.ok) {
-      setMobilePairingResult({ activationCode: result.activationCode, expiresAt: result.expiresAt });
-      setMobilePassword("");
-      setMobileTotpCode("");
-      toast.success("تم إنشاء كود ربط آمن", "صالح لمرة واحدة ولمدة 10 دقائق");
-      return;
-    }
-    const messages: Record<string, string> = {
-      not_authorized: "الميزة متاحة للمالك أو المشرف المصرح له فقط",
-      mobile_feature_not_licensed: "ميزة ربط الهاتف غير مفعلة في الترخيص الحالي",
-      two_factor_not_licensed: "يجب تفعيل ميزة المصادقة الثنائية على الترخيص",
-      mfa_not_enabled: "فعّل 2FA على حسابك أولًا ثم أعد المحاولة",
-      invalid_password: "كلمة مرور الحساب غير صحيحة",
-      invalid_code: "كود Authenticator غير صحيح أو انتهت صلاحيته",
-      code_reused: "تم استخدام كود Authenticator هذا من قبل؛ انتظر الكود التالي",
-      rate_limited: "محاولات كثيرة؛ انتظر قليلًا ثم أعد المحاولة",
-      license_inactive: "ترخيص البرنامج غير نشط",
-      secure_connection_required: "الخدمة تتطلب اتصال HTTPS آمن",
-      online_service_unavailable: "تعذر الاتصال بخدمة الربط؛ تحقق من الإنترنت",
-      portal_unreachable: "خدمة البورتال غير متاحة الآن؛ شغّلها أو تحقق من عنوان الخدمة ثم حاول مجددًا",
-      invalid_server_response: "وصل رد غير صحيح من خدمة الربط",
-    };
-    setMobilePairingError(messages[result.error] || `تعذر إنشاء كود الربط حاليًا (${result.error || "unknown"})`);
-  }
-
-  async function copyMobilePairingCode() {
-    if (!mobilePairingResult) return;
-    await navigator.clipboard.writeText(mobilePairingResult.activationCode);
-    toast.success("تم نسخ كود التفعيل");
   }
 
   async function loadReferralInfo() {
@@ -642,23 +322,6 @@ export function SettingsPage() {
     toast.success("تم نسخ كود الجهاز");
   }
 
-  async function copyReferralLink() {
-    if (referralInfo.state !== "ready") return;
-    await navigator.clipboard.writeText(referralInfo.url);
-    toast.success("تم نسخ رابط الدعوة");
-  }
-
-  function shareReferralOnWhatsapp() {
-    if (referralInfo.state !== "ready") return;
-    const message = [
-      "أرشح لك نظام PartFlow لإدارة مخزون ومبيعات قطع الغيار.",
-      "استخدم رابط دعوتي للتواصل وشراء النظام:",
-      referralInfo.url,
-      `كود الدعوة: ${referralInfo.code}`,
-    ].join("\n");
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
-  }
-
   function buildLicenseRequest() {
     const code = licenseStatus?.machineCode ?? "غير متاح";
     const sub = subscriptionDurationLabel(form.subscriptionType, form.subscriptionMonths);
@@ -672,7 +335,7 @@ export function SettingsPage() {
         ? "بدون ضمان"
         : Math.max(0, getRemainingDays(form.warrantyStartDate, form.warrantyMonths)) + " يوم";
     return [
-      "طلب تجديد / ترقية ترخيص — PartFlow — By Helpers Tech",
+      "طلب تجديد / ترقية ترخيص — PartFlow — By Dar Tech",
       "العميل: " + (form.companyNameAr || form.companyName || "—"),
       "كود الجهاز: " + code,
       "مدة الاشتراك: " + sub,
@@ -692,7 +355,7 @@ export function SettingsPage() {
   function openFeatureUpgradeWhatsapp() {
     if (!lockedFeature) return;
     const message = [
-      "طلب ترقية / إضافة مدفوعة — PartFlow — By Helpers Tech",
+      "طلب ترقية / إضافة مدفوعة — PartFlow — By Dar Tech",
       "العميل: " + (form.companyNameAr || form.companyName || "—"),
       "الميزة المطلوبة: " + lockedFeature.label,
       "كود الجهاز: " + (licenseStatus?.machineCode ?? "غير متاح"),
@@ -778,33 +441,9 @@ export function SettingsPage() {
     toast.success("تم حفظ الإعدادات");
   }
 
-  async function backupNow() {
-    const dir = form.backupPath?.trim();
-    if (!dir) {
-      toast.error("لم يتم تحديد مجلد", "اختر مجلد النسخ الاحتياطي أولاً");
-      return;
-    }
-    if (dir !== settings.backupPath) updateSettings({ ...settings, backupPath: dir });
-    const result = await backupToPath(dir);
-    if (result.ok) {
-      toast.success("تم النسخ الاحتياطي", result.path ?? dir);
-      return;
-    }
-    const messages: Record<string, string> = {
-      no_path: "لم يتم تحديد مجلد النسخ الاحتياطي",
-      not_desktop: "هذه الميزة متاحة في تطبيق سطح المكتب فقط",
-      path_not_found: "المجلد غير موجود أو غير متاح",
-      not_authorized: "غير مصرح — سجّل الدخول كمالك",
-      invalid_input: "بيانات غير صالحة",
-      write_failed: "فشل الكتابة إلى المجلد",
-    };
-    toast.error("فشل النسخ الاحتياطي", messages[result.error ?? ""] ?? "حدث خطأ غير متوقع");
-  }
-
   const license = licenseStatus?.license ?? null;
   const featureChecked = (key: FeatureKey) => form.features?.[key] ?? defaultFeatureState(key, license);
   const featureOn = (key: FeatureKey) => isAllowedByLicense(key, license) && featureChecked(key);
-  const excelExportEnabled = featureOn("excelExport");
   const mfaFeatureAllowed = isAllowedByLicense("twoFactorAuth", license);
   const toggleFeature = (key: FeatureKey, value: boolean) =>
     setForm({ ...form, features: { ...(form.features ?? {}), [key]: value } });
@@ -992,201 +631,6 @@ export function SettingsPage() {
           </CardBody>
         </Card>
 
-        {cloudArchive.state !== "unavailable" && (
-          <Card className="lg:col-span-2" dir="rtl">
-            <CardHeader
-              title={
-                <div className="flex items-center gap-2">
-                  <CloudUpload className="h-4 w-4 text-brand-600" />
-                  <span>النسخة السحابية الكاملة</span>
-                </div>
-              }
-              subtitle="كل بيانات المتجر مشفَّرة بكلمة سر تخصك — محليًا وعلى السحابة، وقابلة للاستعادة على أي جهاز"
-            />
-            <CardBody className="space-y-4">
-              {cloudArchive.state === "loading" ? (
-                <div className="rounded-xl border border-line bg-surface-muted/45 p-4 text-sm text-ink-muted">جارٍ فحص حالة النسخة السحابية…</div>
-              ) : !cloudArchive.featureLicensed ? (
-                <PaidFeatureNotice
-                  title="النسخة السحابية الكاملة"
-                  featureKey="cloudBackup"
-                  description="نسخة مشفّرة من كل بيانات المتجر على السحابة، قابلة للاستعادة على أي جهاز بكلمة سرك — تُباع بشكل مستقل عن باقات الاشتراك."
-                />
-              ) : !cloudArchive.serviceAvailable ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                  خدمة السحابة غير مهيأة في هذا الإصدار.
-                </div>
-              ) : (
-                <>
-                  <div className={cn(
-                    "rounded-xl border p-4",
-                    cloudArchive.configured
-                      ? "border-emerald-200 bg-emerald-50/55 dark:border-emerald-500/25 dark:bg-emerald-500/10"
-                      : "border-amber-200 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/10",
-                  )}>
-                    <div className="text-sm font-bold text-ink">
-                      {cloudArchive.configured ? "النسخة السحابية مفعّلة" : "النسخة السحابية غير مفعّلة"}
-                    </div>
-                    <div className="mt-1 text-xs leading-6 text-ink-muted">
-                      {cloudArchive.configured
-                        ? <>آخر رفع: {formatDeviceMoment(cloudArchive.lastArchivedAt)} · يتم الرفع تلقائيًا كل نصف ساعة عند تغيّر البيانات.</>
-                        : "اختر كلمة سر للنسخة عشان يبدأ رفع بيانات المتجر بالكامل مشفّرة. البورتال لا يستطيع فك التشفير — احتفظ بكلمة السر في مكان آمن."}
-                    </div>
-                    {cloudArchive.lastError && (
-                      <div className="mt-2 text-xs text-rose-700 dark:text-rose-300">
-                        آخر محاولة فشلت: {cloudArchive.lastError.message}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      disabled={cloudArchiveBusy}
-                      onClick={() => {
-                        setCloudPassphraseError("");
-                        setCloudAccountPassword("");
-                        setCloudPassphrase("");
-                        setCloudPassphraseConfirm("");
-                        setCloudPassphraseDialogOpen(true);
-                      }}
-                    >
-                      <KeyRound className="h-4 w-4" />
-                      {cloudArchive.configured ? "تغيير كلمة سر النسخة" : "تفعيل النسخة السحابية"}
-                    </Button>
-                    {cloudArchive.configured && (
-                      <Button type="button" variant="outline" disabled={cloudArchiveBusy} onClick={() => void runCloudArchiveSync()}>
-                        <CloudUpload className={cn("h-4 w-4", cloudArchiveBusy && "animate-pulse")} /> رفع نسخة الآن
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={cloudArchiveBusy}
-                      onClick={() => {
-                        setCloudRestoreError("");
-                        setCloudRestorePassphrase("");
-                        setCloudRestorePreview(null);
-                        setCloudRestoreDialogOpen(true);
-                      }}
-                    >
-                      <CloudDownload className="h-4 w-4" /> استعادة من السحابة
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardBody>
-          </Card>
-        )}
-
-        <Card className="lg:col-span-2" dir="rtl">
-          <CardHeader
-            title={
-              <div className="flex items-center gap-2">
-                <Smartphone className="h-4 w-4 text-brand-600" />
-                <span>ربط تطبيق PartFlow للهاتف</span>
-              </div>
-            }
-            subtitle="أنشئ كود ربط لمرة واحدة بعد إثبات كلمة المرور و2FA — للمالك أو المشرف المصرح له فقط"
-          />
-          <CardBody className="space-y-4">
-            {mobileLinkStatus.state === "loading" ? (
-              <div className="rounded-xl border border-line bg-surface-muted/45 p-4 text-sm text-ink-muted">جارٍ فحص متطلبات الربط…</div>
-            ) : mobileLinkStatus.state === "unavailable" ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                افتح هذه الصفحة من برنامج سطح المكتب بعد تسجيل الدخول لعرض حالة الربط.
-              </div>
-            ) : !mobileLinkStatus.featureLicensed ? (
-              <PaidFeatureNotice
-                title="ربط تطبيق PartFlow للهاتف"
-                featureKey="mobileCompanion"
-                description="فعّل الإضافة على الترخيص لتوصيل تطبيق Android وiPhone بحساب متجرك بصورة آمنة."
-              />
-            ) : (
-              <>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <MobileRequirement
-                    ok={mobileLinkStatus.allowedRole}
-                    title="صلاحية الحساب"
-                    description={mobileLinkStatus.allowedRole ? "مالك أو مشرف مصرح له" : "يتطلب مالكًا أو صلاحية اعتماد المشرف"}
-                  />
-                  <MobileRequirement
-                    ok={mobileLinkStatus.twoFactorLicensed}
-                    title="ميزة 2FA"
-                    description={mobileLinkStatus.twoFactorLicensed ? "مفعلة على الترخيص" : "غير مفعلة على الترخيص"}
-                  />
-                  <MobileRequirement
-                    ok={mobileLinkStatus.mfaEnabled}
-                    title="حماية حسابك"
-                    description={mobileLinkStatus.mfaEnabled ? "Authenticator مفعل" : "فعّل Authenticator لحسابك أولًا"}
-                  />
-                </div>
-                <div className="flex flex-col gap-3 rounded-xl border border-brand-200 bg-brand-50/45 p-4 dark:border-brand-500/25 dark:bg-brand-500/10 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="text-sm font-bold text-ink">كود آمن صالح لمرة واحدة</div>
-                    <div className="mt-1 text-xs leading-5 text-ink-muted">
-                      عند فتح التطبيق سيُطلب اسم المستخدم وكلمة المرور وكود 2FA الحالي بالإضافة إلى كود الربط.
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    className="shrink-0"
-                    disabled={!mobileLinkStatus.allowedRole || !mobileLinkStatus.twoFactorLicensed || !mobileLinkStatus.mfaEnabled}
-                    onClick={openMobilePairingDialog}
-                  >
-                    <KeyRound className="h-4 w-4" /> إنشاء كود ربط
-                  </Button>
-                </div>
-
-                <div className="space-y-3 rounded-xl border border-line bg-surface-muted/35 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-bold text-ink">الأجهزة المرتبطة</div>
-                      <div className="mt-1 text-xs leading-5 text-ink-muted">
-                        كل جهاز ربط التطبيق بحساب المتجر، وآخر نشاط له، مع إمكانية تسجيل الخروج عن بُعد.
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="shrink-0"
-                      disabled={mobileDevices.state === "loading"}
-                      onClick={() => setDeviceRefreshKey((key) => key + 1)}
-                    >
-                      <RefreshCw className={cn("h-4 w-4", mobileDevices.state === "loading" && "animate-spin")} />
-                      تحديث
-                    </Button>
-                  </div>
-
-                  {mobileDevices.state === "loading" ? (
-                    <div className="rounded-lg border border-line bg-surface p-4 text-sm text-ink-muted">
-                      جارٍ تحميل قائمة الأجهزة…
-                    </div>
-                  ) : mobileDevices.state === "error" ? (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                      تعذر تحميل قائمة الأجهزة الآن — تحقق من الإنترنت ثم اضغط تحديث.
-                    </div>
-                  ) : mobileDevices.state === "ready" && mobileDevices.devices.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-line bg-surface p-5 text-center text-sm text-ink-muted">
-                      لا توجد أجهزة مرتبطة بعد. أنشئ كود ربط وافتح التطبيق على الهاتف.
-                    </div>
-                  ) : mobileDevices.state === "ready" ? (
-                    <ul className="space-y-2">
-                      {mobileDevices.devices.map((device) => (
-                        <MobileDeviceRow
-                          key={device.id}
-                          device={device}
-                          busy={deviceRevokeBusy}
-                          onSignOut={() => void revokeMobileDevice(device, true)}
-                          onUnlink={() => setDevicePendingRevoke(device)}
-                        />
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              </>
-            )}
-          </CardBody>
-        </Card>
 
         <Card className="lg:col-span-2">
           <CardHeader
@@ -1375,8 +819,6 @@ export function SettingsPage() {
             </div>
           ) : null}
         </Card>
-
-        <UpdateSettingsCard />
 
         <Card className="lg:col-span-2">
           <CardHeader
@@ -1585,387 +1027,6 @@ export function SettingsPage() {
           </CardBody>
         </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader title="إعدادات النسخ الاحتياطي" subtitle="جدولة حفظ البيانات تلقائياً واستعادتها عند الحاجة" />
-          <CardBody className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            {!featureOn("advancedSecurity") && (
-              <div className="xl:col-span-2">
-                <PaidFeatureNotice title="النسخ الاحتياطي التلقائي والأمان المتقدم" featureKey="advancedSecurity" />
-              </div>
-            )}
-            <section className="rounded-xl border border-line bg-surface-muted/25 p-4">
-              <div className="mb-4 flex items-start gap-2.5">
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300">
-                  <Clock className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-ink">الجدولة والحماية</h3>
-                  <p className="mt-0.5 text-xs text-ink-muted">اضبط متى ينشئ النظام نسخة من بياناتك.</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-line bg-surface p-3">
-                  <Field label="تفعيل النسخ التلقائي">
-                    <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-ink disabled:cursor-not-allowed">
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer"
-                        checked={featureOn("advancedSecurity") && form.autoBackupEnabled}
-                        disabled={!featureOn("advancedSecurity")}
-                        onChange={(e) => setForm({ ...form, autoBackupEnabled: e.target.checked })}
-                      />
-                      <span>نعم، قم بالحفظ تلقائياً</span>
-                    </label>
-                  </Field>
-                </div>
-                <div className="rounded-lg border border-line bg-surface p-3">
-                  <Field label="تكرار النسخ">
-                    <Select
-                      value={form.autoBackupFrequency}
-                      disabled={!featureOn("advancedSecurity") || !form.autoBackupEnabled}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          autoBackupFrequency: e.target.value as typeof form.autoBackupFrequency,
-                        })
-                      }
-                    >
-                      <option value="daily">يومي</option>
-                      <option value="weekly">أسبوعي</option>
-                      <option value="monthly">شهري</option>
-                    </Select>
-                  </Field>
-                </div>
-                <div className="sm:col-span-2 rounded-lg border border-line bg-surface px-3 py-2.5">
-                  <Field
-                    label="نسخة عند إغلاق البرنامج"
-                    hint="يحفظ نسخة كاملة تلقائياً في المجلد المحدد قبل إغلاق التطبيق"
-                  >
-                    <label className="flex min-h-8 cursor-pointer items-center gap-2 text-sm text-ink disabled:cursor-not-allowed">
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 rounded border-2 border-ink-faint bg-surface accent-brand-600 focus:ring-2 focus:ring-brand-500 disabled:opacity-50 cursor-pointer"
-                        checked={featureOn("advancedSecurity") && (form.backupOnClose ?? true)}
-                        disabled={!featureOn("advancedSecurity")}
-                        onChange={(e) => setForm({ ...form, backupOnClose: e.target.checked })}
-                      />
-                      <span>احفظ نسخة تلقائياً عند الإغلاق</span>
-                    </label>
-                  </Field>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-line bg-surface-muted/25 p-4">
-              <div className="mb-4 flex items-start gap-2.5">
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-                  <Database className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-ink">المسار والحالة</h3>
-                  <p className="mt-0.5 text-xs text-ink-muted">اختر موقع الحفظ، وابدأ نسخة فورية عند الحاجة.</p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="rounded-lg border border-brand-100 bg-brand-50/60 p-3 dark:border-brand-500/20 dark:bg-brand-500/10">
-                  <div className="mb-1 text-[11px] font-bold text-brand-700 dark:text-brand-300">آخر نسخة احتياطية</div>
-                  <div className="font-mono text-sm font-medium text-brand-900 dark:text-brand-200" dir="rtl">
-                    {settings.lastBackupDate ? new Date(settings.lastBackupDate).toLocaleString("ar-EG") : "لم يتم الحفظ بعد"}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-                  <Field label="مجلد النسخ الاحتياطي" hint="يمكن اختيار مجلد محلي أو قرص خارجي أو مسار شبكة.">
-                    <div className="flex gap-2" dir="ltr">
-                      <Input
-                        value={form.backupPath}
-                        readOnly
-                        placeholder="اختر مجلداً..."
-                        className="bg-surface-muted text-left font-mono text-xs"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        title="اختيار مجلد النسخ الاحتياطي"
-                        disabled={!featureOn("advancedSecurity")}
-                        onClick={async () => {
-                          if (window.desktopAPI?.backup?.selectDirectory) {
-                            const path = await window.desktopAPI.backup.selectDirectory();
-                            if (path) setForm({ ...form, backupPath: path });
-                          } else {
-                            toast.error("متاح في تطبيق سطح المكتب فقط");
-                          }
-                        }}
-                      >
-                        <FolderOpen className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </Field>
-
-                  <Button
-                    type="button"
-                    variant="success"
-                    onClick={backupNow}
-                    disabled={!featureOn("advancedSecurity") || !form.backupPath?.trim()}
-                    className="w-full justify-center md:min-w-44 md:w-auto"
-                  >
-                    <Database className="h-4 w-4" />
-                    نسخ احتياطي الآن
-                  </Button>
-                </div>
-                <p className="text-[11px] leading-5 text-ink-faint">
-                  تُحفظ نسخة كاملة بصيغة JSON، ويمكن استعادتها لاحقاً من قسم استيراد النسخ الاحتياطية.
-                </p>
-              </div>
-            </section>
-          </CardBody>
-        </Card>
-        <Card className="relative lg:col-span-2">
-          <CardHeader
-            title="بيانات الاشتراك والضمان"
-            subtitle="حالة الترخيص والضمان والتحديثات للنسخة الحالية"
-            actions={(
-              <Button size="sm" onClick={() => setLicenseDialogOpen(true)}>
-                <KeyRound className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">إدارة الاشتراك والضمان</span>
-                <span className="sm:hidden">إدارة الترخيص</span>
-              </Button>
-            )}
-          />
-          <CardBody className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {/* ── Subscription ── */}
-            <section className="flex flex-col gap-3 rounded-xl border border-brand-100 bg-brand-50/20 p-3.5 dark:border-brand-500/20 dark:bg-brand-500/[0.04]">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-sm font-bold text-brand-700 dark:text-brand-300">
-                  <ShieldCheck className="h-4 w-4" />
-                  <span>حالة الاشتراك</span>
-                </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  نشط ومفعل
-                </span>
-              </div>
-
-              <div className={cn("grid grid-cols-2 gap-2", form.subscriptionType === "limited" ? "2xl:grid-cols-4" : "sm:grid-cols-3")}>
-                <LicenseCell label="مدة الاشتراك" value={subscriptionDurationLabel(form.subscriptionType, form.subscriptionMonths)} />
-                <LicenseCell label="الباقة الحالية" value={planDisplayLabel(licenseStatus?.license)} valueClass="text-brand-700 dark:text-brand-400" />
-                <LicenseCell label="تاريخ التفعيل" value={form.subscriptionStartDate ? new Date(form.subscriptionStartDate).toLocaleDateString("ar-EG") : "غير محدد"} />
-                {form.subscriptionType === "limited" && (
-                  <LicenseCell label="الأيام المتبقية" valueClass="text-brand-600 dark:text-brand-400">
-                    <span className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-500/10 border border-brand-100 dark:border-brand-500/20 px-2 py-0.5 rounded">
-                      <Clock className="w-3 h-3" />
-                      {Math.max(0, getRemainingDays(form.subscriptionStartDate, form.subscriptionMonths))} يوم
-                    </span>
-                  </LicenseCell>
-                )}
-              </div>
-            </section>
-
-            {/* ── Warranty ── */}
-            <section className="flex flex-col gap-3 rounded-xl border border-indigo-100 bg-indigo-50/20 p-3.5 dark:border-indigo-500/20 dark:bg-indigo-500/[0.04]">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-sm font-bold text-indigo-700 dark:text-indigo-300">
-                  <Clock className="h-4 w-4" />
-                  <span>حالة الضمان والتحديثات</span>
-                </div>
-                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${form.warrantyType === "none"
-                  ? "text-ink-faint bg-surface-muted border-line-soft"
-                  : "text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20"}`}>
-                  <span className={`h-2 w-2 rounded-full ${form.warrantyType === "none" ? "bg-slate-400" : "bg-indigo-500"}`} />
-                  {form.warrantyType === "none" ? "غير مفعل" : "تحت الضمان الساري"}
-                </span>
-              </div>
-
-              <div className={cn("grid grid-cols-2 gap-2", form.warrantyType === "limited" ? "2xl:grid-cols-4" : "sm:grid-cols-3")}>
-                <LicenseCell label="مدة الضمان" value={form.warrantyType === "none" ? "بدون ضمان" : `${form.warrantyMonths} شهر فقط`} />
-                {form.warrantyType === "limited" && (
-                  <LicenseCell label="تاريخ البدء" value={form.warrantyStartDate ? new Date(form.warrantyStartDate).toLocaleDateString("ar-EG") : "غير محدد"} />
-                )}
-                <LicenseCell label="نوع الدعم" value={form.warrantyType === "none" ? "—" : "ضمان وتحديثات"} />
-                <LicenseCell label="الأيام المتبقية">
-                  <span className={`inline-flex items-center gap-1.5 text-sm font-mono font-bold px-2 py-0.5 rounded border ${form.warrantyType === "limited" && form.warrantyStartDate
-                    ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20"
-                    : "text-ink-faint bg-surface-muted border-line-soft"}`}>
-                    <Clock className="w-3 h-3" />
-                    {!form.warrantyStartDate && form.warrantyType === "limited" ? "تاريخ غير محدد" : (form.warrantyType === "limited" ? Math.max(0, getRemainingDays(form.warrantyStartDate, form.warrantyMonths)) : 0) + " يوم"}
-                  </span>
-                </LicenseCell>
-              </div>
-            </section>
-            </div>
-
-            <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface-muted/45 p-2.5 lg:flex-row lg:items-center">
-              <button
-                type="button"
-                onClick={copyMachineCode}
-                title="نسخ كود الجهاز"
-                className="flex min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-ink-muted transition-colors hover:border-brand-300 hover:text-brand-600 lg:w-[28rem]"
-              >
-                <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-bold">
-                  <Copy className="h-3.5 w-3.5" /> كود الجهاز
-                </span>
-                <span dir="ltr" className="min-w-0 flex-1 truncate text-left font-mono text-[11px]">
-                  {licenseStatus?.machineCode ?? "—"}
-                </span>
-              </button>
-              <p className="flex-1 text-[11px] leading-5 text-ink-faint dark:text-slate-400">
-                بيانات رسمية موثقة من <strong>Helpers Technologies</strong> ولا يمكن تعديلها من داخل النظام.
-              </p>
-            </div>
-
-            {currentUser?.role === "owner" ? (
-              <div className="rounded-xl border border-amber-200 bg-gradient-to-l from-amber-50/90 to-orange-50/60 p-4 dark:border-amber-500/25 dark:from-amber-500/10 dark:to-orange-500/[0.06]">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                  <div className="flex min-w-0 flex-1 items-start gap-3">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                      <Gift className="h-5 w-5" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-bold text-amber-950 dark:text-amber-100">ادعُ صديقًا واحصل على عمولة 5%</div>
-                      <p className="mt-1 text-xs leading-5 text-amber-900/70 dark:text-amber-200/70">
-                        شارك رابطك مع صاحب محل جديد. بعد شراء النظام واعتماد العملية، تُسجّل عمولتك باسمك.
-                      </p>
-                    </div>
-                  </div>
-
-                  {referralInfo.state === "ready" ? (
-                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-                      <button
-                        type="button"
-                        onClick={copyReferralLink}
-                        title="نسخ رابط الدعوة"
-                        className="flex min-w-0 items-center gap-2 rounded-lg border border-amber-200 bg-surface px-3 py-2 text-amber-900 transition-colors hover:border-amber-400 dark:border-amber-500/30 dark:text-amber-200"
-                      >
-                        <span dir="ltr" className="font-mono text-xs font-bold">{referralInfo.code}</span>
-                        <Copy className="h-3.5 w-3.5" />
-                      </button>
-                      <Button type="button" size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700" onClick={shareReferralOnWhatsapp}>
-                        <MessageCircle className="h-4 w-4" /> مشاركة على واتساب
-                      </Button>
-                      <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => setReferralHistoryOpen(true)}>
-                        <Clock className="h-4 w-4" /> سجل العمولات
-                      </Button>
-                    </div>
-                  ) : referralInfo.state === "loading" || referralInfo.state === "idle" ? (
-                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
-                      <RefreshCw className="h-4 w-4 animate-spin" /> جارِ تحميل كود الدعوة...
-                    </div>
-                  ) : (
-                    <div className="flex max-w-sm items-center gap-2">
-                      <span className="text-xs leading-5 text-amber-900/75 dark:text-amber-200/75">{referralInfo.error}</span>
-                      <Button type="button" variant="outline" size="sm" onClick={() => void loadReferralInfo()}>
-                        <RefreshCw className="h-3.5 w-3.5" /> إعادة المحاولة
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                {referralInfo.state === "ready" ? (
-                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-amber-200/70 pt-4 dark:border-amber-500/20 sm:grid-cols-4">
-                    <div className="rounded-lg border border-amber-200/70 bg-white/70 px-3 py-2 dark:border-amber-500/20 dark:bg-slate-950/25">
-                      <div className="text-[10px] font-bold text-amber-900/60 dark:text-amber-200/60">إجمالي الدعوات</div>
-                      <div className="mt-1 font-mono text-base font-black text-amber-950 dark:text-amber-100">{referralInfo.summary.totalReferrals}</div>
-                    </div>
-                    <div className="rounded-lg border border-amber-200/70 bg-white/70 px-3 py-2 dark:border-amber-500/20 dark:bg-slate-950/25">
-                      <div className="text-[10px] font-bold text-amber-900/60 dark:text-amber-200/60">قيد المراجعة</div>
-                      <div className="mt-1 font-mono text-sm font-black text-amber-700 dark:text-amber-300">{formatReferralMoney(referralInfo.summary.pendingMinor, referralInfo.currency)}</div>
-                    </div>
-                    <div className="rounded-lg border border-emerald-200/70 bg-white/70 px-3 py-2 dark:border-emerald-500/20 dark:bg-slate-950/25">
-                      <div className="text-[10px] font-bold text-emerald-900/60 dark:text-emerald-200/60">مستحق للدفع</div>
-                      <div className="mt-1 font-mono text-sm font-black text-emerald-700 dark:text-emerald-300">{formatReferralMoney(referralInfo.summary.approvedMinor, referralInfo.currency)}</div>
-                    </div>
-                    <div className="rounded-lg border border-blue-200/70 bg-white/70 px-3 py-2 dark:border-blue-500/20 dark:bg-slate-950/25">
-                      <div className="text-[10px] font-bold text-blue-900/60 dark:text-blue-200/60">تم دفعه لك</div>
-                      <div className="mt-1 font-mono text-sm font-black text-blue-700 dark:text-blue-300">{formatReferralMoney(referralInfo.summary.paidMinor, referralInfo.currency)}</div>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </CardBody>
-        </Card>
-
-        <Dialog
-          open={mobileLinkDialogOpen}
-          onClose={() => {
-            if (mobilePairingLoading) return;
-            setMobileLinkDialogOpen(false);
-            // A device only appears once the phone redeems the code, so the
-            // useful moment to re-read the list is when the owner closes this
-            // dialog — typically right after pairing the handset.
-            if (mobilePairingResult) setDeviceRefreshKey((key) => key + 1);
-          }}
-          title="إنشاء كود ربط آمن للهاتف"
-          subtitle="يجب أن يستخدم صاحب الحساب بياناته وAuthenticator بنفسه"
-          width="md"
-          footer={
-            mobilePairingResult ? (
-              <Button type="button" onClick={() => setMobileLinkDialogOpen(false)}>تم</Button>
-            ) : (
-              <>
-                <Button type="button" variant="outline" disabled={mobilePairingLoading} onClick={() => setMobileLinkDialogOpen(false)}>إلغاء</Button>
-                <Button type="button" disabled={mobilePairingLoading} onClick={() => void createMobilePairing()}>
-                  {mobilePairingLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                  {mobilePairingLoading ? "جارٍ التحقق…" : "إصدار الكود"}
-                </Button>
-              </>
-            )
-          }
-        >
-          <div className="space-y-4" dir="rtl">
-            {mobilePairingResult ? (
-              <div className="space-y-4">
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-center dark:border-emerald-500/25 dark:bg-emerald-500/10">
-                  <CheckCircle2 className="mx-auto h-7 w-7 text-emerald-600" />
-                  <div className="mt-2 text-sm font-bold text-ink">تم إصدار كود الربط</div>
-                  <div className="mt-1 text-xs text-ink-muted">صالح لمرة واحدة حتى {new Date(mobilePairingResult.expiresAt).toLocaleTimeString("ar-EG", { hour: "numeric", minute: "2-digit" })}</div>
-                </div>
-                <div className="flex items-stretch gap-2" dir="ltr">
-                  <div className="flex min-h-14 flex-1 items-center justify-center rounded-xl border border-brand-300 bg-brand-50 px-4 font-mono text-xl font-black tracking-[0.18em] text-brand-800 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-200">
-                    {mobilePairingResult.activationCode}
-                  </div>
-                  <Button type="button" variant="outline" onClick={() => void copyMobilePairingCode()} aria-label="نسخ كود التفعيل">
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-amber-50/55 p-3 text-xs leading-6 text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
-                  لا ترسل كلمة المرور أو كود 2FA لأي شخص. افتح PartFlow واكتب هذا الكود مع بيانات الحساب، وانتظر كود Authenticator التالي بدل إعادة استخدام الكود الذي أصدرت به الربط.
-                </div>
-              </div>
-            ) : (
-              <>
-                <Field label="اسم الجهاز" hint="اسم اختياري يساعدك على معرفة الهاتف المرتبط">
-                  <Input value={mobileDeviceLabel} maxLength={80} onChange={(event) => setMobileDeviceLabel(event.target.value)} placeholder="مثال: iPhone الإدارة" />
-                </Field>
-                <Field label="كلمة مرور حسابك">
-                  <Input type="password" autoComplete="current-password" value={mobilePassword} onChange={(event) => setMobilePassword(event.target.value)} placeholder="كلمة مرور المالك أو المشرف" />
-                </Field>
-                <Field label="كود Authenticator الحالي" hint="الكود المكوّن من 6 أرقام في تطبيق المصادقة">
-                  <Input
-                    dir="ltr"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    value={mobileTotpCode}
-                    onChange={(event) => setMobileTotpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                    placeholder="000000"
-                    className="font-mono tracking-[0.35em]"
-                  />
-                </Field>
-                {mobilePairingError ? (
-                  <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
-                    {mobilePairingError}
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-        </Dialog>
-
         <Dialog
           open={referralHistoryOpen}
           onClose={() => setReferralHistoryOpen(false)}
@@ -2116,110 +1177,6 @@ export function SettingsPage() {
           ) : null}
         </Dialog>
 
-        <Card className="lg:col-span-1">
-          <CardHeader title="النسخة الاحتياطية" subtitle="حفظ واستعادة كل بيانات النظام" />
-          <CardBody className="space-y-4">
-            <div className="flex flex-col gap-2">
-              <Input
-                type="password"
-                value={backupPassphrase}
-                onChange={(e) => setBackupPassphrase(e.target.value)}
-                placeholder="كلمة سر النسخة (اختياري — للتصدير/الاستعادة اليدوية)"
-                className="text-xs"
-                autoComplete="new-password"
-              />
-              <Button
-                onClick={async () => {
-                  const ok = await exportBackup(backupPassphrase.trim() || undefined);
-                  if (!ok) toast.error("فشل تشفير النسخة الاحتياطية — لم يتم إنشاء أي ملف");
-                }}
-                variant="outline"
-                className="w-full justify-start"
-              >
-                <Download className="w-4 h-4" /> تصدير نسخة احتياطية (Backup)
-              </Button>
-              <div className="relative">
-                <input
-                  type="file"
-                  accept=".json,.hwbak"
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = ""; // allow re-selecting the same file after an error
-                    if (!file) return;
-                    const pass = backupPassphrase.trim() || undefined;
-                    // Peek the envelope so we can give a precise message and skip
-                    // a pointless decrypt when a passphrase is required but empty.
-                    let isProtected = false;
-                    try {
-                      const head = JSON.parse(await file.text());
-                      // v2 and v3 are both passphrase-sealed (v3 adds gzip);
-                      // only v1 uses the app key and needs no prompt.
-                      isProtected = head?.enc === "aes-256-gcm" && (head?.v === 2 || head?.v === 3);
-                    } catch {
-                      /* plain or non-JSON — importBackup handles it */
-                    }
-                    if (isProtected && !pass) {
-                      toast.error("هذه النسخة محمية بكلمة سر — اكتبها في الحقل أعلاه ثم أعد الاستيراد");
-                      return;
-                    }
-                    setPendingRestore({ file, pass, isProtected });
-                  }}
-                />
-                <Button variant="outline" className="w-full justify-start">
-                  <Upload className="w-4 h-4" /> استيراد نسخة احتياطية (Restore)
-                </Button>
-              </div>
-            </div>
-            <p className="text-[11px] text-ink-faint">
-              يتم تصدير ملف يحتوي على كافة الفواتير، المنتجات، والعملاء. لو كتبت كلمة سر
-              فستُشفَّر النسخة بها ولن تُستعاد إلا بنفس الكلمة — احفظها في مكان آمن.
-            </p>
-            <div className="pt-2 border-t border-line-soft">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20"
-                onClick={() => {
-                  const data = lsGet<unknown | null>("inventory_auto_backup_internal", null);
-                  if (data) {
-                    setPendingInternalRestore(true);
-                  } else {
-                    toast.error("لا توجد نسخة تلقائية مخزنة حالياً");
-                  }
-                }}
-              >
-                <Database className="w-3.5 h-3.5" /> استعادة من النسخة التلقائية الداخلية
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card className="lg:col-span-1">
-          <CardHeader title="تصدير البيانات (Excel)" subtitle="تصدير جداول البيانات إلى ملفات Excel منفصلة" />
-          <CardBody className="grid grid-cols-2 gap-2">
-            {!excelExportEnabled && (
-              <div className="col-span-2">
-                <PaidFeatureNotice title="تصدير البيانات إلى Excel" featureKey="excelExport" />
-              </div>
-            )}
-            <Button disabled={!excelExportEnabled} onClick={() => exportToExcel("products")} variant="outline" size="sm" className="justify-start">
-              <FileSpreadsheet className="w-4 h-4" /> المنتجات
-            </Button>
-            <Button disabled={!excelExportEnabled} onClick={() => exportToExcel("customers")} variant="outline" size="sm" className="justify-start">
-              <FileSpreadsheet className="w-4 h-4" /> العملاء
-            </Button>
-            <Button disabled={!excelExportEnabled} onClick={() => exportToExcel("suppliers")} variant="outline" size="sm" className="justify-start">
-              <FileSpreadsheet className="w-4 h-4" /> الموردين
-            </Button>
-            <Button disabled={!excelExportEnabled} onClick={() => exportToExcel("sales")} variant="outline" size="sm" className="justify-start">
-              <FileSpreadsheet className="w-4 h-4" /> المبيعات
-            </Button>
-            <Button disabled={!excelExportEnabled} onClick={() => exportToExcel("purchases")} variant="outline" size="sm" className="justify-start">
-              <FileSpreadsheet className="w-4 h-4" /> المشتريات
-            </Button>
-          </CardBody>
-        </Card>
         <Dialog
           open={previewOpen}
           onClose={() => setPreviewOpen(false)}
@@ -2496,22 +1453,6 @@ export function SettingsPage() {
           )}
         </div>
       </Dialog>
-
-      <ConfirmDialog
-        open={devicePendingRevoke !== null}
-        onClose={() => setDevicePendingRevoke(null)}
-        title="إلغاء ربط الجهاز"
-        message={
-          devicePendingRevoke
-            ? `سيتم إنهاء جلسة "${devicePendingRevoke.deviceName}" ونسيان الجهاز تمامًا. للدخول مرة أخرى سيحتاج كود ربط جديد من هذه الصفحة.`
-            : ""
-        }
-        confirmText="إلغاء الربط"
-        variant="danger"
-        onConfirm={async () => {
-          if (devicePendingRevoke) await revokeMobileDevice(devicePendingRevoke, false);
-        }}
-      />
 
       <ConfirmDialog
         open={pendingRestore !== null}

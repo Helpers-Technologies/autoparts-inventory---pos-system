@@ -73,6 +73,7 @@ describe("generated vehicle catalog", () => {
       name: id,
       slug: id,
       countryCode,
+      source: "test",
       active: true,
     });
     const preferences: VehicleCatalogPreferences = {

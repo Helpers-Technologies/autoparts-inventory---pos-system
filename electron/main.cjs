@@ -387,6 +387,13 @@ function hasOwnerSession(event) {
   return getSession(event)?.role === "owner";
 }
 
+// The first-run wizard asks for backup/invoice folders before it creates the
+// owner account. Preserve that one-time bootstrap path while keeping directory
+// access owner-only after the first user exists.
+function canSelectSetupDirectory(event) {
+  return hasOwnerSession(event) || getUsers().length === 0;
+}
+
 // Resolve the full stored user record for the caller's session (permissions live
 // on the user object, not on the lightweight session record).
 function getSessionUser(event) {
@@ -6286,7 +6293,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("dialog:select-directory", async (event) => {
-    if (!hasOwnerSession(event)) return null;
+    if (!canSelectSetupDirectory(event)) return null;
     // E2E mode cannot drive a native dialog; return a real writable dir instead.
     if (HW_E2E) return os.tmpdir();
     const ownerWindow = BrowserWindow.fromWebContents(event.sender);
@@ -6299,7 +6306,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("backup:select-directory", async (event) => {
-    if (!hasOwnerSession(event)) return null;
+    if (!canSelectSetupDirectory(event)) return null;
     if (HW_E2E) return os.tmpdir();
     const ownerWindow = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(ownerWindow, {

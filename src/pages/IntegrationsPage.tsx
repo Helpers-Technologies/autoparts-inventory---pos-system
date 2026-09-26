@@ -6,10 +6,17 @@ import {
   ExternalLink,
   KeyRound,
   Link2,
+  Link2Off,
+  LogOut,
   MessageCircle,
   PackageCheck,
   RefreshCw,
   Settings2,
+  Smartphone,
+  TabletSmartphone,
+  CheckCircle2,
+  ShieldAlert,
+  Copy,
 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -27,6 +34,10 @@ import {
   translateBostaError,
 } from "../lib/shipping";
 import { formatDate, formatDateTime } from "../lib/format";
+import { cn } from "../lib/utils";
+import { useApp } from "../store/AppContext";
+import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
+import type { LinkedMobileDevice } from "../types/desktop";
 
 const DEFAULT_BOSTA_WEBHOOK_URL =
   "https://api-partflow.helpers-tech.com/v1/bosta/webhook";
@@ -277,6 +288,129 @@ function trackingSummary(data: unknown, fallback: string): TrackingSummary {
   };
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Mobile Devices - ربط تطبيق PartFlow للهاتف
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const DEVICE_PLATFORM_ICONS = {
+  android: Smartphone,
+  ios: Smartphone,
+  web: TabletSmartphone,
+  windows: Smartphone,
+  macos: Smartphone,
+  linux: Smartphone,
+} as const;
+
+const DEVICE_PLATFORM_LABELS: Record<string, string> = {
+  android: "أندرويد",
+  ios: "آيفون / آيباد",
+  web: "متصفح",
+  windows: "ويندوز",
+  macos: "ماك",
+  linux: "لينكس",
+};
+
+function formatDeviceMoment(value: string | null): string {
+  if (!value) return "—";
+  const time = Date.parse(value);
+  if (Number.isNaN(time)) return "—";
+  const date = new Date(time);
+  const days = Math.floor((Date.now() - time) / 86_400_000);
+  const ago =
+    days === 0 ? "اليوم" :
+    days === 1 ? "أمس" :
+    days < 7 ? `منذ ${days} أيام` :
+    days < 30 ? `منذ ${Math.floor(days / 7)} أسابيع` :
+    days < 365 ? `منذ ${Math.floor(days / 30)} شهر` :
+    `منذ ${Math.floor(days / 365)} سنة`;
+  return `${date.toLocaleDateString("ar-EG", { month: "short", day: "numeric", year: "numeric" })} (${ago})`;
+}
+
+function MobileDeviceRow({
+  device, busy, onSignOut, onUnlink,
+}: {
+  device: LinkedMobileDevice;
+  busy: boolean;
+  onSignOut: () => void;
+  onUnlink: () => void;
+}) {
+  const Icon = (device.platform && DEVICE_PLATFORM_ICONS[device.platform]) || TabletSmartphone;
+  const online = device.activeSessions > 0 && !device.revoked;
+  return (
+    <li className={cn(
+      "rounded-xl border p-3",
+      device.revoked ? "border-line bg-surface-muted/50 opacity-70" : "border-line bg-surface",
+    )}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300">
+            <Icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate text-sm font-bold text-ink">{device.deviceName}</span>
+              {device.revoked ? (
+                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
+                  ملغي
+                </span>
+              ) : online ? (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                  جلسة نشطة
+                </span>
+              ) : (
+                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-bold text-ink-muted">
+                  مسجل خروج
+                </span>
+              )}
+            </div>
+            <div className="mt-1 space-y-0.5 text-xs leading-5 text-ink-muted">
+              <div>
+                {device.userDisplayName} · {device.userRole === "owner" ? "مالك" : "مشرف"}
+                {device.platform ? ` · ${DEVICE_PLATFORM_LABELS[device.platform] ?? device.platform}` : ""}
+                {device.appVersion ? ` · إصدار ${device.appVersion}` : ""}
+              </div>
+              <div>تاريخ الربط: {formatDeviceMoment(device.createdAt)}</div>
+              <div>آخر نشاط: {formatDeviceMoment(device.lastSeenAt)}</div>
+            </div>
+          </div>
+        </div>
+        {!device.revoked && (
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button type="button" variant="ghost" disabled={busy || !online} onClick={onSignOut}>
+              <LogOut className="h-4 w-4" /> تسجيل خروج
+            </Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={onUnlink}>
+              <Link2Off className="h-4 w-4" /> إلغاء الربط
+            </Button>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function MobileRequirement({ ok, title, description }: { ok: boolean; title: string; description: string }) {
+  return (
+    <div className={cn(
+      "flex items-start gap-3 rounded-xl border p-3",
+      ok
+        ? "border-emerald-200 bg-emerald-50/55 dark:border-emerald-500/25 dark:bg-emerald-500/10"
+        : "border-rose-200 bg-rose-50/55 dark:border-rose-500/25 dark:bg-rose-500/10",
+    )}>
+      <span className={cn(
+        "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg",
+        ok ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
+      )}>
+        {ok ? <CheckCircle2 className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-ink">{title}</span>
+        <span className="mt-0.5 block text-xs leading-5 text-ink-muted">{description}</span>
+      </span>
+    </div>
+  );
+}
+
 export function IntegrationsPage() {
   const navigate = useNavigate();
   const {
@@ -320,6 +454,37 @@ export function IntegrationsPage() {
   const [pickupLocations, setPickupLocations] = useState<
     Array<{ id: string; name: string }>
   >([]);
+
+  // Mobile Linking State
+  const { currentUser, licenseStatus } = useApp();
+  const [mobileLinkStatus, setMobileLinkStatus] = useState<
+    | { state: "loading" }
+    | { state: "unavailable" }
+    | {
+        state: "ready";
+        allowedRole: boolean;
+        featureLicensed: boolean;
+        twoFactorLicensed: boolean;
+        mfaEnabled: boolean;
+      }
+  >({ state: "loading" });
+  const [mobileLinkDialogOpen, setMobileLinkDialogOpen] = useState(false);
+  const [mobilePassword, setMobilePassword] = useState("");
+  const [mobileTotpCode, setMobileTotpCode] = useState("");
+  const [mobileDeviceLabel, setMobileDeviceLabel] = useState("هاتف الإدارة");
+  const [mobilePairingLoading, setMobilePairingLoading] = useState(false);
+  const [mobilePairingError, setMobilePairingError] = useState("");
+  const [mobilePairingResult, setMobilePairingResult] = useState<{ activationCode: string; expiresAt: string } | null>(null);
+  const [mobileDevices, setMobileDevices] = useState<
+    | { state: "idle" }
+    | { state: "loading" }
+    | { state: "ready"; devices: LinkedMobileDevice[] }
+    | { state: "error"; error: string }
+  >({ state: "idle" });
+  const [devicePendingRevoke, setDevicePendingRevoke] = useState<LinkedMobileDevice | null>(null);
+  const [deviceRevokeBusy, setDeviceRevokeBusy] = useState(false);
+  const [deviceRefreshKey, setDeviceRefreshKey] = useState(0);
+  const [mobileExpanded, setMobileExpanded] = useState(false);
   const trackedOrder = trackingResult
     ? orders.find(
         (order) =>
@@ -379,6 +544,143 @@ export function IntegrationsPage() {
     setDefaultPackageType(bostaConfig.defaultPackageType ?? "SMALL");
     setAllowOpenPackage(bostaConfig.allowOpenPackage);
   }, [bostaConfig]);
+
+  // Mobile Linking useEffect hooks
+  useEffect(() => {
+    let active = true;
+    const api = window.desktopAPI?.license?.getMobileLinkStatus;
+    if (!currentUser || !api) {
+      setMobileLinkStatus({ state: "unavailable" });
+      return () => { active = false; };
+    }
+    setMobileLinkStatus({ state: "loading" });
+    void api().then((result) => {
+      if (!active) return;
+      if (!result.ok) {
+        setMobileLinkStatus({ state: "unavailable" });
+        return;
+      }
+      setMobileLinkStatus({
+        state: "ready",
+        allowedRole: result.allowedRole,
+        featureLicensed: result.featureLicensed,
+        twoFactorLicensed: result.twoFactorLicensed,
+        mfaEnabled: result.mfaEnabled,
+      });
+    }).catch(() => {
+      if (active) setMobileLinkStatus({ state: "unavailable" });
+    });
+    return () => { active = false; };
+  }, [currentUser?.id, licenseStatus?.license?.licenseId]);
+
+  const mobileDevicesEligible =
+    mobileLinkStatus.state === "ready" &&
+    mobileLinkStatus.featureLicensed &&
+    mobileLinkStatus.twoFactorLicensed &&
+    mobileLinkStatus.allowedRole;
+
+  useEffect(() => {
+    let active = true;
+    const api = window.desktopAPI?.license?.listMobileDevices;
+    if (!mobileDevicesEligible || !api) {
+      setMobileDevices({ state: "idle" });
+      return () => { active = false; };
+    }
+    setMobileDevices({ state: "loading" });
+    void api().then((result) => {
+      if (!active) return;
+      setMobileDevices(
+        result.ok
+          ? { state: "ready", devices: result.devices }
+          : { state: "error", error: result.error },
+      );
+    }).catch(() => {
+      if (active) setMobileDevices({ state: "error", error: "online_service_unavailable" });
+    });
+    return () => { active = false; };
+  }, [mobileDevicesEligible, deviceRefreshKey]);
+
+  // Mobile Linking functions
+  function openMobilePairingDialog() {
+    setMobilePassword("");
+    setMobileTotpCode("");
+    setMobilePairingError("");
+    setMobilePairingResult(null);
+    setMobileLinkDialogOpen(true);
+  }
+
+  async function createMobilePairing() {
+    if (!mobilePassword || !/^\d{6}$/.test(mobileTotpCode)) {
+      setMobilePairingError("اكتب كلمة مرور حسابك وكود Authenticator المكوّن من 6 أرقام");
+      return;
+    }
+    const api = window.desktopAPI?.license?.createMobilePairing;
+    if (!api) {
+      setMobilePairingError("إنشاء كود الربط متاح من برنامج سطح المكتب فقط");
+      return;
+    }
+    setMobilePairingLoading(true);
+    setMobilePairingError("");
+    const result = await api(mobilePassword, mobileTotpCode, mobileDeviceLabel.trim() || undefined);
+    setMobilePairingLoading(false);
+    if (result.ok) {
+      setMobilePairingResult({ activationCode: result.activationCode, expiresAt: result.expiresAt });
+      setMobilePassword("");
+      setMobileTotpCode("");
+      toast.success("تم إنشاء كود ربط آمن", "صالح لمرة واحدة ولمدة 10 دقائق");
+      return;
+    }
+    const messages: Record<string, string> = {
+      not_authorized: "الميزة متاحة للمالك أو المشرف المصرح له فقط",
+      mobile_feature_not_licensed: "ميزة ربط الهاتف غير مفعلة في الترخيص الحالي",
+      two_factor_not_licensed: "يجب تفعيل ميزة المصادقة الثنائية على الترخيص",
+      mfa_not_enabled: "فعّل 2FA على حسابك أولًا ثم أعد المحاولة",
+      invalid_password: "كلمة مرور الحساب غير صحيحة",
+      invalid_code: "كود Authenticator غير صحيح أو انتهت صلاحيته",
+      code_reused: "تم استخدام كود Authenticator هذا من قبل؛ انتظر الكود التالي",
+      rate_limited: "محاولات كثيرة؛ انتظر قليلًا ثم أعد المحاولة",
+      license_inactive: "ترخيص البرنامج غير نشط",
+      secure_connection_required: "الخدمة تتطلب اتصال HTTPS آمن",
+      online_service_unavailable: "تعذر الاتصال بخدمة الربط؛ تحقق من الإنترنت",
+      portal_unreachable: "خدمة البورتال غير متاحة الآن؛ شغّلها أو تحقق من عنوان الخدمة ثم حاول مجددًا",
+      invalid_server_response: "وصل رد غير صحيح من خدمة الربط",
+    };
+    setMobilePairingError(messages[result.error] || `تعذر إنشاء كود الربط حاليًا (${result.error || "unknown"})`);
+  }
+
+  async function copyMobilePairingCode() {
+    if (!mobilePairingResult) return;
+    await navigator.clipboard.writeText(mobilePairingResult.activationCode);
+    toast.success("تم نسخ كود التفعيل");
+  }
+
+  async function revokeMobileDevice(device: LinkedMobileDevice, keepTrust: boolean) {
+    const api = window.desktopAPI?.license?.revokeMobileDevice;
+    if (!api) return;
+    setDeviceRevokeBusy(true);
+    const result = await api(device.id, keepTrust);
+    setDeviceRevokeBusy(false);
+    setDevicePendingRevoke(null);
+    if (result.ok) {
+      toast.success(
+        keepTrust ? "تم تسجيل خروج الجهاز" : "تم إلغاء ربط الجهاز",
+        keepTrust
+          ? `${device.deviceName} هيحتاج تسجيل دخول بالحساب و2FA`
+          : `${device.deviceName} هيحتاج كود ربط جديد`,
+      );
+      setDeviceRefreshKey((key) => key + 1);
+      return;
+    }
+    const messages: Record<string, string> = {
+      not_authorized: "الميزة متاحة للمالك أو المشرف المصرح له فقط",
+      mobile_feature_not_licensed: "ميزة ربط الهاتف غير مفعلة في الترخيص الحالي",
+      two_factor_not_licensed: "يجب تفعيل ميزة المصادقة الثنائية على الترخيص",
+      license_inactive: "ترخيص البرنامج غير نشط",
+      device_not_found: "الجهاز غير موجود أو تم إلغاؤه بالفعل",
+      online_service_unavailable: "تعذر الاتصال بخدمة الربط؛ تحقق من الإنترنت",
+    };
+    toast.error("تعذر تنفيذ العملية", messages[result.error] || result.error);
+  }
 
   async function save() {
     setSaving(true);
@@ -710,6 +1012,169 @@ export function IntegrationsPage() {
       />
 
       <div className="space-y-4">
+        {/* ربط تطبيق PartFlow للهاتف */}
+        <Card>
+          <CardHeader
+            title="تطبيقات الهاتف"
+            subtitle="ربط تطبيق PartFlow للهاتف بحساب المتجر بصورة آمنة"
+          />
+          <CardBody>
+            <div
+              className={`rounded-2xl border transition-all duration-200 ${
+                mobileLinkStatus.state === "ready" && mobileLinkStatus.featureLicensed
+                  ? mobileExpanded
+                    ? "border-brand-500/50 bg-brand-500/10"
+                    : "border-brand-500/30 bg-brand-500/5"
+                  : "border-line/50 bg-surface-muted/40"
+              }`}
+            >
+              <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
+                <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <div
+                    className={`grid h-14 w-14 shrink-0 place-items-center rounded-xl border transition-colors ${
+                      mobileLinkStatus.state === "ready" && mobileLinkStatus.featureLicensed
+                        ? "border-line bg-surface"
+                        : "border-line/60 bg-surface-muted/70"
+                    }`}
+                  >
+                    <Smartphone className="h-7 w-7 text-brand-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-bold text-ink">ربط تطبيق PartFlow</h3>
+                      <Badge tone={mobileLinkStatus.state === "ready" && mobileLinkStatus.featureLicensed ? "green" : "slate"}>
+                        {mobileLinkStatus.state === "loading" ? "جاري الفحص..." :
+                         mobileLinkStatus.state === "ready" && mobileLinkStatus.featureLicensed ? "متاح" : "غير مفعل"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      أنشئ كود ربط آمن لربط أجهزة Android وiPhone بحساب المتجر
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMobileExpanded(!mobileExpanded)}
+                    className="gap-1.5"
+                  >
+                    <Settings2 className="h-4 w-4" />
+                    {mobileExpanded ? "إخفاء" : "إدارة الأجهزة"}
+                    <ChevronDown
+                      className={`h-4 w-4 transition-transform ${mobileExpanded ? "rotate-180" : ""}`}
+                    />
+                  </Button>
+                </div>
+              </div>
+
+              {mobileExpanded && (
+                <div className="border-t border-line/30 p-4 space-y-4" dir="rtl">
+                  {mobileLinkStatus.state === "loading" ? (
+                    <div className="rounded-xl border border-line bg-surface-muted/45 p-4 text-sm text-ink-muted">
+                      جارٍ فحص متطلبات الربط…
+                    </div>
+                  ) : mobileLinkStatus.state === "unavailable" ? (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-100">
+                      افتح هذه الصفحة من برنامج سطح المكتب بعد تسجيل الدخول لعرض حالة الربط.
+                    </div>
+                  ) : !mobileLinkStatus.featureLicensed ? (
+                    <PaidFeatureNotice
+                      title="ربط تطبيق PartFlow للهاتف"
+                      featureKey="mobileCompanion"
+                      description="فعّل الإضافة على الترخيص لتوصيل تطبيق Android وiPhone بحساب متجرك بصورة آمنة."
+                    />
+                  ) : (
+                    <>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <MobileRequirement
+                          ok={mobileLinkStatus.allowedRole}
+                          title="صلاحية الحساب"
+                          description={mobileLinkStatus.allowedRole ? "مالك أو مشرف مصرح له" : "يتطلب مالكًا أو صلاحية اعتماد المشرف"}
+                        />
+                        <MobileRequirement
+                          ok={mobileLinkStatus.twoFactorLicensed}
+                          title="ميزة 2FA"
+                          description={mobileLinkStatus.twoFactorLicensed ? "مفعلة على الترخيص" : "غير مفعلة على الترخيص"}
+                        />
+                        <MobileRequirement
+                          ok={mobileLinkStatus.mfaEnabled}
+                          title="حماية حسابك"
+                          description={mobileLinkStatus.mfaEnabled ? "Authenticator مفعل" : "فعّل Authenticator لحسابك أولًا"}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-3 rounded-xl border border-brand-200 bg-brand-50/45 p-4 dark:border-brand-500/25 dark:bg-brand-500/10 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="text-sm font-bold text-ink">كود آمن صالح لمرة واحدة</div>
+                          <div className="mt-1 text-xs leading-5 text-ink-muted">
+                            عند فتح التطبيق سيُطلب اسم المستخدم وكلمة المرور وكود 2FA الحالي بالإضافة إلى كود الربط.
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          className="shrink-0"
+                          disabled={!mobileLinkStatus.allowedRole || !mobileLinkStatus.twoFactorLicensed || !mobileLinkStatus.mfaEnabled}
+                          onClick={openMobilePairingDialog}
+                        >
+                          <KeyRound className="h-4 w-4" /> إنشاء كود ربط
+                        </Button>
+                      </div>
+
+                      <div className="space-y-3 rounded-xl border border-line bg-surface-muted/35 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-bold text-ink">الأجهزة المرتبطة</div>
+                            <div className="mt-1 text-xs leading-5 text-ink-muted">
+                              كل جهاز ربط التطبيق بحساب المتجر، وآخر نشاط له، مع إمكانية تسجيل الخروج عن بُعد.
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="shrink-0"
+                            disabled={mobileDevices.state === "loading"}
+                            onClick={() => setDeviceRefreshKey((key) => key + 1)}
+                          >
+                            <RefreshCw className={cn("h-4 w-4", mobileDevices.state === "loading" && "animate-spin")} />
+                            تحديث
+                          </Button>
+                        </div>
+
+                        {mobileDevices.state === "loading" ? (
+                          <div className="rounded-lg border border-line bg-surface p-4 text-sm text-ink-muted">
+                            جارٍ تحميل قائمة الأجهزة…
+                          </div>
+                        ) : mobileDevices.state === "error" ? (
+                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-100">
+                            تعذر تحميل قائمة الأجهزة الآن — تحقق من الإنترنت ثم اضغط تحديث.
+                          </div>
+                        ) : mobileDevices.state === "ready" && mobileDevices.devices.length === 0 ? (
+                          <div className="rounded-lg border border-dashed border-line bg-surface p-5 text-center text-sm text-ink-muted">
+                            لا توجد أجهزة مرتبطة بعد. أنشئ كود ربط وافتح التطبيق على الهاتف.
+                          </div>
+                        ) : mobileDevices.state === "ready" ? (
+                          <ul className="space-y-2">
+                            {mobileDevices.devices.map((device) => (
+                              <MobileDeviceRow
+                                key={device.id}
+                                device={device}
+                                busy={deviceRevokeBusy}
+                                onSignOut={() => void revokeMobileDevice(device, true)}
+                                onUnlink={() => setDevicePendingRevoke(device)}
+                              />
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+
         <Card>
           <CardHeader
             title="شركات الشحن"
@@ -722,7 +1187,7 @@ export function IntegrationsPage() {
                   ? bostaExpanded
                     ? "border-brand-500/50 bg-brand-500/10"
                     : "border-brand-500/30 bg-brand-500/5"
-                  : "border-slate-700/70 bg-slate-950/45"
+                  : "border-line/50 bg-surface-muted/40"
               }`}
             >
               <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
@@ -731,7 +1196,7 @@ export function IntegrationsPage() {
                     className={`grid h-14 w-24 shrink-0 place-items-center rounded-xl border px-3 transition-colors ${
                       enabled
                         ? "border-line bg-white dark:bg-slate-950"
-                        : "border-slate-700 bg-slate-950"
+                        : "border-line/60 bg-surface-muted/70"
                     }`}
                   >
                     <img
@@ -759,7 +1224,7 @@ export function IntegrationsPage() {
                     </div>
                     <p
                       className={`mt-1 text-xs ${
-                        enabled ? "text-ink-muted" : "text-ink-faint"
+                        enabled ? "text-ink-muted" : "text-ink-muted/80"
                       }`}
                     >
                       إنشاء الشحنات والأسعار والتتبع وتحديث الحالات تلقائيًا
@@ -777,7 +1242,7 @@ export function IntegrationsPage() {
                     className={`relative h-7 w-16 shrink-0 rounded-full border font-bold shadow-inner transition-all disabled:cursor-wait disabled:opacity-60 ${
                       enabled
                         ? "border-emerald-400/60 bg-emerald-500/25 text-emerald-300"
-                        : "border-slate-600 bg-slate-900 text-slate-400"
+                        : "border-slate-500/60 bg-slate-700/40 text-slate-300"
                     }`}
                     dir="ltr"
                   >
@@ -785,7 +1250,7 @@ export function IntegrationsPage() {
                       className={`absolute top-0.5 h-5 w-5 rounded-full shadow transition-transform ${
                         enabled
                           ? "translate-x-10 bg-emerald-400"
-                          : "translate-x-1 bg-slate-500"
+                          : "translate-x-1 bg-slate-400"
                       } left-0`}
                     />
                     <span
@@ -836,7 +1301,7 @@ export function IntegrationsPage() {
             <div className="border-t border-line bg-surface-muted/10">
               <CardBody className="space-y-5 py-5">
             {!enabled ? (
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
                 <span className="font-bold">الربط متوقف حاليًا.</span>{" "}
                 {bostaConfig.configured
                   ? "الإعدادات محفوظة — شغّل المفتاح بالأعلى لبدء إرسال الشحنات."
@@ -1289,7 +1754,7 @@ export function IntegrationsPage() {
           {trackingResult ? (
             <div className="space-y-4">
               {!trackedOrder ? (
-                <div className="space-y-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-xs text-amber-300">
+                <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-xs text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/15 dark:text-amber-100">
                   <div>
                     هذا الرقم غير مرتبط بأمر توصيل محفوظ. يمكنك البحث عن
                     الأوردر وربطه يدويًا إذا لم يتم الربط تلقائيًا.
@@ -1426,6 +1891,99 @@ export function IntegrationsPage() {
           ) : null
         }
       />
+
+      <Dialog
+        open={mobileLinkDialogOpen}
+        onClose={() => {
+          if (mobilePairingLoading) return;
+          setMobileLinkDialogOpen(false);
+          // A device only appears once the phone redeems the code, so the
+          // useful moment to re-read the list is when the owner closes this
+          // dialog — typically right after pairing the handset.
+          if (mobilePairingResult) setDeviceRefreshKey((key) => key + 1);
+        }}
+        title="إنشاء كود ربط آمن للهاتف"
+        subtitle="يجب أن يستخدم صاحب الحساب بياناته وAuthenticator بنفسه"
+        width="md"
+        footer={
+          mobilePairingResult ? (
+            <Button type="button" onClick={() => setMobileLinkDialogOpen(false)}>تم</Button>
+          ) : (
+            <>
+              <Button type="button" variant="outline" disabled={mobilePairingLoading} onClick={() => setMobileLinkDialogOpen(false)}>إلغاء</Button>
+              <Button type="button" disabled={mobilePairingLoading} onClick={() => void createMobilePairing()}>
+                {mobilePairingLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                {mobilePairingLoading ? "جارٍ التحقق…" : "إصدار الكود"}
+              </Button>
+            </>
+          )
+        }
+      >
+        <div className="space-y-4" dir="rtl">
+          {mobilePairingResult ? (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-center dark:border-emerald-500/25 dark:bg-emerald-500/10">
+                <CheckCircle2 className="mx-auto h-7 w-7 text-emerald-600" />
+                <div className="mt-2 text-sm font-bold text-ink">تم إصدار كود الربط</div>
+                <div className="mt-1 text-xs text-ink-muted">صالح لمرة واحدة حتى {new Date(mobilePairingResult.expiresAt).toLocaleTimeString("ar-EG", { hour: "numeric", minute: "2-digit" })}</div>
+              </div>
+              <div className="flex items-stretch gap-2" dir="ltr">
+                <div className="flex min-h-14 flex-1 items-center justify-center rounded-xl border border-brand-300 bg-brand-50 px-4 font-mono text-xl font-black tracking-[0.18em] text-brand-800 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-200">
+                  {mobilePairingResult.activationCode}
+                </div>
+                <Button type="button" variant="outline" onClick={() => void copyMobilePairingCode()} aria-label="نسخ كود التفعيل">
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-6 text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/15 dark:text-amber-100">
+                لا ترسل كلمة المرور أو كود 2FA لأي شخص. افتح PartFlow واكتب هذا الكود مع بيانات الحساب، وانتظر كود Authenticator التالي بدل إعادة استخدام الكود الذي أصدرت به الربط.
+              </div>
+            </div>
+          ) : (
+            <>
+              <Field label="اسم الجهاز" hint="اسم اختياري يساعدك على معرفة الهاتف المرتبط">
+                <Input value={mobileDeviceLabel} maxLength={80} onChange={(event) => setMobileDeviceLabel(event.target.value)} placeholder="مثال: iPhone الإدارة" />
+              </Field>
+              <Field label="كلمة مرور حسابك">
+                <Input type="password" autoComplete="current-password" value={mobilePassword} onChange={(event) => setMobilePassword(event.target.value)} placeholder="كلمة مرور المالك أو المشرف" />
+              </Field>
+              <Field label="كود Authenticator الحالي" hint="الكود المكوّن من 6 أرقام في تطبيق المصادقة">
+                <Input
+                  dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={mobileTotpCode}
+                  onChange={(event) => setMobileTotpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                  className="font-mono tracking-[0.35em]"
+                />
+              </Field>
+              {mobilePairingError ? (
+                <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-sm text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
+                  {mobilePairingError}
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      </Dialog>
+
+      <ConfirmDialog
+        open={devicePendingRevoke !== null}
+        onClose={() => setDevicePendingRevoke(null)}
+        title="إلغاء ربط الجهاز"
+        message={
+          devicePendingRevoke
+            ? `سيتم إنهاء جلسة "${devicePendingRevoke.deviceName}" ونسيان الجهاز تمامًا. للدخول مرة أخرى سيحتاج كود ربط جديد من هذه الصفحة.`
+            : ""
+        }
+        confirmText="إلغاء الربط"
+        variant="danger"
+        onConfirm={async () => {
+          if (devicePendingRevoke) await revokeMobileDevice(devicePendingRevoke, false);
+        }}
+      />
     </>
   );
 }
@@ -1463,13 +2021,13 @@ function FutureIntegration({
   description: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-muted/30 p-3 opacity-80">
+    <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-muted/40 p-3 opacity-90">
       <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-surface text-brand-600">
         {icon}
       </div>
       <div className="min-w-0 flex-1">
         <div className="font-semibold text-ink">{title}</div>
-        <div className="text-xs text-ink-faint">{description}</div>
+        <div className="text-xs text-ink-muted">{description}</div>
       </div>
       <Badge tone="slate">قريبًا</Badge>
     </div>

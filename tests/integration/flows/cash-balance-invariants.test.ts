@@ -70,6 +70,7 @@ function makeReceiptEntry(invoiceId: string, amount: number): CashEntry {
     id: uid("ce"),
     type: "sales-receipt",
     amount,
+    description: "Test sales receipt",
     referenceId: invoiceId,
     date: "2026-06-01",
   };
@@ -80,6 +81,7 @@ function makePaymentEntry(invoiceId: string, amount: number): CashEntry {
     id: uid("ce"),
     type: "purchase-payment",
     amount: -amount,
+    description: "Test purchase payment",
     referenceId: invoiceId,
     date: "2026-06-01",
   };
@@ -127,7 +129,7 @@ describe("FIX-V2-02 — Delete invoice cash: filter-only, no reversal", () => {
 
     // Simulate the BROKEN old behavior: add reversal THEN filter
     const withReversal: CashEntry[] = [
-      { id: uid("rev"), type: "adjustment", amount: -1000, referenceId: undefined, date: "2026-06-01" },
+      { id: uid("rev"), type: "adjustment", amount: -1000, description: "Legacy reversal", referenceId: undefined, date: "2026-06-01" },
       ...entries,
     ];
     const afterBrokenDelete = withReversal.filter((e) => e.referenceId !== inv.id);
@@ -199,7 +201,7 @@ describe("FIX-V2-03 — updateSalesInvoice cash delta", () => {
     const editedInv = { ...inv, amountReceived: 600 };
     const delta = computeCashDelta(editedInv, 800, 1000);
     expect(delta).toBe(200);
-    entries.push({ id: uid("edit"), type: "sales-receipt", amount: delta, referenceId: inv.id, date: "2026-06-02" });
+    entries.push({ id: uid("edit"), type: "sales-receipt", amount: delta, description: "Invoice edit delta", referenceId: inv.id, date: "2026-06-02" });
     expect(netBalance(entries)).toBe(800);
   });
 });
@@ -274,6 +276,7 @@ describe("FIX-V2-07 — cancelSalesInvoice refund policy", () => {
             id: uid("cancel"),
             type: "adjustment" as const,
             amount: -totalCollected,
+            description: "Invoice cancellation refund",
             referenceId: inv.id,
             date: "2026-06-02",
           },

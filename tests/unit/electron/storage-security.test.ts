@@ -106,7 +106,7 @@ describe("safeUsersForRenderer", () => {
       { id: "u2", passwordHash: "h2" },
     ];
     const safe = safeUsersForRenderer(users);
-    expect(safe.every((u) => u.passwordHash === REDACTED_PASSWORD_HASH)).toBe(true);
+    expect(safe.every((u: { passwordHash: string }) => u.passwordHash === REDACTED_PASSWORD_HASH)).toBe(true);
     expect(safe).toHaveLength(2);
   });
 

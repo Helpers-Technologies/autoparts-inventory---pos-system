@@ -66,7 +66,7 @@ describe("hasPermission", () => {
     const emp = makeEmployee({
       permissions: {
         ...createPermissions(false),
-        products: { view: true, add: false, edit: false, delete: false },
+        products: { view: true, add: false, edit: false, delete: false, printBarcode: false },
       },
     });
     expect(hasPermission(emp, "products")).toBe(true);
@@ -88,7 +88,7 @@ describe("normalizePermissions", () => {
 
   it("known boolean values are preserved", () => {
     const result = normalizePermissions({
-      products: { view: true, add: true, edit: false, delete: false },
+      products: { view: true, add: true, edit: false, delete: false, printBarcode: false },
     });
     expect(result.products.view).toBe(true);
     expect(result.products.add).toBe(true);
@@ -97,7 +97,7 @@ describe("normalizePermissions", () => {
 
   it("granting any non-view action auto-enables view", () => {
     const result = normalizePermissions({
-      products: { view: false, add: true, edit: false, delete: false },
+      products: { view: false, add: true, edit: false, delete: false, printBarcode: false },
     });
     expect(result.products.view).toBe(true);
   });
@@ -105,7 +105,7 @@ describe("normalizePermissions", () => {
   it("auto-enables view when any non-view action is enabled", () => {
     // normalizePermissions contract: if add/edit/delete are on, view is forced on
     const result = normalizePermissions({
-      products: { view: false, add: true, edit: false, delete: false },
+      products: { view: false, add: true, edit: false, delete: false, printBarcode: false },
     });
     expect(result.products.view).toBe(true); // forced on by add=true
     expect(result.products.add).toBe(true);
@@ -113,7 +113,7 @@ describe("normalizePermissions", () => {
 
   it("disabling view (and all sub-actions) via normalizePermissions produces all-false for that module", () => {
     const result = normalizePermissions({
-      products: { view: false, add: false, edit: false, delete: false },
+      products: { view: false, add: false, edit: false, delete: false, printBarcode: false },
     });
     expect(result.products.view).toBe(false);
     expect(result.products.add).toBe(false);
@@ -260,7 +260,7 @@ describe("setPermissionGroup", () => {
 describe("normalizePermissions — legacy migration", () => {
   it("derives inventory.adjust from products.edit when inventory is absent", () => {
     const p = normalizePermissions({
-      products: { view: true, add: true, edit: true, delete: true },
+      products: { view: true, add: true, edit: true, delete: true, printBarcode: true },
     });
     expect(p.inventory.view).toBe(true);
     expect(p.inventory.adjust).toBe(true);
@@ -268,7 +268,7 @@ describe("normalizePermissions — legacy migration", () => {
 
   it("derives inventory from products when products.edit is false", () => {
     const p = normalizePermissions({
-      products: { view: true, add: true, edit: false, delete: false },
+      products: { view: true, add: true, edit: false, delete: false, printBarcode: false },
     });
     expect(p.inventory.view).toBe(true);
     expect(p.inventory.adjust).toBe(false);
@@ -276,7 +276,7 @@ describe("normalizePermissions — legacy migration", () => {
 
   it("derives alerts.view from products.view when alerts is absent", () => {
     const p = normalizePermissions({
-      products: { view: true, add: false, edit: false, delete: false },
+      products: { view: true, add: false, edit: false, delete: false, printBarcode: false },
     });
     expect(p.alerts.view).toBe(true);
   });
@@ -292,7 +292,7 @@ describe("normalizePermissions — legacy migration", () => {
   it("derives returns from salesInvoices and purchaseInvoices when returns is absent", () => {
     const p = normalizePermissions({
       salesInvoices: { view: true, add: false, edit: false, receive: false, cancel: false, delete: false },
-      purchaseInvoices: { view: false, add: true, edit: false, pay: false, delete: false },
+      purchaseInvoices: { view: false, add: true, edit: false, pay: false, delete: false, purchasingAssistant: false },
     });
     expect(p.returns.view).toBe(true);
     expect(p.returns.add).toBe(true);

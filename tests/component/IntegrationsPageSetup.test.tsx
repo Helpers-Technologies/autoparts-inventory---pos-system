@@ -49,6 +49,10 @@ vi.mock("../../src/lib/useFeatures", () => ({
   useFeatures: () => ({ isEnabled: () => true }),
 }));
 
+vi.mock("../../src/store/AppContext", () => ({
+  useApp: () => ({ currentUser: null, licenseStatus: null }),
+}));
+
 describe("IntegrationsPage — TC-COMP-INTEG", () => {
   beforeEach(() => {
     mockBostaConfig = {

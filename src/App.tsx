@@ -29,7 +29,8 @@ import { SalesInvoicePrintPage } from "./pages/SalesInvoicePrintPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { QuotationsPage } from "./pages/QuotationsPage";
 import { StocktakesPage } from "./pages/StocktakesPage";
-import { ImportPage } from "./pages/ImportPage";
+import { BackupAndRestorePage } from "./pages/BackupAndRestorePage";
+import { LicenseAndUpdatesPage } from "./pages/LicenseAndUpdatesPage";
 import { StocktakeDetailPage } from "./pages/StocktakeDetailPage";
 import { QuotationNewPage } from "./pages/QuotationNewPage";
 import { QuotationEditPage } from "./pages/QuotationEditPage";
@@ -336,10 +337,10 @@ export default function App() {
         }
       />
       <Route
-        path="/import"
+        path="/backup-and-restore"
         element={
-          <ProtectedShell feature="dataImport">
-            <ImportPage />
+          <ProtectedShell>
+            <BackupAndRestorePage />
           </ProtectedShell>
         }
       />
@@ -493,6 +494,14 @@ export default function App() {
         element={
           <ProtectedShell ownerOnly>
             <SettingsPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
+        path="/license-and-updates"
+        element={
+          <ProtectedShell ownerOnly>
+            <LicenseAndUpdatesPage />
           </ProtectedShell>
         }
       />

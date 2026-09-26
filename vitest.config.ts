@@ -10,6 +10,10 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   test: {
+    // Keep jsdom component tests responsive on high-core CI/developer hosts.
+    // Unbounded workers starve user-event timers and can trip the real 5s
+    // interaction timeout even though the same tests complete in ~3s alone.
+    maxWorkers: 4,
     include: ["tests/{unit,component,integration}/**/*.test.{ts,tsx}"],
     environment: "node",
     globals: false,
