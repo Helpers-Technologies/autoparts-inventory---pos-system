@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-26
 **Candidate:** PartFlow 10.5.1
-**Source commit:** `bd6db8eb3964a41365f890400eabd2e84f966ea9`
+**Source commit:** `c819fe4e0417042f6e9cdd3ca5b647de7cdd4430`
 **Result:** FAIL — do not release to production yet
 
 The release candidate itself builds, starts, activates, upgrades the historical data fixture, completes a real sale, survives restart, restores the pre-upgrade database, and enforces denied employee mutations. The phase cannot pass because the required clean NSIS installation and in-place upgrade were not run, and the signing certificate is self-signed rather than publicly trusted.
@@ -11,19 +11,19 @@ The release candidate itself builds, starts, activates, upgrades the historical 
 
 Phase 8 prepared and exercised a production-like Windows candidate after Phases 0–7 passed. It covers the official build, installer artifact, signing configuration, fresh profile activation, historical database migration, backup and restore, employee permissions, multi-branch durability, and a representative packaged workflow.
 
-No product architecture changed in this phase. `package.json` and `package-lock.json` were advanced from 10.5.0 to 10.5.1 so the candidate does not collide with the previously installed 10.5.0 release. All execution used isolated profiles or copied audit databases; `C:\Program Files\PartFlow\PartFlow.exe` version 10.5.0 was not modified.
+`package.json` and `package-lock.json` were advanced from 10.5.0 to 10.5.1 so the candidate does not collide with the previously installed 10.5.0 release. The production dependency audit also required `js-yaml` 4.3.2. The packaging hook now creates the ASAR integrity sidecar during `afterPack`, when `app.asar` is guaranteed to exist across supported electron-builder versions. All execution used isolated profiles or copied audit databases; `C:\Program Files\PartFlow\PartFlow.exe` version 10.5.0 was not modified.
 
 ## Release gate matrix
 
 | Subsystem | Status | Evidence |
 |---|---|---|
-| Official Windows build | PASS | `npm run dist:win` produced the packaged app, NSIS installer, and block map from commit `bd6db8e` |
-| Installer artifact creation | PASS | `PartFlow-10.5.1-Setup.exe`, 108,219,296 bytes |
+| Official Windows build | PASS | clean `npm ci` followed by `npm run dist:win` produced the packaged app, NSIS installer, and block map from commit `c819fe4` |
+| Installer artifact creation | PASS | `PartFlow-10.5.1-Setup.exe`, 108,220,016 bytes |
 | Installer execution on a clean machine | NOT VERIFIED | Windows Sandbox is unavailable and this machine already has PartFlow 10.5.0 under `C:\Program Files`; the live installation was deliberately protected |
 | In-place NSIS upgrade from 10.5.0 | NOT VERIFIED | no disposable Windows installation was available; the production-like data upgrade was verified separately |
 | Signing mechanism and timestamp | PASS | installer and packaged executable report valid Authenticode locally, expected thumbprint, and DigiCert timestamp |
 | Publicly trusted production signing identity | FAIL | signer is `Helpers Technologies Self-Signed Code Signing`; customer trust on a clean machine is not established |
-| ASAR integrity | PASS | expected and actual SHA-256 both `8D54496AAA00A622EB90116398595208827AF5A6A3F31C45236A3664B41CC5C8` |
+| ASAR integrity | PASS | expected and actual SHA-256 both `5339B3742740F9651F4A9F191E824B4CC74A8098A768048D7F317DC0C6DA8216` |
 | Update metadata generation | PASS | version, filename, size, and SHA-512 match the installer |
 | Published update/download path | NOT VERIFIED | candidate metadata has no production HTTPS artifact URL and nothing was published |
 | Fresh packaged profile | PASS | packaged 10.5.1 opened with a new isolated `userData` profile |
@@ -36,6 +36,7 @@ No product architecture changed in this phase. `package.json` and `package-lock.
 | Multi-branch state | PASS | sale/restart comparison preserved branch-stock semantics; restored all 2,068 historical branch-stock rows unchanged and added only catalog bootstrap rows |
 | Representative real workflow | PASS | packaged login, dashboard, dues, branches, POS, real sale, graceful close, restart, and durable comparison passed |
 | Build/type/lint/tests | PASS | build and both type checks passed; ESLint had 0 errors and 21 existing warnings; 92 files and 1,240 tests passed |
+| Production dependency audit | PASS | `npm audit --omit=dev` reports 0 vulnerabilities after updating `js-yaml` to 4.3.2 |
 | Production deployment | NOT VERIFIED | no installer or update was published or deployed |
 
 ## Official artifact and integrity evidence
@@ -48,14 +49,14 @@ D:\Helpers_Tech\win-app\Autoparts-inventory-system\.partflow-rc-phase8\release\P
 
 | Property | Value |
 |---|---|
-| Installer SHA-256 | `2DBBDCF4069B48AE42651675B0E898E47CB13E86AEEDE1509D2A4722B0A77BAF` |
-| Installer SHA-512 | `95C57C77886FB0841664457AE49C5877E7980361E97FC3660C6E004A07B62D84E240CAF7373CF6FFA436371E86DA9245C3DD183B852B118BD21F3E018A5776E2` |
+| Installer SHA-256 | `6CB8173242653928B04F7486A6C7EA19306D635C5F0828ED4D2F87757613DC28` |
+| Installer SHA-512 | `21B9E4A6AD2683853D0070FF8423FDE71054EE1AA5DDDADF695D6EF20B45755DD0683CE7DBF37CB8A2C05EE9D5E80A3D63EFA88631950F76B6B892070AD1F639` |
 | Authenticode status | `Valid` on the build machine |
 | Certificate thumbprint | `E950B2D3C22831B0EDE52E0F69D7C0C422BCBE02` |
 | Timestamp authority | DigiCert SHA256 RSA4096 Timestamp Responder 2026 1 |
-| ASAR SHA-256 | `8D54496AAA00A622EB90116398595208827AF5A6A3F31C45236A3664B41CC5C8` |
+| ASAR SHA-256 | `5339B3742740F9651F4A9F191E824B4CC74A8098A768048D7F317DC0C6DA8216` |
 
-The SHA-512 in `PartFlow-10.5.1-update.json` was generated from the completed signed installer. The metadata size is 108,219,296 bytes, matching the artifact.
+The SHA-512 in `PartFlow-10.5.1-update.json` was generated from the completed signed installer. The metadata size is 108,220,016 bytes, matching the artifact.
 
 ## Fresh activation
 
@@ -75,7 +76,7 @@ The Small historical audit database was copied before launch. A test license was
 6. semantic comparison of products, customers, invoices, cash, movements, branch stocks, shifts, delivery orders, and quotations;
 7. denied-employee authentication and negative IPC mutation checks.
 
-The sale completed in 1,681 ms. Sales invoices changed from 4,993 to 4,994, with exactly one cash entry and one stock movement added and product/branch quantity reduced by one. The post-restart business snapshots matched the post-sale snapshots. Login added an expected audit event, so audit logs were checked for monotonic growth rather than byte identity.
+The final clean-build sale completed in 2,514 ms. Sales invoices changed from 4,994 to 4,995, cash entries from 6,268 to 6,269, and stock movements from 19,755 to 19,756. Product and branch-stock quantities both changed from 6,896 to 6,895. The post-restart business snapshots matched the post-sale snapshots. Login added an expected audit event, so audit logs were checked for monotonic growth rather than byte identity.
 
 ## Backup and restore verification
 
@@ -95,6 +96,8 @@ Phase 7 separately verified the full application archive pipeline on the Large f
 ## Commands and results
 
 ```text
+npm ci
+npm audit --omit=dev --json
 npm run dist:win
 node scripts/generate-update-metadata.cjs
 Get-AuthenticodeSignature release/PartFlow-10.5.1-Setup.exe
@@ -111,12 +114,17 @@ npm test -- --reporter=dot
 Results:
 
 - production build: PASS;
+- production dependency audit: PASS, 0 vulnerabilities;
 - test TypeScript: PASS;
 - ESLint: PASS with 0 errors and 21 warnings;
 - Node native-module load after rebuild: PASS;
-- Vitest: 92/92 files and 1,240/1,240 tests passed in 172.53 seconds;
+- Vitest after the dependency fix: 92/92 files and 1,240/1,240 tests passed in 112.79 seconds;
 - packaged historical workflow and restart: PASS;
 - restored historical database and semantic row preservation: PASS.
+
+An intermediate build made from a junction to the main checkout's `node_modules` was rejected during packaged startup: its native SQLite module retained Node ABI 137 while Electron 39 required ABI 140. The release worktree was rebuilt with its own clean `npm ci`; electron-builder then rebuilt native dependencies for Electron, and the final packaged activation plus historical sale/restart workflow passed. The rejected artifact is not the artifact identified by the hashes above.
+
+The first build with electron-builder 26.15.3 also exposed that the signing hook could run too early to create `asar-integrity.sha256`. The build completed and signed, but packaged startup had no integrity sidecar. Commit `c819fe4` moved deterministic sidecar creation into `afterPack`; the final build logged the generated hash, the sidecar matched `app.asar`, and packaged startup passed.
 
 Machine-readable evidence is under `reports/production-hardening-2026-09/phase-8/`, including `release-verification.json` and the isolated historical run directory. Release artifacts and generated test licenses are ignored by Git.
 
@@ -124,13 +132,15 @@ Machine-readable evidence is under `reports/production-hardening-2026-09/phase-8
 
 Phase 8 release changes:
 
-- `package.json` — version 10.5.1;
-- `package-lock.json` — version 10.5.1;
+- `package.json` and `package-lock.json` — version 10.5.1 and production `js-yaml` security override 4.3.2;
+- `scripts/electron-builder-after-pack.cjs` — generate the ASAR integrity sidecar after packaging;
 - `docs/PRODUCTION_HARDENING_PHASE_8_2026-09-26.md` — this release-readiness report.
 
 Relevant commit:
 
 - `bd6db8e` — `chore(release): prepare 10.5.1 candidate`.
+- `f4d4191` — `fix(deps): update js-yaml security override`.
+- `c819fe4` — `fix(build): generate asar integrity after packaging`.
 
 No migration code was added. The tested catalog/default normalization was existing behavior and was verified against the historical fixture.
 
