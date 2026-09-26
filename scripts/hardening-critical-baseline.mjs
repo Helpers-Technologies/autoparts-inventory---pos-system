@@ -99,12 +99,20 @@ export async function openPos(page) {
 }
 export async function sell(page, rejected = false) {
   const tiles = page.locator('[data-testid="pos-product-tile"]');
+  const search = page.getByPlaceholder('ابحث عن منتج بالاسم أو الرمز...');
+  if (await search.isVisible().catch(() => false)) {
+    await search.fill('');
+    // The POS grid is filtered and virtualised. Let it publish the cleared
+    // result before choosing a tile, otherwise a locator can resolve the item
+    // that occupied that position in the previous filtered result.
+    await page.waitForTimeout(600);
+  }
   const index = await tiles.evaluateAll(items => items.findIndex(el => !el.disabled && Number((el.textContent.match(/متاح:\s*([\d.,]+)/) || [])[1]?.replaceAll(',', '')) > 0));
   if (index < 0) throw new Error('NO_AVAILABLE_FIXTURE_PRODUCT');
   const product = await tiles.nth(index).locator('h3').innerText();
   await tiles.nth(index).click();
   const complete = page.getByRole('button', { name: /إتمام البيع/ });
-  await expect(complete).toBeEnabled();
+  await expect(complete).toBeEnabled({ timeout: 20_000 });
   const start = Date.now();
   await complete.click();
   if (rejected) {
