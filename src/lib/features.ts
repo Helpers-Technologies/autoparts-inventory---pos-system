@@ -7,7 +7,7 @@ import type { LicensePayload, Settings } from "../types";
  *
  * Feature state is resolved in two layers (see {@link isFeatureEnabled}):
  *   1. License cap  — the package the client paid for. Signed into the serial,
- *      so the client cannot widen it. Absent ⇒ everything allowed (old serials).
+ *      so the client cannot widen it. Legacy serials keep core features only.
  *   2. Owner preference — Settings toggles let the owner hide an allowed module
  *      they don't use. Falls back to {@link FeatureDef.defaultEnabled}.
  */
@@ -231,15 +231,17 @@ export const PAID_FEATURE_KEYS = new Set<FeatureKey>([
  * `npm run check-features` verifies this file against that one.
  */
 export type PackageTier = "basic" | "pro" | "full";
+export type FeatureEntitlement = PackageTier | "standalone";
 
-export const TIER_LABELS: Record<PackageTier, string> = {
+export const TIER_LABELS: Record<FeatureEntitlement, string> = {
   basic: "الأساسية",
   pro: "الاحترافية",
   full: "الشاملة",
+  standalone: "إضافة مستقلة",
 };
 
-/** The minimum package tier that includes a given feature. */
-export const FEATURE_TIER: Record<FeatureKey, PackageTier> = {
+/** The package tier or standalone add-on that grants a feature. */
+export const FEATURE_TIER: Record<FeatureKey, FeatureEntitlement> = {
   pos: "basic",
   salesInvoices: "basic",
   purchaseInvoices: "basic",
@@ -282,14 +284,38 @@ export const FEATURE_TIER: Record<FeatureKey, PackageTier> = {
   advancedAlerts: "full",
   darkMode: "full",
   bostaIntegration: "full",
-  mobileCompanion: "full",
-  cloudBackup: "full",
+  mobileCompanion: "standalone",
+  cloudBackup: "standalone",
 };
+
+/**
+ * Canonical entitlement presets used by package UI/tests. Add-ons remain
+ * outside every preset and must be signed into a license explicitly.
+ */
+export const PACKAGE_FEATURES: Record<PackageTier, readonly FeatureKey[]> = {
+  basic: FEATURES.filter((feature) => FEATURE_TIER[feature.key] === "basic").map((feature) => feature.key),
+  pro: FEATURES.filter((feature) => ["basic", "pro"].includes(FEATURE_TIER[feature.key])).map((feature) => feature.key),
+  full: FEATURES.filter((feature) => FEATURE_TIER[feature.key] !== "standalone").map((feature) => feature.key),
+};
+
+export const STANDALONE_FEATURES: readonly FeatureKey[] = FEATURES
+  .filter((feature) => FEATURE_TIER[feature.key] === "standalone")
+  .map((feature) => feature.key);
+
+export function featureEntitlementMessage(key: FeatureKey, quotedLabel?: string): string {
+  const label = quotedLabel ?? FEATURE_MAP[key]?.label ?? key;
+  const entitlement = FEATURE_TIER[key];
+  if (entitlement === "standalone") {
+    return `"${label}" إضافة مستقلة خارج الباقات — تواصل مع المبيعات لتفعيلها.`;
+  }
+  if (entitlement === "basic") return `"${label}" غير مفعّلة لهذا الحساب.`;
+  return `"${label}" متاحة ضمن الباقة ${TIER_LABELS[entitlement]} — تواصل مع المبيعات للترقية.`;
+}
 
 /**
  * License cap. When the serial carries an explicit feature whitelist, only those
  * keys are allowed. An absent/empty list means the license predates feature
- * packaging — allow everything so existing installs keep working.
+ * packaging — preserve core features without unlocking paid modules.
  */
 export function isAllowedByLicense(key: FeatureKey, license?: LicensePayload | null): boolean {
   const allowed = license?.features;

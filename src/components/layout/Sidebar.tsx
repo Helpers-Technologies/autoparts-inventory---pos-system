@@ -180,7 +180,7 @@ const GROUPS: NavGroup[] = [
         label: "تنبيهات المخزون",
         icon: Bell,
         permission: "alerts",
-        feature: "advancedAlerts",
+        feature: "alerts",
       },
     ],
   },

@@ -339,7 +339,7 @@ export default function App() {
       <Route
         path="/backup-and-restore"
         element={
-          <ProtectedShell>
+          <ProtectedShell ownerOnly>
             <BackupAndRestorePage />
           </ProtectedShell>
         }
@@ -403,7 +403,7 @@ export default function App() {
       <Route
         path="/alerts"
         element={
-          <ProtectedShell permission="alerts" feature="advancedAlerts">
+          <ProtectedShell permission="alerts" feature="alerts">
             <AlertsPage />
           </ProtectedShell>
         }

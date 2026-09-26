@@ -168,6 +168,7 @@ export function BackupAndRestorePage() {
   const canAddProduct = hasPermission(currentUser, "products", "add");
   const canAddCustomer = hasPermission(currentUser, "customers", "add");
   const excelExportEnabled = isEnabled("excelExport");
+  const dataImportEnabled = isEnabled("dataImport");
 
   const [form, setForm] = useState(settings);
   const [backupPassphrase, setBackupPassphrase] = useState("");
@@ -322,6 +323,7 @@ export function BackupAndRestorePage() {
 
   // Product import
   async function handleProductFile(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!dataImportEnabled || !canAddProduct) return;
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await readFileAsText(file);
@@ -332,6 +334,7 @@ export function BackupAndRestorePage() {
   }
 
   function importProducts() {
+    if (!dataImportEnabled || !canAddProduct) return;
     const valid = productRows.filter((r) => !r.error);
     if (!valid.length) return;
     const existingCodes = new Set(products.map((p) => p.code));
@@ -384,6 +387,7 @@ export function BackupAndRestorePage() {
 
   // Customer import
   async function handleCustomerFile(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!dataImportEnabled || !canAddCustomer) return;
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await readFileAsText(file);
@@ -394,6 +398,7 @@ export function BackupAndRestorePage() {
   }
 
   function importCustomers() {
+    if (!dataImportEnabled || !canAddCustomer) return;
     const valid = customerRows.filter((r) => !r.error);
     if (!valid.length) return;
     valid.forEach((r) => {
@@ -563,9 +568,12 @@ export function BackupAndRestorePage() {
                         >
                           <option value="daily">يوميًا</option>
                           <option value="weekly">أسبوعيًا</option>
+                          <option value="monthly">كل 30 يومًا</option>
                         </Select>
                       </Field>
-
+                      <p className="text-[11px] leading-relaxed text-ink-faint">
+                        يُنشئ النظام النسخة بعد مرور المدة المحددة على آخر نسخة ناجحة، ويفحص الاستحقاق عند التشغيل ثم كل 30 دقيقة أثناء بقاء البرنامج مفتوحًا.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -691,7 +699,9 @@ export function BackupAndRestorePage() {
             <Card className="lg:col-span-1">
               <CardHeader title="استيراد البيانات (CSV)" subtitle="رفع منتجات أو عملاء من ملف Excel" />
               <CardBody>
-                {!canAddProduct && !canAddCustomer ? (
+                {!dataImportEnabled ? (
+                  <PaidFeatureNotice title="استيراد البيانات" featureKey="dataImport" />
+                ) : !canAddProduct && !canAddCustomer ? (
                   <div className="text-sm text-ink-faint p-4 text-center">
                     ليس لديك صلاحية لاستيراد البيانات
                   </div>

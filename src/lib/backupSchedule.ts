@@ -7,6 +7,15 @@ const FREQUENCY_MS: Record<Settings["autoBackupFrequency"], number> = {
   monthly: 30 * 24 * 60 * 60 * 1000,
 };
 
+export const AUTO_BACKUP_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+
+/** Run a due-check now and every 30 minutes until the caller disposes it. */
+export function startAutoBackupChecks(check: () => void): () => void {
+  check();
+  const timer = globalThis.setInterval(check, AUTO_BACKUP_CHECK_INTERVAL_MS);
+  return () => globalThis.clearInterval(timer);
+}
+
 /**
  * Decide whether an automatic backup should run now.
  *

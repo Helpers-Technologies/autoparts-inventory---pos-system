@@ -4,6 +4,10 @@ import {
   FEATURE_CATEGORIES,
   FEATURE_CATEGORY_BY_KEY,
   FEATURE_MAP,
+  FEATURE_TIER,
+  PACKAGE_FEATURES,
+  STANDALONE_FEATURES,
+  featureEntitlementMessage,
   isAllowedByLicense,
   defaultFeatureState,
   isFeatureEnabled,
@@ -59,13 +63,44 @@ describe("FEATURE_MAP", () => {
   });
 });
 
+describe("package entitlement contract", () => {
+  it("keeps Basic, Pro, and Full cumulative with every feature assigned exactly once", () => {
+    expect(PACKAGE_FEATURES.basic).toHaveLength(16);
+    expect(PACKAGE_FEATURES.pro).toHaveLength(32);
+    expect(PACKAGE_FEATURES.full).toHaveLength(42);
+    expect(PACKAGE_FEATURES.pro).toEqual(expect.arrayContaining([...PACKAGE_FEATURES.basic]));
+    expect(PACKAGE_FEATURES.full).toEqual(expect.arrayContaining([...PACKAGE_FEATURES.pro]));
+    expect(new Set([...PACKAGE_FEATURES.full, ...STANDALONE_FEATURES]).size).toBe(FEATURES.length);
+  });
+
+  it("requires mobile and cloud add-ons explicitly, even for Full", () => {
+    expect(STANDALONE_FEATURES).toEqual(["mobileCompanion", "cloudBackup"]);
+    expect(FEATURE_TIER.mobileCompanion).toBe("standalone");
+    expect(FEATURE_TIER.cloudBackup).toBe("standalone");
+    expect(PACKAGE_FEATURES.full).not.toContain("mobileCompanion");
+    expect(PACKAGE_FEATURES.full).not.toContain("cloudBackup");
+
+    const full = makeLicense([...PACKAGE_FEATURES.full]);
+    expect(isFeatureEnabled("advancedSecurity", null, full)).toBe(true);
+    expect(isFeatureEnabled("mobileCompanion", null, full)).toBe(false);
+    expect(isFeatureEnabled("cloudBackup", null, full)).toBe(false);
+    expect(isFeatureEnabled("mobileCompanion", null, makeLicense([...PACKAGE_FEATURES.full, "mobileCompanion"]))).toBe(true);
+    expect(isFeatureEnabled("cloudBackup", null, makeLicense([...PACKAGE_FEATURES.full, "cloudBackup"]))).toBe(true);
+  });
+
+  it("uses standalone add-on language in route and feature UI messages", () => {
+    expect(featureEntitlementMessage("mobileCompanion")).toContain("إضافة مستقلة خارج الباقات");
+    expect(featureEntitlementMessage("advancedSecurity")).toContain("الباقة الشاملة");
+  });
+});
+
 describe("isAllowedByLicense", () => {
-  it("allows everything when the license is missing (back-compat)", () => {
+  it("keeps legacy core features available when the license is missing", () => {
     expect(isAllowedByLicense("quotations", null)).toBe(true);
     expect(isAllowedByLicense("quotations", undefined)).toBe(true);
   });
 
-  it("allows everything when the feature list is empty", () => {
+  it("keeps legacy core features available when the feature list is empty", () => {
     expect(isAllowedByLicense("stocktakes", makeLicense([]))).toBe(true);
   });
 

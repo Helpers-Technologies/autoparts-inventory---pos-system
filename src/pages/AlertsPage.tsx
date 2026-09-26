@@ -187,7 +187,8 @@ export function AlertsPage() {
   }
 
   const { isEnabled } = useFeatures();
-  const creditEnabled = isEnabled("creditSales");
+  const advancedAlertsEnabled = isEnabled("advancedAlerts");
+  const creditEnabled = advancedAlertsEnabled && isEnabled("creditSales");
   const expiryTrackingEnabled = isEnabled("expiryTracking");
 
   useEffect(() => {
@@ -363,10 +364,12 @@ export function AlertsPage() {
                 فاتورة توريد جديدة
               </Button>
             </Link>
-            <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)} className="flex items-center gap-1.5">
-              <Settings2 className="w-4 h-4" />
-              تخصيص الكروت
-            </Button>
+            {advancedAlertsEnabled && (
+              <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)} className="flex items-center gap-1.5">
+                <Settings2 className="w-4 h-4" />
+                تخصيص الكروت
+              </Button>
+            )}
           </div>
         }
       />

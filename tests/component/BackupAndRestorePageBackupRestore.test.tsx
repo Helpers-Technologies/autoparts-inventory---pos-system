@@ -40,6 +40,7 @@ const mockBackupToPath = vi.fn();
 const mockExportToExcel = vi.fn();
 const mockUpdateSettings = vi.fn();
 const mockActivateLicense = vi.fn();
+const mockIsFeatureEnabled = vi.fn();
 
 vi.mock("../../src/store/AppContext", () => ({
   useApp: () => ({
@@ -66,7 +67,7 @@ vi.mock("../../src/store/AuditLogContext", () => ({
 }));
 
 vi.mock("../../src/lib/useFeatures", () => ({
-  useFeatures: () => ({ isEnabled: () => true }),
+  useFeatures: () => ({ isEnabled: mockIsFeatureEnabled }),
 }));
 
 // The page reads the catalogue to answer "how many parts use this quality
@@ -86,6 +87,7 @@ const CONFIRM_BUTTON = "استبدال كل البيانات";
 describe("SettingsPage — internal backup restore confirmation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsFeatureEnabled.mockReturnValue(true);
     mockImportBackup.mockResolvedValue(true);
     // jsdom's window.location.reload throws "Not implemented" if actually
     // invoked; the page schedules it 900ms after a successful restore, which
@@ -141,5 +143,21 @@ describe("SettingsPage — internal backup restore confirmation", () => {
       )
     ).not.toBeInTheDocument();
     expect(mockImportBackup).not.toHaveBeenCalled();
+  });
+
+  it("shows the real interval schedule, including the supported monthly option", () => {
+    renderWithProviders(<BackupAndRestorePage />);
+
+    expect(screen.getByRole("option", { name: "كل 30 يومًا" })).toBeInTheDocument();
+    expect(screen.getByText(/يفحص الاستحقاق عند التشغيل ثم كل 30 دقيقة/)).toBeInTheDocument();
+  });
+
+  it("does not expose CSV import controls when dataImport is absent from the license", () => {
+    mockIsFeatureEnabled.mockImplementation((key: string) => key !== "dataImport");
+    renderWithProviders(<BackupAndRestorePage />);
+
+    expect(screen.getByText(/متاحة ضمن الباقة الاحترافية/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "تحميل القالب (CSV)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "رفع ملف المنتجات" })).not.toBeInTheDocument();
   });
 });

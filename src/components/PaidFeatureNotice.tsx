@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import { FEATURE_TIER, TIER_LABELS, type FeatureKey } from "../lib/features";
+import { featureEntitlementMessage, type FeatureKey } from "../lib/features";
 
 interface Props {
   title?: string;
@@ -11,11 +11,7 @@ interface Props {
 }
 
 export function PaidFeatureNotice({ title, description, featureKey }: Props) {
-  const tier = featureKey ? FEATURE_TIER[featureKey] : undefined;
-  const tierMessage =
-    tier && tier !== "basic"
-      ? `متاحة ضمن الباقة ${TIER_LABELS[tier]} — تواصل مع المبيعات للترقية وتفعيلها.`
-      : undefined;
+  const tierMessage = featureKey ? featureEntitlementMessage(featureKey).replace(/^"[^"]+" /, "") : undefined;
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 dark:border-amber-500/30 dark:bg-amber-500/10">

@@ -56,6 +56,7 @@ export function Topbar({
   const { products } = useCatalog();
   const { purchaseInvoices, salesInvoices } = useInvoicing();
   const { isEnabled } = useFeatures();
+  const advancedAlertsEnabled = isEnabled("advancedAlerts");
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
 
@@ -80,10 +81,10 @@ export function Topbar({
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - (settings.paymentTermDays ?? 7));
     const overdueSuppliers = purchaseInvoices.filter((p) => p.remaining > 0 && new Date(p.date) < cutoff).length;
-    return outOfStock + overdueAccounts + overdueSuppliers;
-  }, [products, salesInvoices, purchaseInvoices, settings.paymentTermDays]);
+    return outOfStock + (advancedAlertsEnabled ? overdueAccounts + overdueSuppliers : 0);
+  }, [products, salesInvoices, purchaseInvoices, settings.paymentTermDays, advancedAlertsEnabled]);
 
-  const canViewAlerts = hasPermission(currentUser, "alerts") && isEnabled("advancedAlerts");
+  const canViewAlerts = hasPermission(currentUser, "alerts") && isEnabled("alerts");
   const accountName = currentUser?.name || auth.username || "مدير";
 
   const title = useMemo(() => {

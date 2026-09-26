@@ -62,7 +62,7 @@ import {
 } from "../data/autoPartsStarterCatalog";
 import { localISODate, todayISO, uid } from "../lib/utils";
 import { buildXlsx } from "../lib/xlsx";
-import { isAutoBackupDue, backupFileName } from "../lib/backupSchedule";
+import { isAutoBackupDue, backupFileName, startAutoBackupChecks } from "../lib/backupSchedule";
 import {
   computeStatus,
   applyPieceDeduction,
@@ -953,11 +953,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    void checkAndBackup(); // run once immediately on mount / when enabled
-    const timer = window.setInterval(() => {
+    return startAutoBackupChecks(() => {
       void checkAndBackup();
-    }, 30 * 60 * 1000); // then every 30 min
-    return () => window.clearInterval(timer);
+    });
   }, [advancedSecurityEnabled, settings.autoBackupEnabled, isDesktop]); // isDesktop is constant at runtime; effectively re-schedules only when the user toggles the setting
 
   // Covers renderer reload/navigation (not the Electron quit path — that's
@@ -3556,33 +3554,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return result;
   }, [settings.backupPath, buildBackupData]);
 
-  // Run an automatic backup once per session, on startup, when one is due.
-  const autoBackupRanRef = useRef(false);
+  // Check external-backup eligibility at startup and while the app remains
+  // open. The selected frequency is an elapsed interval since the last
+  // successful write, not a wall-clock time-of-day promise.
+  const externalAutoBackupInFlightRef = useRef(false);
   useEffect(() => {
-    if (autoBackupRanRef.current) return;
     if (!isDesktop || currentUser?.role !== "owner") return;
-    const due = isAutoBackupDue({
-      enabled: advancedSecurityEnabled && settings.autoBackupEnabled,
-      backupPath: settings.backupPath ?? "",
-      frequency: settings.autoBackupFrequency,
-      lastBackupDate: settings.lastBackupDate,
-      now: Date.now(),
-    });
-    if (!due) return;
-    autoBackupRanRef.current = true;
-    void backupToPath().then((result) => {
-      if (!result.ok) {
-        logAudit("backup_failed", "فشل النسخ الاحتياطي التلقائي إلى المجلد الخارجي", result.error ?? "unknown_error");
+
+    async function checkAndBackupToPath() {
+      if (externalAutoBackupInFlightRef.current || currentUserRef.current?.role !== "owner") return;
+      const current = liveStateRef.current.settings;
+      const due = isAutoBackupDue({
+        enabled: advancedSecurityEnabled && current.autoBackupEnabled,
+        backupPath: current.backupPath ?? "",
+        frequency: current.autoBackupFrequency,
+        lastBackupDate: current.lastBackupDate,
+        now: Date.now(),
+      });
+      if (!due) return;
+
+      externalAutoBackupInFlightRef.current = true;
+      try {
+        const result = await backupToPath(current.backupPath);
+        if (!result.ok) {
+          logAudit("backup_failed", "فشل النسخ الاحتياطي التلقائي إلى المجلد الخارجي", result.error ?? "unknown_error");
+        }
+      } finally {
+        externalAutoBackupInFlightRef.current = false;
       }
+    }
+
+    return startAutoBackupChecks(() => {
+      void checkAndBackupToPath();
     });
   }, [
     isDesktop,
-    currentUser,
+    currentUser?.role,
     advancedSecurityEnabled,
     settings.autoBackupEnabled,
     settings.backupPath,
-    settings.autoBackupFrequency,
-    settings.lastBackupDate,
     backupToPath,
   ]);
 

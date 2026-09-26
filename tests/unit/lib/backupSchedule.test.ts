@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { isAutoBackupDue, backupFileName } from "../../../src/lib/backupSchedule";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import {
+  AUTO_BACKUP_CHECK_INTERVAL_MS,
+  isAutoBackupDue,
+  backupFileName,
+  startAutoBackupChecks,
+} from "../../../src/lib/backupSchedule";
 
 const DAY = 24 * 60 * 60 * 1000;
 const base = {
@@ -9,6 +14,26 @@ const base = {
   lastBackupDate: "",
   now: Date.parse("2026-06-10T12:00:00.000Z"),
 };
+
+afterEach(() => vi.useRealTimers());
+
+describe("startAutoBackupChecks", () => {
+  it("checks immediately and every 30 minutes while the app remains open", () => {
+    vi.useFakeTimers();
+    const check = vi.fn();
+    const stop = startAutoBackupChecks(check);
+
+    expect(check).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(AUTO_BACKUP_CHECK_INTERVAL_MS - 1);
+    expect(check).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(check).toHaveBeenCalledTimes(2);
+
+    stop();
+    vi.advanceTimersByTime(AUTO_BACKUP_CHECK_INTERVAL_MS);
+    expect(check).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("isAutoBackupDue", () => {
   it("returns false when disabled", () => {
