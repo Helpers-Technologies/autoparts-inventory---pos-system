@@ -83,3 +83,4 @@ test-results/
 # 10-year one is 270 MB, which has no business in git history.
 /load-test-*.json
 /*.json.gz
+/scale-fixtures/

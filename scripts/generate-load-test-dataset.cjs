@@ -48,6 +48,11 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
+const { writeFixtureBundle } = require("./fixture-bundle.cjs");
+
+const GENERATOR_VERSION = "phase10-v5";
+const generationStarted = process.hrtime.bigint();
 
 // ── Deterministic PRNG (mulberry32) ──────────────────────────────────────
 let _seed = 0x9e3779b9;
@@ -127,14 +132,28 @@ const arg = (name, fallback) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
 
-const CONFIG = {
-  years: Number(arg("--years", 3)),
-  customers: Number(arg("--customers", 15000)),
-  invoices: Number(arg("--invoices", 30000)),
-  products: Number(arg("--products", 4000)),
-  suppliers: 60,
-  out: arg("--out", path.join(__dirname, "..", "load-test-dataset.json")),
+const integerArg = (name, fallback, minimum = 1) => {
+  const value = Number(arg(name, fallback));
+  if (!Number.isSafeInteger(value) || value < minimum) {
+    throw new Error(`${name} must be an integer >= ${minimum}; received ${value}`);
+  }
+  return value;
 };
+
+const CONFIG = {
+  years: integerArg("--years", 3),
+  customers: integerArg("--customers", 15000),
+  invoices: integerArg("--invoices", 30000),
+  minimumSalesInvoices: integerArg("--minimum-sales-invoices", Number(arg("--invoices", 30000))),
+  purchaseInvoices: integerArg("--purchase-invoices", Math.max(1200, Math.floor(Number(arg("--invoices", 30000)) * 0.12))),
+  products: integerArg("--products", 4000),
+  suppliers: integerArg("--suppliers", 60),
+  seed: integerArg("--seed", 0x9e3779b9, 0),
+  out: arg("--out", path.join(__dirname, "..", "load-test-dataset.json")),
+  bundleDir: arg("--bundle-dir", ""),
+  summaryOut: arg("--summary-out", ""),
+};
+_seed = CONFIG.seed | 0;
 
 // Fixed end date so runs are comparable; the history ends "today" relative to
 // a stamped constant rather than the wall clock.
@@ -194,7 +213,8 @@ function nextEventTime() {
 }
 
 console.error(`generating: ${CONFIG.years}y, ${CONFIG.customers} customers, ` +
-  `${CONFIG.invoices} invoices, ${CONFIG.products} products`);
+  `${CONFIG.invoices} sales, ${CONFIG.purchaseInvoices} purchases, ` +
+  `${CONFIG.products} products, seed ${CONFIG.seed}`);
 
 // ── Reference data ───────────────────────────────────────────────────────
 
@@ -678,7 +698,7 @@ for (let day = 0; day < TOTAL_DAYS; day++) {
 }
 const salesPerDay = [];
 const purchasesPerDay = [];
-const targetPurchases = Math.max(1200, Math.floor(CONFIG.invoices * 0.12));
+const targetPurchases = CONFIG.purchaseInvoices;
 {
   let salesCarry = 0;
   let purchaseCarry = 0;
@@ -694,6 +714,22 @@ const targetPurchases = Math.max(1200, Math.floor(CONFIG.invoices * 0.12));
     purchaseCarry = purchaseExact - purchasesToday;
     purchasesPerDay.push(purchasesToday);
   }
+
+  // Floating carry can leave the final allocation one event short. Put any
+  // remainder on the last trading day so the configured invoice targets are
+  // exact without changing the multi-year shape.
+  const addRemainder = (schedule, target) => {
+    const remainder = target - schedule.reduce((sum, value) => sum + value, 0);
+    if (remainder <= 0) return;
+    for (let day = schedule.length - 1; day >= 0; day--) {
+      if (dayWeights[day] > 0) {
+        schedule[day] += remainder;
+        return;
+      }
+    }
+  };
+  addRemainder(salesPerDay, CONFIG.invoices);
+  addRemainder(purchasesPerDay, targetPurchases);
 }
 
 // Pointers that advance with the calendar instead of re-scanning.
@@ -714,9 +750,20 @@ const lastInvoiceByCustomer = new Map();
  * next one. Bounded so a genuinely empty shop still terminates.
  */
 function pickInStockProduct() {
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 12; attempt++) {
     const product = pick(sellableProducts);
     if (product.quantity > 0) return product;
+  }
+  // At scale, most of a broad catalogue can temporarily be out of stock.
+  // A bounded random probe alone occasionally abandoned an otherwise valid
+  // sale and left nominal rungs just below their promised invoice count.
+  // The rotating fallback proves whether the shop is actually empty.
+  if (sellableProducts.length > 0) {
+    const start = int(0, sellableProducts.length - 1);
+    for (let offset = 0; offset < sellableProducts.length; offset++) {
+      const product = sellableProducts[(start + offset) % sellableProducts.length];
+      if (product.quantity > 0) return product;
+    }
   }
   return null;
 }
@@ -864,7 +911,7 @@ for (let day = 0; day < TOTAL_DAYS; day++) {
     const supplier = pick(eligibleSuppliers);
     purchaseSeq++;
     const id = `pinv-${purchaseSeq}`;
-    const lineCount = int(1, 12);
+    const lineCount = int(2, 12);
     const lines = [];
     for (let n = 0; n < lineCount; n++) {
       const product = pickReorderCandidate();
@@ -993,8 +1040,14 @@ for (let day = 0; day < TOTAL_DAYS; day++) {
     const openBranches = branchesOpenAt(when);
 
     const priceType = chance(0.3) ? "wholesale" : "retail";
-    // Most counter sales are one or two items; a workshop order is bigger.
-    const lineCount = chance(0.65) ? int(1, 2) : chance(0.8) ? int(3, 5) : int(6, 12);
+    // Phase 10's fixed commercial mix: counter slips, ordinary orders,
+    // workshop jobs and the long tail of large orders. One PRNG draw chooses
+    // the bucket so the distribution is stable and directly measurable.
+    const lineRoll = rnd();
+    const lineCount = lineRoll < 0.20 ? 1
+      : lineRoll < 0.60 ? int(2, 3)
+        : lineRoll < 0.90 ? int(4, 6)
+          : int(7, 15);
     salesSeq++;
     const id = `sinv-${salesSeq}`;
     const lines = [];
@@ -1266,7 +1319,7 @@ for (let day = 0; day < TOTAL_DAYS; day++) {
     }
 
     // Credit sales get collected later, in instalments.
-    if (!cancelled && onAccount && invoice.remaining > 0 && chance(0.55)) {
+    if (!cancelled && onAccount && invoice.remaining > 0 && chance(0.8)) {
       const payDay = day + int(5, 70);
       const instalment = money(invoice.remaining * (0.4 + rnd() * 0.6));
       defer(payDay, (payMidnight) => {
@@ -1278,22 +1331,30 @@ for (let day = 0; day < TOTAL_DAYS; day++) {
         invoice.status = invoice.amountReceived >= invoice.total
           ? "paid" : invoice.amountReceived > 0 ? "partial" : "unpaid";
         invoice.paymentLog = invoice.paymentLog ?? [];
-        invoice.paymentLog.push({
-          id: `pay-${invoice.id}-${invoice.paymentLog.length + 1}`,
-          date: isoAt(payWhen), amount: collected,
-          paymentMethod: pick(["cash", "instapay", "vodafone"]),
-        });
-        cashEntries.push({
-          id: `cash-${cashEntries.length + 1}`,
-          type: "sales-receipt",
-          amount: collected,
-          description: `تحصيل من حساب العميل ${customer.name} — فاتورة ${invoice.invoiceNumber}`,
-          referenceId: invoice.id,
-          paymentMethod: pick(["cash", "instapay", "vodafone"]),
-          date: isoAt(payWhen),
-          createdByUserId: "user-owner",
-          createdAt: isoAt(payWhen),
-        });
+        // Mixed-method instalments are common at the counter. Recording the
+        // components separately preserves the collected total and balance.
+        const firstPart = collected >= 2 && chance(0.4)
+          ? money(collected * (0.45 + rnd() * 0.2)) : collected;
+        const paymentParts = firstPart < collected
+          ? [firstPart, money(collected - firstPart)] : [collected];
+        for (const amount of paymentParts) {
+          const paymentMethod = pick(["cash", "instapay", "vodafone"]);
+          invoice.paymentLog.push({
+            id: `pay-${invoice.id}-${invoice.paymentLog.length + 1}`,
+            date: isoAt(payWhen), amount, paymentMethod,
+          });
+          cashEntries.push({
+            id: `cash-${cashEntries.length + 1}`,
+            type: "sales-receipt",
+            amount,
+            description: `تحصيل من حساب العميل ${customer.name} — فاتورة ${invoice.invoiceNumber}`,
+            referenceId: invoice.id,
+            paymentMethod,
+            date: isoAt(payWhen),
+            createdByUserId: "user-owner",
+            createdAt: isoAt(payWhen),
+          });
+        }
       });
     }
   }
@@ -1583,6 +1644,22 @@ stockMovements.sort((a, b) => {
 cashEntries.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
 const dataset = {
+  _fixtureMetadata: {
+    generator: "scripts/generate-load-test-dataset.cjs",
+    generatorVersion: GENERATOR_VERSION,
+    seed: CONFIG.seed,
+    fixedEndDate: new Date(END).toISOString(),
+    config: {
+      years: CONFIG.years,
+      customers: CONFIG.customers,
+      salesInvoices: CONFIG.invoices,
+      minimumSalesInvoices: CONFIG.minimumSalesInvoices,
+      purchaseInvoiceEvents: CONFIG.purchaseInvoices,
+      products: CONFIG.products,
+      suppliers: CONFIG.suppliers,
+      branches: branches.length,
+    },
+  },
   products, customers, suppliers, users, branches,
   salesInvoices, purchaseInvoices, salesReturns, purchaseReturns,
   stockMovements, shifts, warrantyClaims, customerVehicles, cashEntries,
@@ -1598,12 +1675,52 @@ const dataset = {
   nextSupplierCode: suppliers.length + 1,
 };
 
-const json = JSON.stringify(dataset);
-fs.writeFileSync(CONFIG.out, json);
+let artifact;
+if (CONFIG.bundleDir) {
+  artifact = writeFixtureBundle(dataset, CONFIG.bundleDir);
+} else {
+  const json = JSON.stringify(dataset);
+  fs.mkdirSync(path.dirname(path.resolve(CONFIG.out)), { recursive: true });
+  fs.writeFileSync(CONFIG.out, json);
+  artifact = {
+    path: path.resolve(CONFIG.out),
+    bytes: Buffer.byteLength(json),
+    sha256: crypto.createHash("sha256").update(json).digest("hex"),
+  };
+}
+const salesLineBuckets = { "1": 0, "2-3": 0, "4-6": 0, "7-15": 0, other: 0 };
+for (const invoice of salesInvoices) {
+  const count = invoice.lines.length;
+  if (count === 1) salesLineBuckets["1"]++;
+  else if (count <= 3) salesLineBuckets["2-3"]++;
+  else if (count <= 6) salesLineBuckets["4-6"]++;
+  else if (count <= 15) salesLineBuckets["7-15"]++;
+  else salesLineBuckets.other++;
+}
+const generationMs = Number(process.hrtime.bigint() - generationStarted) / 1e6;
+const summary = {
+  generatorVersion: GENERATOR_VERSION,
+  seed: CONFIG.seed,
+  config: dataset._fixtureMetadata.config,
+  output: artifact.path,
+  artifactType: CONFIG.bundleDir ? "chunked-bundle" : "json",
+  sha256: artifact.sha256,
+  bytes: artifact.bytes,
+  generationMs,
+  peakRssBytes: process.resourceUsage().maxRSS * 1024,
+  counts: Object.fromEntries(Object.entries(dataset)
+    .filter(([, value]) => Array.isArray(value))
+    .map(([name, value]) => [name, value.length])),
+  salesLineBuckets,
+};
+if (CONFIG.summaryOut) {
+  fs.mkdirSync(path.dirname(path.resolve(CONFIG.summaryOut)), { recursive: true });
+  fs.writeFileSync(CONFIG.summaryOut, `${JSON.stringify(summary, null, 2)}\n`);
+}
 
-const mb = (json.length / 1024 / 1024).toFixed(1);
+const mb = (artifact.bytes / 1024 / 1024).toFixed(1);
 console.error(`
-wrote ${CONFIG.out} (${mb} MB)
+ wrote ${artifact.path} (${mb} MB, ${summary.artifactType})
   products          ${products.length}
   customers         ${customers.length}
   suppliers         ${suppliers.length}
@@ -1624,4 +1741,7 @@ wrote ${CONFIG.out} (${mb} MB)
   fitments          ${productFitments.length}
   alternatives      ${productAlternatives.length}
   audit logs        ${auditLogs.length}
+  sha256            ${artifact.sha256}
+  generation        ${(generationMs / 1000).toFixed(1)} s
+  peak RSS          ${(summary.peakRssBytes / 1048576).toFixed(1)} MB
 `);

@@ -1,0 +1,113 @@
+{
+  "fixture": "scale-180k",
+  "generatedAt": "2026-09-27T13:44:28.423Z",
+  "generator": {
+    "path": "scripts/generate-load-test-dataset.cjs",
+    "version": "phase10-v5",
+    "seed": 2654435769,
+    "config": {
+      "name": "scale-180k",
+      "minimumSalesInvoices": 180000,
+      "purchaseInvoices": 27000,
+      "customers": 72000,
+      "products": 22500,
+      "suppliers": 4500,
+      "salesInvoices": 180900,
+      "years": 6,
+      "seed": 2654435769,
+      "branches": 3
+    }
+  },
+  "artifacts": {
+    "sourceDataset": {
+      "path": "D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\dataset",
+      "bytes": 675894601,
+      "sha256": "a23df3cfdc9b206363b9ab5ec685319d41103ff0ef9966a21fbdf9417944e9ad"
+    },
+    "encryptedDatabase": {
+      "path": "D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\profile\\autoparts-inventory.secure.sqlite",
+      "bytes": 684322816,
+      "sha256": "66e08f1c89ccef4351ba8fcdc7a997e369752d3a312e1d904e9a50f5b158ee09"
+    }
+  },
+  "counts": {
+    "products": 22500,
+    "customers": 72000,
+    "suppliers": 4500,
+    "users": 7,
+    "branches": 3,
+    "salesInvoices": 180861,
+    "purchaseInvoices": 29223,
+    "salesReturns": 8873,
+    "purchaseReturns": 740,
+    "stockMovements": 929520,
+    "shifts": 1877,
+    "warrantyClaims": 2156,
+    "customerVehicles": 35844,
+    "cashEntries": 230518,
+    "drivers": 8,
+    "offlineEmployees": 6,
+    "offlineTransactions": 404,
+    "auditLogs": 3232,
+    "quotations": 1032,
+    "stocktakes": 24,
+    "branchStocks": 23454,
+    "stockTransfers": 143,
+    "priceTiers": 3,
+    "vehicleMakes": 14,
+    "vehicleModels": 56,
+    "vehicleGenerations": 150,
+    "vehicleEngines": 303,
+    "productFitments": 29303,
+    "productAlternatives": 8998,
+    "marketingCampaigns": 61,
+    "marketingContactLog": 3660,
+    "shippingProviders": 3,
+    "shippingRates": 36,
+    "deliveryOrders": 21423
+  },
+  "salesLineBuckets": {
+    "1": 36016,
+    "2-3": 72364,
+    "4-6": 54554,
+    "7-15": 17927,
+    "other": 0
+  },
+  "validation": {
+    "sourceBusinessInvariants": "PASS",
+    "scaleChecks": "PASS",
+    "sqliteIntegrity": "ok",
+    "sqlcipherIntegrity": "ok"
+  },
+  "resourceMetrics": {
+    "generatorMs": 51074.9374,
+    "generatorPeakRssBytes": 1109852160,
+    "validatorMs": 14798.8259,
+    "validatorPeakRssBytes": 1439432704,
+    "databaseWriteMs": 49925.9686,
+    "databaseTotalMs": 87249.4791,
+    "databasePeakRssBytes": 1634037760
+  },
+  "commands": [
+    {
+      "label": "scale-180k: generate",
+      "command": "C:\\Program Files\\nodejs\\node.exe scripts/generate-load-test-dataset.cjs --bundle-dir D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\dataset --summary-out D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\summaries\\generator.json --years 6 --customers 72000 --invoices 180900 --minimum-sales-invoices 180000 --purchase-invoices 27000 --products 22500 --suppliers 4500 --seed 2654435769",
+      "durationMs": 51661.756
+    },
+    {
+      "label": "scale-180k: invariants",
+      "command": "C:\\Program Files\\nodejs\\node.exe scripts/verify-load-test-dataset.cjs D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\dataset",
+      "durationMs": 32420.5313
+    },
+    {
+      "label": "scale-180k: scale validation",
+      "command": "C:\\Program Files\\nodejs\\node.exe scripts/validate-scale-fixture.cjs D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\dataset --summary-out D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\summaries\\scale-validation.json",
+      "durationMs": 15354.2219
+    },
+    {
+      "label": "scale-180k: encrypted database",
+      "command": "C:\\Program Files\\nodejs\\node.exe D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\node_modules\\electron\\cli.js scripts/seed-stress-profile.cjs D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\dataset D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\profile --summary-out D:\\Helpers_Tech\\win-app\\Autoparts-inventory-system\\autoparts-inventory-system\\scale-fixtures\\phase-10\\scale-180k\\summaries\\database.json",
+      "durationMs": 88382.9432
+    }
+  ]
+}

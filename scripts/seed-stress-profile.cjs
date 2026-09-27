@@ -20,6 +20,7 @@ const Database = require("better-sqlite3-multiple-ciphers");
 const argon2 = require("argon2");
 const { machineIdSync } = require("node-machine-id");
 const { STORE_PREFIX, CHUNKED_TOMBSTONE } = require("../electron/storage-security.cjs");
+const { loadFixtureBundle } = require("./fixture-bundle.cjs");
 
 const [datasetPath, profileDir] = process.argv.slice(2);
 if (!datasetPath || !profileDir) {
@@ -31,6 +32,8 @@ const arg = (name) => {
 };
 const licenseToken = arg("--license");
 const password = arg("--password") || "stress123";
+const summaryOut = arg("--summary-out");
+const seedStarted = process.hrtime.bigint();
 
 // Same derivation as electron/main.cjs. The key is bound to this machine, so
 // the seeded profile opens on this computer and is unreadable anywhere else —
@@ -53,9 +56,20 @@ const CHUNKED = new Set([
   "products", "salesReturns", "purchaseReturns", "quotations", "shifts", "cashEntries",
 ]);
 
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(file);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
 (async () => {
   console.log(`reading ${datasetPath} ...`);
-  const d = JSON.parse(fs.readFileSync(datasetPath, "utf8"));
+  const d = loadFixtureBundle(datasetPath);
+  const fixedTimestamp = d?._fixtureMetadata?.fixedEndDate || "2026-08-01T00:00:00.000Z";
 
   fs.mkdirSync(profileDir, { recursive: true });
   const dbPath = path.join(profileDir, "autoparts-inventory.secure.sqlite");
@@ -75,7 +89,7 @@ const CHUNKED = new Set([
     "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
   );
   const writeAll = db.transaction((batch) => {
-    const now = new Date().toISOString();
+    const now = fixedTimestamp;
     for (const [k, v] of Object.entries(batch)) upsert.run(k, v, now);
   });
 
@@ -85,6 +99,9 @@ const CHUNKED = new Set([
   console.log("hashing the owner password ...");
   const passwordHash = await argon2.hash(password, {
     type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4,
+    salt: crypto.createHash("sha256")
+      .update(`partflow-scale-fixture:${d?._fixtureMetadata?.seed ?? "legacy"}:${password}`)
+      .digest().subarray(0, 16),
   });
   const allow = {
     view: true, create: true, edit: true, delete: true, export: true,
@@ -103,7 +120,7 @@ const CHUNKED = new Set([
       settings: { ...allow }, users: { ...allow },
       pos: { ...allow, supervisorOverride: true },
     },
-    createdAt: new Date().toISOString(),
+    createdAt: fixedTimestamp,
   };
 
   // ── Shop data, in the chunked format the app now writes ────────────────
@@ -133,12 +150,44 @@ const CHUNKED = new Set([
   writeAll(batch);
   const took = Number(process.hrtime.bigint() - started) / 1e6;
 
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  const integrity = db.pragma("integrity_check", { simple: true });
+  let cipherIntegrity = "unsupported";
+  try {
+    const rows = db.pragma("cipher_integrity_check");
+    cipherIntegrity = rows.length === 0 ? "ok" : JSON.stringify(rows);
+  } catch (error) {
+    cipherIntegrity = `unsupported: ${error.message}`;
+  }
+
   db.close();
 
   const bytes = fs.statSync(dbPath).size;
+  const dbSha256 = await sha256File(dbPath);
+  const totalMs = Number(process.hrtime.bigint() - seedStarted) / 1e6;
+  const summary = {
+    databasePath: path.resolve(dbPath),
+    bytes,
+    sha256: dbSha256,
+    writeMs: took,
+    totalMs,
+    peakRssBytes: process.resourceUsage().maxRSS * 1024,
+    integrity,
+    cipherIntegrity,
+    kvRows: Object.keys(batch).length,
+    chunkRows,
+  };
+  if (summaryOut) {
+    fs.mkdirSync(path.dirname(path.resolve(summaryOut)), { recursive: true });
+    fs.writeFileSync(summaryOut, `${JSON.stringify(summary, null, 2)}\n`);
+  }
   console.log(`
 seeded ${dbPath}
   ${(bytes / 1048576).toFixed(1)} MB encrypted, written in ${(took / 1000).toFixed(1)}s
+  SHA-256           ${dbSha256}
+  integrity         ${integrity}
+  cipher integrity  ${cipherIntegrity}
+  peak RSS          ${(summary.peakRssBytes / 1048576).toFixed(1)} MB
 
   products           ${(d.products || []).length.toLocaleString()}
   customers          ${(d.customers || []).length.toLocaleString()}
