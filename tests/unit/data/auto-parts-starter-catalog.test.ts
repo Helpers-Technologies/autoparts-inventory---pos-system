@@ -15,6 +15,7 @@ describe("Chinese and Korean starter product catalog", () => {
     expect(ADDITIONAL_STARTER_PRODUCTS.filter((product) => product.originCountry === "CN")).toHaveLength(18);
     expect(new Set(seedProducts.map((product) => product.code)).size).toBe(seedProducts.length);
     expect(new Set(seedProducts.map((product) => product.partNumber)).size).toBe(seedProducts.length);
+    expect(seedProducts.find((product) => product.code === "FIL-001")?.id).toBe("p_legacy_fil_001");
   });
 
   it("does not invent stock or prices for newly added catalog rows", () => {

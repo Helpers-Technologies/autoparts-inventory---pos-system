@@ -1,19 +1,46 @@
+const { assertMoney } = require("./money-safety.cjs");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const crypto = require("node:crypto");
 const zlib = require("node:zlib");
 const childProcess = require("node:child_process");
+const { Worker } = require("node:worker_threads");
 const { pathToFileURL } = require("node:url");
 const electronRuntime = require("electron");
 const Database = require("better-sqlite3-multiple-ciphers");
 const argon2 = require("argon2");
 const { machineIdSync } = require("node-machine-id");
 const { z } = require("zod");
+const queryProjection = require("./query-projection.cjs");
+const { assertBranchStockIntegrity } = require("./branch-stock-integrity.cjs");
+
+const PHASE9_PROFILE_PATH = process.env.PARTFLOW_PHASE9_PROFILE_PATH || "";
+const PHASE14B_CRASH_PATH = process.env.PARTFLOW_PHASE14B_CRASH_PATH || "";
+const PHASE9_MODULE_STARTED = performance.now();
+function phase9Record(stage, startedAt, detail = {}) {
+  if (!PHASE9_PROFILE_PATH) return;
+  const row = {
+    stage,
+    durationMs: Number((performance.now() - startedAt).toFixed(3)),
+    atMs: Number((performance.now()).toFixed(3)),
+    ...detail,
+  };
+  fs.appendFileSync(PHASE9_PROFILE_PATH, `${JSON.stringify(row)}\n`);
+}
+function phase14bCrashRecord(event, detail = {}) {
+  if (!PHASE14B_CRASH_PATH) return;
+  fs.appendFileSync(PHASE14B_CRASH_PATH, `${JSON.stringify({
+    at: new Date().toISOString(), event, mainRssBytes: process.memoryUsage().rss, ...detail,
+  })}\n`);
+}
 
 let LICENSE_PUBLIC_KEY;
+let LICENSE_PUBLIC_KEYS;
+const LEGACY_LICENSE_PUBLIC_KEY_10_5_0 =
+  "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA9eSw8m/4xFxxzbkMttyzJJdASArfYDPFdXyZTDhq1Kw=\n-----END PUBLIC KEY-----\n";
 try {
-  ({ LICENSE_PUBLIC_KEY } = require("./license-public-key.cjs"));
+  ({ LICENSE_PUBLIC_KEY, LICENSE_PUBLIC_KEYS } = require("./license-public-key.cjs"));
 } catch (e) {
   if (
     e &&
@@ -258,8 +285,12 @@ const mfaChallenges = new Map(); // challenge id → password-verified login/enr
 const recoveryAttempts = new Map(); // sender id → recovery-code throttle
 
 let db = null;
+let activeDbPath = null;
 let walCheckpointInterval = null; // handle for the periodic WAL flush timer
 let isQuitting = false; // set once shutdown starts so late IPC never re-touches the DB
+let projectionUpgradeWorker = null;
+let projectionUpgradeStatus = { state: "NOT_REQUIRED", percent: 100, processedRecords: 0, totalRecords: 0 };
+let projectionUpgradePeakRssBytes = 0;
 const printDocumentNames = new Map();
 const rendererSessions = new Map(); // key: webContents id → { userId, role }
 
@@ -694,22 +725,32 @@ function decryptBackup(encryptedStr, passphrase) {
 function openDatabase() {
   if (db) return db;
 
+  const openStarted = performance.now();
+
   const dbPath =
     HW_E2E && process.env.HW_E2E_DB_PATH
       ? process.env.HW_E2E_DB_PATH
       : path.join(app.getPath("userData"), "autoparts-inventory.secure.sqlite");
+  activeDbPath = dbPath;
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const existed = fs.existsSync(dbPath);
 
+  let stageStarted = performance.now();
   db = new Database(dbPath);
+  phase9Record("database-construct", stageStarted, { existed });
   // SECURITY: Use parameterized key setting to prevent SQL injection.
   // The key is hex-only (SHA-256 output) but we use x'' literal for safety.
+  stageStarted = performance.now();
   const dbKeyHex = getDbKey();
+  phase9Record("database-key-derivation", stageStarted);
+  stageStarted = performance.now();
   if (existed) {
     db.pragma(`key="x'${dbKeyHex}'"`);
   } else {
     db.pragma(`rekey="x'${dbKeyHex}'"`);
   }
+  phase9Record("sqlcipher-initialize", stageStarted);
+  stageStarted = performance.now();
   db.pragma("journal_mode = WAL");
   db.prepare(
     "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)",
@@ -760,7 +801,11 @@ function openDatabase() {
   db.prepare(
     "INSERT OR IGNORE INTO auth_security_policy (id, mode, updated_at) VALUES (1, 'optional', ?)",
   ).run(new Date().toISOString());
+  // Projection control metadata is tiny. Derived tables are created/upgraded by
+  // the authenticated worker workflow, never by the first Dashboard query.
+  queryProjection.createControlSchema(db);
   db.prepare("DELETE FROM kv_store WHERE key = ?").run(AUTH_STATE_KEY);
+  phase9Record("schema-and-migration-checks", stageStarted);
 
   // Flush the WAL file periodically so it never grows unboundedly.
   // A large WAL file makes every read slower over time — this is a key cause
@@ -778,6 +823,7 @@ function openDatabase() {
     10 * 60 * 1000,
   ); // every 10 minutes
 
+  phase9Record("database-open-total", openStarted, { existed });
   return db;
 }
 
@@ -800,6 +846,111 @@ function closeDatabase() {
   } finally {
     db = null;
   }
+}
+
+function publicProjectionStatus(status = projectionUpgradeStatus) {
+  const result = {
+    state: status.state,
+    percent: Number(status.percent) || 0,
+    processedRecords: Number(status.processedRecords) || 0,
+    totalRecords: Number(status.totalRecords) || 0,
+    entity: status.entity || "",
+    chunk: Number(status.chunk) || 0,
+    chunks: Number(status.chunks) || 0,
+    detail: status.detail || status.stageDetail || "",
+    errorCode: status.errorCode || "",
+    completedAt: status.completedAt || "",
+    workerRssBytes: Number(status.workerRssBytes) || 0,
+    mainRssBytes: process.memoryUsage().rss,
+  };
+  if (HW_E2E) {
+    result.sourceSignature = status.sourceSignature || "";
+    result.completionValid = Boolean(status.completionValid);
+    result.currentEntities = status.currentEntities || [];
+    result.pendingEntities = status.pendingEntities || [];
+    result.snapshot = status.snapshot || [];
+  }
+  return result;
+}
+
+function broadcastProjectionStatus() {
+  const status = publicProjectionStatus();
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send("projection:progress", status);
+  }
+}
+
+function detectProjectionUpgrade() {
+  let detected = queryProjection.inspectUpgrade(openDatabase());
+  // Phase 12B databases already have fully validated v6 per-entity markers.
+  // Adopt them without rebuilding; this is metadata-only and preserves the
+  // current-version no-op contract.
+  if (detected.state === "NOT_REQUIRED" && !detected.completionValid) detected = queryProjection.adoptCurrentProjection(openDatabase());
+  projectionUpgradeStatus = {
+    ...projectionUpgradeStatus,
+    ...detected,
+    state: detected.state,
+    percent: detected.state === "NOT_REQUIRED" ? 100 : detected.state === "FAILED" ? 0 : 0,
+    processedRecords: detected.state === "NOT_REQUIRED" ? detected.totalRecords : 0,
+  };
+  return publicProjectionStatus();
+}
+
+function startProjectionUpgrade() {
+  if (projectionUpgradeWorker) return publicProjectionStatus();
+  const detected = queryProjection.inspectUpgrade(openDatabase());
+  if (detected.state === "NOT_REQUIRED") return detectProjectionUpgrade();
+  const runId = crypto.randomUUID();
+  projectionUpgradePeakRssBytes = 0;
+  projectionUpgradeStatus = {
+    state: "PREPARING", percent: 0, processedRecords: 0,
+    totalRecords: detected.totalRecords, detail: "worker-start", runId,
+  };
+  broadcastProjectionStatus();
+  const worker = new Worker(path.join(__dirname, "projection-upgrade-worker.cjs"), {
+    workerData: { dbPath: activeDbPath, dbKeyHex: getDbKey(), runId },
+  });
+  projectionUpgradeWorker = worker;
+  worker.on("message", (message) => {
+    projectionUpgradePeakRssBytes = Math.max(projectionUpgradePeakRssBytes, Number(message.workerRssBytes) || 0);
+    if (message.type === "progress") {
+      projectionUpgradeStatus = { ...projectionUpgradeStatus, ...message.progress, workerRssBytes: projectionUpgradePeakRssBytes };
+      broadcastProjectionStatus();
+    } else if (message.type === "complete") {
+      projectionUpgradeStatus = { ...projectionUpgradeStatus, ...message.result, state: "COMPLETE", percent: 100, workerRssBytes: projectionUpgradePeakRssBytes };
+      broadcastProjectionStatus();
+    } else if (message.type === "failed") {
+      projectionUpgradeStatus = { ...projectionUpgradeStatus, state: "FAILED", errorCode: message.error || "projection_upgrade_failed", workerRssBytes: projectionUpgradePeakRssBytes };
+      broadcastProjectionStatus();
+    }
+  });
+  worker.on("error", (error) => {
+    projectionUpgradeStatus = { ...projectionUpgradeStatus, state: "FAILED", errorCode: String(error?.message || "projection_worker_failed").slice(0, 240) };
+    broadcastProjectionStatus();
+  });
+  worker.on("exit", (code) => {
+    if (projectionUpgradeWorker === worker) projectionUpgradeWorker = null;
+    if (code !== 0 && projectionUpgradeStatus.state !== "FAILED") {
+      projectionUpgradeStatus = { ...projectionUpgradeStatus, state: "INTERRUPTED", errorCode: "projection_worker_interrupted" };
+      broadcastProjectionStatus();
+    }
+  });
+  return publicProjectionStatus();
+}
+
+async function interruptProjectionUpgrade() {
+  const worker = projectionUpgradeWorker;
+  if (!worker) return;
+  projectionUpgradeWorker = null;
+  try { await worker.terminate(); } catch { /* shutdown remains safe */ }
+  projectionUpgradeStatus = { ...projectionUpgradeStatus, state: "INTERRUPTED", errorCode: "user_closed_during_upgrade" };
+}
+
+function projectionQueriesAvailable() {
+  if (!["COMPLETE", "NOT_REQUIRED"].includes(projectionUpgradeStatus.state)) return false;
+  try {
+    return openDatabase().prepare("SELECT version FROM pf_projection_completion WHERE singleton=1").get()?.version === queryProjection.VERSION;
+  } catch { return false; }
 }
 
 // Cached prepared statements — created once after DB is first opened.
@@ -877,6 +1028,216 @@ function readJsonKey(key, fallback) {
 
 function writeJsonKey(key, value) {
   return storageSet(key, JSON.stringify(value));
+}
+
+const BUSINESS_CHUNK_SIZE = 500;
+const BUSINESS_CHUNK_TOMBSTONE = '"__partflow_chunked__"';
+const businessChunkKey = (name, index) => `${STORE_PREFIX}${name}#${String(index).padStart(4, "0")}`;
+
+function readPendingRow(rows, key) {
+  return Object.hasOwn(rows, key) ? rows[key] : storageGet(key);
+}
+
+function readChunkMeta(name, rows = {}) {
+  const base = `${STORE_PREFIX}${name}`;
+  const rawBase = readPendingRow(rows, base);
+  if (rawBase && rawBase !== BUSINESS_CHUNK_TOMBSTONE) {
+    const value = JSON.parse(rawBase);
+    if (!Array.isArray(value)) throw new Error(`invalid_${name}`);
+    return { legacy: value, chunks: value.length ? 1 : 0, total: value.length };
+  }
+  const raw = readPendingRow(rows, `${base}#meta`);
+  if (!raw) return { legacy: null, chunks: 0, total: 0 };
+  const meta = JSON.parse(raw);
+  if (!Number.isInteger(meta?.chunks) || meta.chunks < 0 || !Number.isInteger(meta?.total) || meta.total < 0) {
+    throw new Error(`invalid_${name}_meta`);
+  }
+  return { legacy: null, chunks: meta.chunks, total: meta.total };
+}
+
+function writeWholeChunkedRows(name, value, rows) {
+  const previous = readChunkMeta(name, rows);
+  const chunks = Math.ceil(value.length / BUSINESS_CHUNK_SIZE);
+  for (let index = 0; index < chunks; index += 1) {
+    rows[businessChunkKey(name, index)] = JSON.stringify(value.slice(index * BUSINESS_CHUNK_SIZE, (index + 1) * BUSINESS_CHUNK_SIZE));
+  }
+  for (let index = chunks; index < previous.chunks; index += 1) rows[businessChunkKey(name, index)] = "[]";
+  rows[`${STORE_PREFIX}${name}#meta`] = JSON.stringify({ chunks, size: BUSINESS_CHUNK_SIZE, total: value.length });
+  rows[`${STORE_PREFIX}${name}`] = BUSINESS_CHUNK_TOMBSTONE;
+}
+
+function appendChunkedRows(name, additions, rows) {
+  if (!additions.length) return;
+  const meta = readChunkMeta(name, rows);
+  if (meta.legacy) {
+    writeWholeChunkedRows(name, [...meta.legacy, ...additions], rows);
+    return;
+  }
+  let chunks = meta.chunks;
+  let tail = [];
+  if (chunks > 0) {
+    const tailKey = businessChunkKey(name, chunks - 1);
+    tail = JSON.parse(readPendingRow(rows, tailKey) || "[]");
+    if (!Array.isArray(tail)) throw new Error(`invalid_${name}_chunk`);
+  }
+  let pending = [...tail, ...additions];
+  if (chunks === 0) chunks = 1;
+  let index = chunks - 1;
+  while (pending.length > BUSINESS_CHUNK_SIZE) {
+    rows[businessChunkKey(name, index)] = JSON.stringify(pending.slice(0, BUSINESS_CHUNK_SIZE));
+    pending = pending.slice(BUSINESS_CHUNK_SIZE);
+    index += 1;
+    chunks = Math.max(chunks, index + 1);
+  }
+  rows[businessChunkKey(name, index)] = JSON.stringify(pending);
+  rows[`${STORE_PREFIX}${name}#meta`] = JSON.stringify({ chunks, size: BUSINESS_CHUNK_SIZE, total: meta.total + additions.length });
+  rows[`${STORE_PREFIX}${name}`] = BUSINESS_CHUNK_TOMBSTONE;
+}
+
+function updateCanonicalRecords(name, updates, rows) {
+  if (!updates.size) return;
+  const db = openDatabase();
+  const meta = readChunkMeta(name, rows);
+  if (meta.legacy) {
+    const next = meta.legacy.map((row) => updates.get(row?.id) || row);
+    if (next.filter((row) => updates.has(row?.id)).length !== updates.size) throw new Error(`missing_${name}_record`);
+    writeWholeChunkedRows(name, next, rows);
+    return;
+  }
+  const locations = db.prepare("SELECT id,chunk_index,ordinal FROM pf_query_records WHERE entity=? AND id=?");
+  const byChunk = new Map();
+  for (const [id, value] of updates) {
+    const loc = locations.get(name, id);
+    if (!loc) throw new Error(`missing_${name}_record`);
+    if (!byChunk.has(loc.chunk_index)) byChunk.set(loc.chunk_index, []);
+    byChunk.get(loc.chunk_index).push({ id, ordinal: loc.ordinal, value });
+  }
+  for (const [chunkIndex, changes] of byChunk) {
+    const key = businessChunkKey(name, chunkIndex);
+    const chunk = JSON.parse(readPendingRow(rows, key) || "[]");
+    if (!Array.isArray(chunk)) throw new Error(`invalid_${name}_chunk`);
+    for (const change of changes) {
+      const index = chunk[change.ordinal]?.id === change.id ? change.ordinal : chunk.findIndex((row) => row?.id === change.id);
+      if (index < 0) throw new Error(`missing_${name}_record`);
+      chunk[index] = change.value;
+    }
+    rows[key] = JSON.stringify(chunk);
+  }
+}
+
+function updateBranchStockRows(branchId, soldByProduct, rows, updatedAt) {
+  const meta = readChunkMeta("branchStocks", rows);
+  const apply = (source) => {
+    const found = new Set();
+    const next = source.map((row) => {
+      const sold = row?.branchId === branchId ? soldByProduct.get(row.productId) : 0;
+      if (!sold) return row;
+      found.add(row.productId);
+      if (Number(row.quantity) + 1e-9 < sold) throw new Error("insufficient_branch_stock");
+      const remaining = Number(row.quantity) - sold;
+      return { ...row, quantity: Math.abs(remaining) < 1e-9 ? 0 : remaining, updatedAt };
+    });
+    return { next, found };
+  };
+  if (meta.legacy) {
+    const { next, found } = apply(meta.legacy);
+    if ([...soldByProduct.keys()].some((id) => !found.has(id))) throw new Error("branch_stock_missing");
+    writeWholeChunkedRows("branchStocks", next, rows);
+    return next.filter((row) => row?.branchId === branchId && found.has(row?.productId));
+  }
+  const remaining = new Set(soldByProduct.keys());
+  const patches = [];
+  for (let index = 0; index < meta.chunks && remaining.size; index += 1) {
+    const key = businessChunkKey("branchStocks", index);
+    const chunk = JSON.parse(readPendingRow(rows, key) || "[]");
+    if (!Array.isArray(chunk)) throw new Error("invalid_branchStocks_chunk");
+    const { next, found } = apply(chunk);
+    if (!found.size) continue;
+    rows[key] = JSON.stringify(next);
+    for (const id of found) {
+      remaining.delete(id);
+      const changed = next.find((row) => row?.branchId === branchId && row?.productId === id);
+      if (changed) patches.push(changed);
+    }
+  }
+  if (remaining.size) throw new Error("branch_stock_missing");
+  return patches;
+}
+
+function readBranchStockRow(branchId, productId) {
+  const meta = readChunkMeta("branchStocks");
+  if (meta.legacy) return meta.legacy.find((row) => row?.branchId === branchId && row?.productId === productId) || null;
+  for (let index = 0; index < meta.chunks; index += 1) {
+    const chunk = JSON.parse(storageGet(businessChunkKey("branchStocks", index)) || "[]");
+    if (!Array.isArray(chunk)) throw new Error("invalid_branchStocks_chunk");
+    const row = chunk.find((candidate) => candidate?.branchId === branchId && candidate?.productId === productId);
+    if (row) return row;
+  }
+  return null;
+}
+
+function updateCatalogProducts(productUpdates, rows) {
+  if (!productUpdates.size) return;
+  const meta = readChunkMeta("products", rows);
+  if (meta.legacy) {
+    writeWholeChunkedRows("products", meta.legacy.map((product) => productUpdates.get(product?.id) || product), rows);
+    return;
+  }
+  const locate = openDatabase().prepare("SELECT id,chunk_index,ordinal FROM pf_catalog_search WHERE entity='products' AND id=?");
+  const byChunk = new Map();
+  for (const [id, value] of productUpdates) {
+    const loc = locate.get(id);
+    if (!loc) throw new Error("product_not_found");
+    if (!byChunk.has(loc.chunk_index)) byChunk.set(loc.chunk_index, []);
+    byChunk.get(loc.chunk_index).push({ id, ordinal: loc.ordinal, value });
+  }
+  for (const [chunkIndex, changes] of byChunk) {
+    const key = businessChunkKey("products", chunkIndex);
+    const chunk = JSON.parse(readPendingRow(rows, key) || "[]");
+    for (const change of changes) {
+      const index = chunk[change.ordinal]?.id === change.id ? change.ordinal : chunk.findIndex((row) => row?.id === change.id);
+      if (index < 0) throw new Error("product_not_found");
+      chunk[index] = change.value;
+    }
+    rows[key] = JSON.stringify(chunk);
+  }
+}
+
+function readEffectiveCollection(name, rows = {}) {
+  const base = `${STORE_PREFIX}${name}`;
+  const rawBase = readPendingRow(rows, base);
+  if (rawBase && rawBase !== BUSINESS_CHUNK_TOMBSTONE) {
+    const value = JSON.parse(rawBase);
+    if (!Array.isArray(value)) throw new Error(`invalid_${name}`);
+    return value;
+  }
+  const rawMeta = readPendingRow(rows, `${base}#meta`);
+  if (!rawMeta) return [];
+  const meta = JSON.parse(rawMeta);
+  if (!Number.isInteger(meta?.chunks) || meta.chunks < 0) throw new Error(`invalid_${name}_meta`);
+  const result = [];
+  for (let index = 0; index < meta.chunks; index += 1) {
+    const part = JSON.parse(readPendingRow(rows, businessChunkKey(name, index)) || "[]");
+    if (!Array.isArray(part)) throw new Error(`invalid_${name}_chunk`);
+    result.push(...part);
+  }
+  if (Number.isInteger(meta.total) && result.length !== meta.total) throw new Error(`invalid_${name}_total`);
+  return result;
+}
+
+function touchesBranchStockIntegrity(rows) {
+  return Object.keys(rows).some((key) => ["branchStocks", "products", "branches"].some((name) => (
+    key === `${STORE_PREFIX}${name}` || key.startsWith(`${STORE_PREFIX}${name}#`)
+  )));
+}
+
+function assertPendingBranchStockIntegrity(rows) {
+  if (!touchesBranchStockIntegrity(rows)) return;
+  assertBranchStockIntegrity(
+    readEffectiveCollection("branchStocks", rows),
+    readEffectiveCollection("products", rows),
+    readEffectiveCollection("branches", rows),
+  );
 }
 
 function storeIntegrationSecret(key, value) {
@@ -1913,12 +2274,25 @@ function updateMfaPolicy(mode) {
   return { ok: true, policy: { mode: cleanMode } };
 }
 
-function getPublicKey() {
-  return crypto.createPublicKey(LICENSE_PUBLIC_KEY);
+function getPublicKeys() {
+  const configured = Array.isArray(LICENSE_PUBLIC_KEYS)
+    ? LICENSE_PUBLIC_KEYS
+    : [LICENSE_PUBLIC_KEY];
+  return [...new Set([...configured, LEGACY_LICENSE_PUBLIC_KEY_10_5_0])].map(
+    (key) => crypto.createPublicKey(key),
+  );
 }
 
 function parseSignedPayload(token, prefix, schema) {
-  return verifySignedPayload(token, prefix, schema, getPublicKey());
+  let lastError;
+  for (const publicKey of getPublicKeys()) {
+    try {
+      return verifySignedPayload(token, prefix, schema, publicKey);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Invalid signature");
 }
 
 function buildLicenseStatus(state, extra = {}) {
@@ -1932,7 +2306,7 @@ function buildLicenseStatus(state, extra = {}) {
 
 function evaluateLicense(serial, persistSeen) {
   return evaluateLicenseCore(serial, {
-    publicKey: getPublicKey(),
+    publicKey: getPublicKeys(),
     schema: licenseSchema,
     isMachineHashAccepted,
     storageGet,
@@ -4041,7 +4415,7 @@ function createWindow() {
     height: 860,
     minWidth: 1100,
     minHeight: 720,
-    title: "PartFlow — By Helpers Tech",
+    title: "PartFlow — By Dar Tech",
     icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
@@ -4056,6 +4430,16 @@ function createWindow() {
     },
   });
   const _wcId = win.webContents.id; // capture before destruction
+  win.webContents.on("render-process-gone", (_event, details) => {
+    phase14bCrashRecord("render-process-gone", {
+      webContentsId: _wcId,
+      reason: details?.reason || "unknown",
+      exitCode: Number(details?.exitCode) || 0,
+    });
+  });
+  win.webContents.on("unresponsive", () => {
+    phase14bCrashRecord("renderer-unresponsive", { webContentsId: _wcId });
+  });
   win.webContents.on("destroyed", () => {
     rendererSessions.delete(_wcId);
     revokeSenderChallenges(_wcId);
@@ -4066,7 +4450,27 @@ function createWindow() {
   // configured folder before the window goes away. A timeout guarantees the
   // app never hangs on quit even if the renderer is unresponsive.
   let closeBackupStarted = false;
+  let upgradeCloseApproved = false;
   win.on("close", (e) => {
+    if (projectionUpgradeWorker && !upgradeCloseApproved) {
+      e.preventDefault();
+      void dialog.showMessageBox(win, {
+        type: "warning",
+        title: "إيقاف تجهيز قاعدة البيانات؟",
+        message: "PartFlow ما زال يجهز بيانات هذا الإصدار.",
+        detail: "يمكن الإغلاق بأمان. سيتم التحقق من الجزء غير المكتمل وإعادة المحاولة عند التشغيل القادم، ولن تُحذف بيانات المبيعات أو المخزون.",
+        buttons: ["متابعة التجهيز", "إغلاق بأمان"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      }).then(async ({ response }) => {
+        if (response !== 1) return;
+        await interruptProjectionUpgrade();
+        upgradeCloseApproved = true;
+        if (!win.isDestroyed()) win.close();
+      });
+      return;
+    }
     if (closeBackupStarted) return; // second close → let it through
     e.preventDefault();
     closeBackupStarted = true;
@@ -4410,26 +4814,17 @@ function getInvoiceForPrint(route) {
     throw new Error("quotation_feature_not_enabled");
   }
   if (section === "sales") {
-    const invoices = readJsonKey(`${STORE_PREFIX}salesInvoices`, []);
-    const invoice = Array.isArray(invoices)
-      ? invoices.find((item) => item.id === id)
-      : null;
+    const invoice = queryProjection.recordDetail(openDatabase(), "salesInvoices", id);
     if (!invoice) throw new Error("sales_invoice_not_found");
     return { kind: "sales", invoice };
   }
   if (section === "quotations") {
-    const quotations = readJsonKey(`${STORE_PREFIX}quotations`, []);
-    const invoice = Array.isArray(quotations)
-      ? quotations.find((item) => item.id === id)
-      : null;
+    const invoice = queryProjection.recordDetail(openDatabase(), "quotations", id);
     if (!invoice) throw new Error("quotation_not_found");
     return { kind: "quotation", invoice };
   }
 
-  const invoices = readJsonKey(`${STORE_PREFIX}purchaseInvoices`, []);
-  const invoice = Array.isArray(invoices)
-    ? invoices.find((item) => item.id === id)
-    : null;
+  const invoice = queryProjection.recordDetail(openDatabase(), "purchaseInvoices", id);
   if (!invoice) throw new Error("purchase_invoice_not_found");
   return { kind: "purchase", invoice };
 }
@@ -4600,17 +4995,9 @@ function buildInvoicePrintHtml(route) {
   // Positive → customer owes us (مدين); negative → customer has credit (دائن).
   let customerBalanceTotal = null;
   if (isSales && invoice.customerId) {
-    const allSales = readJsonKey(`${STORE_PREFIX}salesInvoices`, []);
-    if (Array.isArray(allSales)) {
-      const raw = allSales
-        .filter((s) => s.customerId === invoice.customerId && !s.cancelled)
-        .reduce(
-          (a, s) =>
-            a + (Number(s.remaining) || 0) - (Number(s.overpayment) || 0),
-          0,
-        );
-      customerBalanceTotal = Math.round(raw * 100) / 100;
-    }
+    queryProjection.ensureEntity(openDatabase(), "salesInvoices");
+    const raw = openDatabase().prepare("SELECT COALESCE(SUM(remaining-overpayment),0) value FROM pf_query_records WHERE entity='salesInvoices' AND party_id=? AND cancelled=0").get(invoice.customerId).value;
+    customerBalanceTotal = Math.round(Number(raw || 0) * 100) / 100;
   }
 
   const returnsKey = isSales
@@ -5201,7 +5588,18 @@ function registerIpc() {
     return Boolean(describeRendererMutationKey(String(key)));
   }
 
+  let purchaseRevision = 0;
+  const rendererPurchaseRevisions = new Map();
+  ipcMain.handle("storage:adopt-purchase", (event, revision) => {
+    if (!getSessionUser(event) || revision !== purchaseRevision) return false;
+    rendererPurchaseRevisions.set(event.sender.id, revision);
+    return true;
+  });
   function authorizedRendererRows(event, entries) {
+    const financialNames = ["products", "purchaseInvoices", "branchStocks", "stockMovements", "cashEntries"];
+    if ((rendererPurchaseRevisions.get(event.sender.id) ?? 0) !== purchaseRevision && Object.keys(entries).some(key => financialNames.some(name => key === `${STORE_PREFIX}${name}` || key.startsWith(`${STORE_PREFIX}${name}#`)))) {
+      throw new Error("stale_purchase_snapshot");
+    }
     return authorizeStorageBatch(entries, {
       user: getSessionUser(event),
       read: storageGet,
@@ -5301,6 +5699,7 @@ function registerIpc() {
       const allowed = authorizedRendererRows(event, { [String(key)]: value });
       const normalized = allowed[String(key)];
       if (normalized === undefined) return false;
+      assertPendingBranchStockIntegrity(allowed);
       const saved = storageSet(String(key), normalized);
       if (String(key) === `${STORE_PREFIX}users`) cleanupMfaForMissingUsers();
       return saved;
@@ -5336,24 +5735,58 @@ function registerIpc() {
   // Excluding it here is what actually saves the time. Not parsing it in the
   // renderer helps, but the rows still had to be read out of SQLCipher and
   // structure-cloned across IPC before anything could paint.
-  const LAZY_COLLECTION_PREFIXES = [`${STORE_PREFIX}stockMovements#`, `${STORE_PREFIX}mobileStockOpReceipts#`];
+  const STARTUP_DEFERRED_COLLECTIONS = [
+    "customers",
+    "salesInvoices",
+    "purchaseInvoices",
+    "cashEntries",
+    "salesReturns",
+    "purchaseReturns",
+    "quotations",
+    "stockMovements",
+    "mobileStockOpReceipts",
+  ];
+
+  function isDeferredStartupValue(key) {
+    return STARTUP_DEFERRED_COLLECTIONS.some((name) => {
+      const base = `${STORE_PREFIX}${name}`;
+      if (key === base) return true;
+      return key.startsWith(`${base}#`) && !key.endsWith("#meta") && !key.endsWith("#order");
+    });
+  }
 
   ipcMain.handle("storage:get-batch", (event) => {
     if (!canReadRendererStorage(event)) return {};
+    rendererPurchaseRevisions.set(event.sender.id, purchaseRevision);
+    const handlerStarted = performance.now();
+    const queryStarted = performance.now();
+    const exclusions = STARTUP_DEFERRED_COLLECTIONS.flatMap((name) => [
+      `${STORE_PREFIX}${name}`,
+      `${STORE_PREFIX}${name}#%`,
+    ]);
+    const exclusionSql = STARTUP_DEFERRED_COLLECTIONS.map(
+      () => "AND key != ? AND (key NOT LIKE ? OR key LIKE '%#meta' OR key LIKE '%#order')",
+    ).join(" ");
     const rows = openDatabase()
-      .prepare("SELECT key, value FROM kv_store WHERE key LIKE ?")
-      .all(`${STORE_PREFIX}%`);
+      .prepare(`SELECT key, value FROM kv_store WHERE key LIKE ? ${exclusionSql}`)
+      .all(`${STORE_PREFIX}%`, ...exclusions);
+    phase9Record("storage-batch-sql", queryStarted, { rows: rows.length });
+    const buildStarted = performance.now();
     const result = {};
+    let valueBytes = 0;
     for (const row of rows) {
       if (!isRendererStorageKey(row.key) || !describeRendererMutationKey(row.key)) continue;
       // The manifest and the tombstone still travel — they are two small rows
       // and the renderer needs them to know the ledger exists and how big it
       // is. Only the chunks holding the records are held back.
-      if (LAZY_COLLECTION_PREFIXES.some((p) => row.key.startsWith(p) && !row.key.endsWith("#meta") && !row.key.endsWith("#order"))) {
+      if (isDeferredStartupValue(row.key)) {
         continue;
       }
       result[row.key] = storageValueForRenderer(row.key, row.value);
+      valueBytes += result[row.key].length;
     }
+    phase9Record("storage-batch-build", buildStarted, { rows: Object.keys(result).length, valueBytes });
+    phase9Record("storage-batch-handler-total", handlerStarted, { valueBytes });
     return result;
   });
 
@@ -5376,16 +5809,321 @@ function registerIpc() {
     return result;
   });
 
+  // Dashboard history is aggregated from the narrow Phase 12 read projection.
+  // Unlike the Phase 11 worker, this does not reconstruct multi-hundred-MiB
+  // JSON arrays in either Electron process.
+  ipcMain.handle("storage:get-dashboard-summary", (event) => {
+    if (!canReadRendererStorage(event)) return null;
+    if (!projectionQueriesAvailable()) return null;
+    const started = performance.now();
+    const permissions = {
+      sales: sessionCanViewModule(event, "salesInvoices"),
+      purchases: sessionCanViewModule(event, "purchaseInvoices"),
+      cash: sessionCanViewModule(event, "cashbox"),
+      customers: sessionCanViewModule(event, "customers"),
+      suppliers: sessionCanViewModule(event, "suppliers"),
+    };
+    try {
+      const result = queryProjection.dashboard(openDatabase(), permissions);
+      phase9Record("dashboard-summary-query", started, {
+        ok: true,
+        payloadBytes: Buffer.byteLength(JSON.stringify(result)),
+        mainRssBytes: process.memoryUsage().rss,
+      });
+      return result;
+    } catch (error) {
+      if (HW_E2E) console.error("[dashboard-summary-query]", error);
+      return null;
+    }
+  });
+
+  const QUERY_ENTITY_PERMISSIONS = {
+    salesInvoices: "salesInvoices",
+    purchaseInvoices: "purchaseInvoices",
+    customers: "customers",
+    suppliers: "suppliers",
+    products: "products",
+    salesReturns: "returns",
+    purchaseReturns: "returns",
+    quotations: "salesInvoices",
+    stockMovements: "inventory",
+  };
+  const canQueryEntity = (event, entity) => {
+    const moduleName = QUERY_ENTITY_PERMISSIONS[entity];
+    return Boolean(moduleName && sessionCanViewModule(event, moduleName));
+  };
+  const cleanQueryInput = (payload) => ({
+    page: Number(payload?.page) || 0,
+    pageSize: Number(payload?.pageSize) || 30,
+    q: String(payload?.q || "").slice(0, 200),
+    partyId: String(payload?.partyId || "").slice(0, 160),
+    status: String(payload?.status || "").slice(0, 40),
+    payment: String(payload?.payment || "").slice(0, 40),
+    refundMode: String(payload?.refundMode || "").slice(0, 40),
+    type: String(payload?.type || "").slice(0, 40),
+    branchId: String(payload?.branchId || "").slice(0, 160),
+    from: String(payload?.from || "").slice(0, 40),
+    to: String(payload?.to || "").slice(0, 40),
+    dueFrom: String(payload?.dueFrom || "").slice(0, 40),
+    dueTo: String(payload?.dueTo || "").slice(0, 40),
+    minAmount: payload?.minAmount,
+    maxAmount: payload?.maxAmount,
+    sort: String(payload?.sort || "").slice(0, 40),
+    outstanding: Boolean(payload?.outstanding),
+  });
+  ipcMain.handle("query:page", (event, entity, payload) => {
+    const cleanEntity = String(entity || "");
+    if (!canQueryEntity(event, cleanEntity)) return { ok: false, error: "not_authorized" };
+    if (!projectionQueriesAvailable()) return { ok: false, error: "projection_upgrade_required" };
+    const started = performance.now();
+    try {
+      const result = queryProjection.queryPage(openDatabase(), cleanEntity, cleanQueryInput(payload));
+      return { ok: true, ...result, queryMs: Number((performance.now() - started).toFixed(3)), payloadBytes: Buffer.byteLength(JSON.stringify(result)) };
+    } catch (error) {
+      if (HW_E2E) console.error("[query:page]", error);
+      return { ok: false, error: "query_failed" };
+    }
+  });
+  ipcMain.handle("query:detail", (event, entity, id) => {
+    const cleanEntity = String(entity || "");
+    const cleanId = String(id || "").slice(0, 200);
+    if (!cleanId || !canQueryEntity(event, cleanEntity)) return { ok: false, error: "not_authorized" };
+    if (!projectionQueriesAvailable()) return { ok: false, error: "projection_upgrade_required" };
+    const started = performance.now();
+    try {
+      const row = queryProjection.recordDetail(openDatabase(), cleanEntity, cleanId);
+      return { ok: true, row, queryMs: Number((performance.now() - started).toFixed(3)), payloadBytes: row ? Buffer.byteLength(JSON.stringify(row)) : 0 };
+    } catch (error) {
+      if (HW_E2E) console.error("[query:detail]", error);
+      return { ok: false, error: "query_failed" };
+    }
+  });
+  ipcMain.handle("query:global-search", (event, payload) => {
+    if (!getSessionUser(event)) return { ok: false, error: "not_authorized" };
+    if (!projectionQueriesAvailable()) return { ok: false, error: "projection_upgrade_required", rows: [] };
+    const started = performance.now();
+    const permissions = {
+      products: sessionCanViewModule(event, "products"),
+      customers: sessionCanViewModule(event, "customers"),
+      suppliers: sessionCanViewModule(event, "suppliers"),
+      salesInvoices: sessionCanViewModule(event, "salesInvoices"),
+      purchaseInvoices: sessionCanViewModule(event, "purchaseInvoices"),
+      quotations: sessionCanViewModule(event, "salesInvoices") && isPaidPrintFeatureEnabled("quotations", getPrintSettings()),
+    };
+    try {
+      const rows = queryProjection.search(openDatabase(), { q: String(payload?.q || "").slice(0, 200), limit: 30 }, permissions);
+      return { ok: true, rows, queryMs: Number((performance.now() - started).toFixed(3)), payloadBytes: Buffer.byteLength(JSON.stringify(rows)) };
+    } catch (error) {
+      if (HW_E2E) console.error("[query:global-search]", error);
+      return { ok: false, error: "query_failed", rows: [] };
+    }
+  });
+  ipcMain.handle("query:statement", (event, kind, partyId, payload) => {
+    const cleanKind = kind === "supplier" ? "supplier" : "customer";
+    const moduleName = cleanKind === "customer" ? "salesInvoices" : "purchaseInvoices";
+    if (!sessionCanViewModule(event, moduleName)) return { ok: false, error: "not_authorized" };
+    if (!projectionQueriesAvailable()) return { ok: false, error: "projection_upgrade_required" };
+    const started = performance.now();
+    try {
+      const result = queryProjection.statement(openDatabase(), cleanKind, String(partyId || "").slice(0, 160), cleanQueryInput(payload));
+      return { ok: true, ...result, queryMs: Number((performance.now() - started).toFixed(3)), payloadBytes: Buffer.byteLength(JSON.stringify(result)) };
+    } catch (error) {
+      if (HW_E2E) console.error("[query:statement]", error);
+      return { ok: false, error: "query_failed" };
+    }
+  });
+  ipcMain.handle("query:dues-parties", (event, payload) => {
+    const kind=payload?.kind==="all"?"all":payload?.kind==="supplier"?"supplier":"customer";
+    const canSales=sessionCanViewModule(event,"salesInvoices");const canPurchases=sessionCanViewModule(event,"purchaseInvoices");
+    if((kind==="customer"&&!canSales)||(kind==="supplier"&&!canPurchases)||(kind==="all"&&(!canSales||!canPurchases)))return {ok:false,error:"not_authorized"};
+    if(!projectionQueriesAvailable())return {ok:false,error:"projection_upgrade_required"};
+    try{return {ok:true,...queryProjection.duesParties(openDatabase(),{kind,q:String(payload?.q||"").slice(0,200),direction:String(payload?.direction||""),page:payload?.page,pageSize:payload?.pageSize})};}
+    catch(error){if(HW_E2E)console.error("[query:dues-parties]",error);return {ok:false,error:"query_failed"};}
+  });
+  ipcMain.handle("query:catalog-search", (event, entity, payload) => {
+    const cleanEntity = String(entity || "");
+    if (!canQueryEntity(event, cleanEntity)) return { ok: false, error: "not_authorized", rows: [] };
+    if (!projectionQueriesAvailable()) return { ok: false, error: "projection_upgrade_required", rows: [] };
+    const started = performance.now();
+    try {
+      const rows = queryProjection.catalogSearch(openDatabase(), cleanEntity, {
+        q: String(payload?.q || "").slice(0, 200),
+        limit: Number(payload?.limit) || 20,
+      });
+      return { ok: true, rows, queryMs: Number((performance.now() - started).toFixed(3)), payloadBytes: Buffer.byteLength(JSON.stringify(rows)) };
+    } catch (error) {
+      if (HW_E2E) console.error("[query:catalog-search]", error);
+      return { ok: false, error: "query_failed", rows: [] };
+    }
+  });
+  ipcMain.handle("query:catalog-detail", (event, entity, id) => {
+    const cleanEntity = String(entity || "");
+    const cleanId = String(id || "").slice(0, 200);
+    if (!cleanId || !canQueryEntity(event, cleanEntity)) return { ok: false, error: "not_authorized" };
+    if (!projectionQueriesAvailable()) return { ok: false, error: "projection_upgrade_required" };
+    const started = performance.now();
+    try {
+      const row = queryProjection.catalogDetail(openDatabase(), cleanEntity, cleanId);
+      return { ok: true, row, queryMs: Number((performance.now() - started).toFixed(3)), payloadBytes: row ? Buffer.byteLength(JSON.stringify(row)) : 0 };
+    } catch (error) {
+      if (HW_E2E) console.error("[query:catalog-detail]", error);
+      return { ok: false, error: "query_failed" };
+    }
+  });
+  ipcMain.handle("query:branch-stock-detail", (event, branchId, productId) => {
+    if (!sessionCanViewModule(event, "products")) return { ok: false, error: "not_authorized" };
+    const cleanBranchId = String(branchId || "").slice(0, 200);
+    const cleanProductId = String(productId || "").slice(0, 200);
+    if (!cleanBranchId || !cleanProductId) return { ok: false, error: "invalid_query" };
+    try {
+      return { ok: true, row: readBranchStockRow(cleanBranchId, cleanProductId) };
+    } catch (error) {
+      if (HW_E2E) console.error("[query:branch-stock-detail]", error);
+      return { ok: false, error: "query_failed" };
+    }
+  });
+
+  // Kept as a directly comparable profiler during Phase 11; not exposed by
+  // preload. Production dashboard traffic uses the worker-backed handler.
+  ipcMain.handle("storage:get-dashboard-summary-sync-profile", (event) => {
+    if (!canReadRendererStorage(event)) return null;
+    const canSales = sessionCanViewModule(event, "salesInvoices");
+    const canPurchases = sessionCanViewModule(event, "purchaseInvoices");
+    const canCash = sessionCanViewModule(event, "cashbox");
+    const canCustomers = sessionCanViewModule(event, "customers");
+    const canSuppliers = sessionCanViewModule(event, "suppliers");
+    const started = performance.now();
+    const sales = canSales || canCustomers
+      ? readJsonKey(`${STORE_PREFIX}salesInvoices`, []) : [];
+    const purchases = canPurchases || canSuppliers
+      ? readJsonKey(`${STORE_PREFIX}purchaseInvoices`, []) : [];
+    const returns = canSales ? readJsonKey(`${STORE_PREFIX}salesReturns`, []) : [];
+    const cash = canCash ? readJsonKey(`${STORE_PREFIX}cashEntries`, []) : [];
+    const products = readJsonKey(`${STORE_PREFIX}products`, []);
+    const settings = readJsonKey(`${STORE_PREFIX}settings`, {});
+    const now = new Date();
+    const dateKey = (date) => String(date || "").slice(0, 10);
+    const localDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const today = localDate(now);
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const cutoffDate = new Date(now);
+    cutoffDate.setDate(cutoffDate.getDate() - 90);
+    const cutoff = localDate(cutoffDate);
+    const validSales = sales.filter((invoice) => !invoice.cancelled);
+    const invoiceById = new Map(sales.map((invoice) => [invoice.id, invoice]));
+    const validReturns = returns.filter((item) => !invoiceById.get(item.originalInvoiceId)?.cancelled);
+    const todayGross = validSales.filter((invoice) => dateKey(invoice.date) === today)
+      .reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
+    const todayReturns = validReturns.filter((item) => dateKey(item.date) === today)
+      .reduce((sum, item) => sum + Number(item.total || 0), 0);
+    const monthlyInvoices = validSales.filter((invoice) => dateKey(invoice.date) >= monthStart);
+    const monthlyReturns = validReturns.filter((item) => dateKey(item.date) >= monthStart);
+    const productById = new Map(products.map((product) => [product.id, product]));
+    let grossProfitMonth = 0;
+    for (const invoice of monthlyInvoices) {
+      grossProfitMonth -= Number(invoice.discount || 0);
+      for (const line of invoice.lines || []) {
+        const product = productById.get(line.productId);
+        grossProfitMonth += Number(line.subtotal || 0) - Number(line.costPrice ?? product?.avgCost ?? product?.purchasePrice ?? 0) * Number(line.quantity || 0);
+      }
+    }
+    for (const item of monthlyReturns) {
+      const original = invoiceById.get(item.originalInvoiceId);
+      for (const line of item.lines || []) {
+        const source = original?.lines?.find((entry) => entry.id === line.sourceLineId)
+          || original?.lines?.find((entry) => entry.productId === line.productId);
+        const product = productById.get(line.productId);
+        grossProfitMonth -= Number(line.subtotal || 0) - Number(source?.costPrice ?? product?.avgCost ?? product?.purchasePrice ?? 0) * Number(line.quantity || 0);
+      }
+    }
+    const soldRecently = new Set();
+    const top = new Map();
+    for (const invoice of validSales) {
+      if (dateKey(invoice.date) < cutoff) continue;
+      for (const line of invoice.lines || []) {
+        soldRecently.add(line.productId);
+        const row = top.get(line.productId) || { name: line.productName, revenue: 0, qty: 0 };
+        row.revenue += Number(line.subtotal || 0);
+        row.qty += Number(line.quantity || 0);
+        top.set(line.productId, row);
+      }
+    }
+    for (const item of validReturns) {
+      if (dateKey(item.date) < cutoff) continue;
+      for (const line of item.lines || []) {
+        const row = top.get(line.productId) || { name: line.productName, revenue: 0, qty: 0 };
+        row.revenue -= Number(line.subtotal || 0);
+        row.qty -= Number(line.quantity || 0);
+        top.set(line.productId, row);
+      }
+    }
+    const activeProducts = products.filter((product) => !product.archived);
+    const deadStockValue = activeProducts
+      .filter((product) => Number(product.quantity || 0) > 0 && !soldRecently.has(product.id))
+      .reduce((sum, product) => sum + Number(product.quantity || 0) * Number(product.avgCost ?? product.purchasePrice ?? 0), 0);
+    const receivables = sales.reduce((sum, invoice) => sum + (
+      !invoice.cancelled && !invoice.collectOnDelivery
+        ? Number(invoice.remaining || 0) - Number(invoice.overpayment || 0) : 0
+    ), 0);
+    const payables = purchases.reduce((sum, invoice) =>
+      sum + Number(invoice.remaining || 0) - Number(invoice.overpayment || 0), 0);
+    const account = validSales.filter((invoice) => Number(invoice.remaining || 0) > 0);
+    const overdue = account.filter((invoice) => invoice.paymentDueDate && dateKey(invoice.paymentDueDate) < today)
+      .sort((left, right) => String(left.paymentDueDate).localeCompare(String(right.paymentDueDate)));
+    const chartData = [];
+    for (let offset = 13; offset >= 0; offset -= 1) {
+      const day = new Date(now);
+      day.setDate(day.getDate() - offset);
+      const iso = localDate(day);
+      chartData.push({
+        date: iso.slice(5),
+        sales: canSales ? validSales.filter((row) => dateKey(row.date) === iso).reduce((sum, row) => sum + Number(row.total || 0), 0)
+          - validReturns.filter((row) => dateKey(row.date) === iso).reduce((sum, row) => sum + Number(row.total || 0), 0) : 0,
+        purchases: canPurchases ? purchases.filter((row) => dateKey(row.date) === iso).reduce((sum, row) => sum + Number(row.total || 0), 0) : 0,
+      });
+    }
+    const recentActivity = [
+      ...validSales.slice(0, 6).map((row) => ({ id: row.id, title: `بيع قطع · ${row.invoiceNumber}`, sub: [row.customerName, row.vehicleLabel, row.branchName].filter(Boolean).join(" · "), amount: row.total, date: row.date, tone: "green", to: `/sales/${row.id}` })),
+      ...purchases.slice(0, 4).map((row) => ({ id: row.id, title: `توريد قطع · ${row.invoiceNumber}`, sub: `${row.supplierName} · ${(row.lines || []).length} بند`, amount: row.total, date: row.date, tone: "blue", to: `/purchases/${row.id}` })),
+    ].sort((left, right) => String(right.date).localeCompare(String(left.date))).slice(0, 8);
+    const result = {
+      stats: {
+        todaySales: canSales ? todayGross - todayReturns : 0,
+        monthlySales: canSales ? monthlyInvoices.reduce((sum, row) => sum + Number(row.total || 0), 0) - monthlyReturns.reduce((sum, row) => sum + Number(row.total || 0), 0) : 0,
+        grossProfitMonth: canSales ? grossProfitMonth : 0,
+        deadStockValue,
+        receivables: canCustomers ? receivables : 0,
+        payables: canSuppliers ? payables : 0,
+        cashBalance: canCash ? Number(settings.openingBalance || 0) + cash.reduce((sum, row) => sum + Number(row.amount || 0), 0) : 0,
+      },
+      accounts: { total: account.reduce((sum, row) => sum + Number(row.remaining || 0), 0), count: account.length, overdueCount: overdue.length, overdueTotal: overdue.reduce((sum, row) => sum + Number(row.remaining || 0), 0), overdue: overdue.slice(0, 8) },
+      chartData,
+      topProductsByStock: activeProducts.filter((product) => Number(product.quantity || 0) > 0 && !soldRecently.has(product.id)).sort((left, right) => Number(right.quantity || 0) * Number(right.avgCost ?? right.purchasePrice ?? 0) - Number(left.quantity || 0) * Number(left.avgCost ?? left.purchasePrice ?? 0)).slice(0, 5).map((product) => ({ name: product.name, qty: Number(product.quantity || 0) * Number(product.avgCost ?? product.purchasePrice ?? 0) })),
+      topSellingProducts: [...top.values()].filter((row) => row.revenue > 0).sort((left, right) => right.revenue - left.revenue).slice(0, 5).map((row) => ({ name: row.name, revenue: row.revenue })),
+      recentActivity,
+    };
+    phase9Record("dashboard-summary", started, { payloadBytes: Buffer.byteLength(JSON.stringify(result)) });
+    return result;
+  });
+
   ipcMain.handle("storage:set-batch", (event, entries) => {
     if (!entries || typeof entries !== "object") return false;
     try {
       let usersWereUpdated = false;
       const allowed = authorizedRendererRows(event, entries);
+      assertPendingBranchStockIntegrity(allowed);
       const tx = openDatabase().transaction(() => {
+        const previousProjectionRows = queryProjection.captureChangedEntities(openDatabase(), allowed);
         for (const [key, value] of Object.entries(allowed)) {
           getStmtSet().run(String(key), value, new Date().toISOString());
           if (String(key) === `${STORE_PREFIX}users`) usersWereUpdated = true;
         }
+        queryProjection.syncChangedEntities(openDatabase(), allowed, previousProjectionRows);
       });
       tx();
       if (usersWereUpdated) cleanupMfaForMissingUsers();
@@ -5412,6 +6150,434 @@ function registerIpc() {
     `${STORE_PREFIX}deliveryOrders`,
     `${STORE_PREFIX}quotations`,
   ];
+
+  ipcMain.handle("purchases:create", (event, command) => {
+    if (!sessionCanMutateModule(event, "purchaseInvoices", "add")) return { ok: false, error: "not_authorized" };
+    try {
+      const input = command?.invoice;
+      if (!input || !Array.isArray(input.lines) || !input.lines.length || input.lines.length > 500) throw new Error("invalid_purchase");
+      assertMoney(command);
+      if (!Number.isFinite(input.total) || input.total < 0 || !Number.isFinite(input.amountPaid) || input.amountPaid < 0) throw new Error("invalid_purchase_money");
+      const db = openDatabase(), user = getSessionUser(event);
+      const createdAt = new Date().toISOString(), rows = {};
+      let invoice, productPatches, branchStockPatches, movements, cashEntries, auditEntries;
+      // Test hooks are disabled outside the isolated hardening runtime.
+      const checkpoint = (stage) => {
+        if (!HW_E2E) return;
+        if (command.failureStage === stage || process.env.PARTFLOW_FIN02_FAIL_STAGE === stage) throw new Error(`Injected purchase failure: ${stage}`);
+        if (process.env.PARTFLOW_FIN02_KILL_STAGE === stage) {
+          if (process.env.PARTFLOW_FIN02_MARKER) fs.writeFileSync(process.env.PARTFLOW_FIN02_MARKER, stage);
+          // Parent harness terminates this Electron process at the exact boundary.
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30000);
+          throw new Error("termination_hook_timeout");
+        }
+      };
+      db.transaction(() => {
+        checkpoint("before_purchase_persistence");
+        try { queryProjection.ensureEntity(db, "products"); } catch { queryProjection.rebuildEntity(db, "products"); }
+        const supplier = readJsonKey(`${STORE_PREFIX}suppliers`, []).find(row => row.id === input.supplierId && !row.archived);
+        if (!supplier) throw new Error("supplier_not_found");
+        const existing = readJsonKey(`${STORE_PREFIX}purchaseInvoices`, []);
+        const id = String(command.invoiceId || `pur_${crypto.randomUUID()}`);
+        if (existing.some(row => row.id === id)) throw new Error("duplicate_purchase");
+        const products = new Map();
+        const lines = input.lines.map(raw => {
+          if (!Number.isFinite(raw.quantity) || raw.quantity <= 0 || !Number.isFinite(raw.price) || raw.price < 0) throw new Error("invalid_purchase_line");
+          const product = products.get(raw.productId) || queryProjection.catalogDetail(db, "products", raw.productId);
+          if (!product || product.archived) throw new Error("product_not_found");
+          products.set(product.id, product);
+          return { ...raw, productName: product.name, subtotal: raw.quantity * raw.price };
+        });
+        const total = lines.reduce((sum, line) => sum + line.subtotal, 0);
+        if (!Number.isFinite(total) || Math.abs(total - input.total) > 0.01) throw new Error("invalid_total");
+        const paid = Math.min(input.amountPaid, total), remaining = Math.max(0, total - paid);
+        invoice = { ...input, id, lines, total, supplierName: supplier.name, amountPaid: paid, remaining,
+          overpayment: Math.max(0, input.amountPaid - total) || undefined,
+          status: total <= 0 ? "paid" : paid <= 0 ? "unpaid" : paid >= total ? "paid" : "partial", createdAt };
+        assertMoney(invoice);
+        appendChunkedRows("purchaseInvoices", [invoice], rows);
+        const write = names => {
+          for (const [key, value] of Object.entries(rows)) if (names.some(name => key === `${STORE_PREFIX}${name}` || key.startsWith(`${STORE_PREFIX}${name}#`))) getStmtSet().run(key, value, createdAt);
+        };
+        const previous = queryProjection.captureChangedEntities(db, rows);
+        write(["purchaseInvoices"]);
+        checkpoint("after_purchase_invoice");
+        // Lines are embedded canonical invoice records and share that SQL write.
+        checkpoint("after_purchase_lines");
+        const added = new Map();
+        for (const [id, product] of products) {
+          const matching = lines.filter(line => line.productId === id);
+          const quantity = matching.reduce((sum, line) => sum + line.quantity, 0);
+          const value = matching.reduce((sum, line) => sum + line.subtotal, 0);
+          const nextQuantity = product.quantity + quantity;
+          const costQuantity = Math.max(0, product.quantity) + quantity;
+          const avgCost = costQuantity > 0 ? (Math.max(0, product.quantity * (product.avgCost ?? product.purchasePrice)) + value) / costQuantity : (product.avgCost ?? product.purchasePrice);
+          const latestPrice = matching.filter(line => line.price > 0).at(-1)?.price;
+          const expiry = matching.filter(line => line.expiryDate).at(-1)?.expiryDate;
+          products.set(id, { ...product, quantity: nextQuantity, avgCost, ...(latestPrice ? { purchasePrice: latestPrice } : {}), ...(expiry && product.hasExpiry ? { expiryDate: expiry } : {}) });
+          added.set(id, quantity);
+        }
+        assertMoney([...products.values()]);
+        updateCatalogProducts(products, rows);
+        const branches = readJsonKey(`${STORE_PREFIX}branches`, []).filter(row => row.active !== false);
+        const branchId = input.branchId || branches.find(row => row.isMain)?.id || branches[0]?.id;
+        if (branches.length && !branches.some(row => row.id === branchId)) throw new Error("branch_not_found");
+        branchStockPatches = [];
+        if (branchId) {
+          const stock = readJsonKey(`${STORE_PREFIX}branchStocks`, []);
+          for (const [productId, quantity] of added) {
+            const index = stock.findIndex(row => row.branchId === branchId && row.productId === productId);
+            const patch = { ...(index >= 0 ? stock[index] : { id: `bst_${crypto.randomUUID()}`, branchId, productId }), quantity: (index >= 0 ? stock[index].quantity : 0) + quantity, updatedAt: createdAt };
+            if (index >= 0) stock[index] = patch; else stock.push(patch);
+            branchStockPatches.push(patch);
+          }
+          writeWholeChunkedRows("branchStocks", stock, rows);
+        }
+        movements = lines.map(line => ({ id: `mov_p_${crypto.randomUUID()}`, productId: line.productId, productName: line.productName, type: "purchase", quantity: line.quantity, reason: `Purchase ${input.invoiceNumber}`, referenceId: id, referenceType: "purchase", date: input.date }));
+        appendChunkedRows("stockMovements", movements, rows);
+        Object.assign(previous, queryProjection.captureChangedEntities(db, Object.fromEntries(Object.entries(rows).filter(([key]) => !key.includes("purchaseInvoices")))));
+        write(["products"]);
+        checkpoint("during_stock");
+        write(["branchStocks", "stockMovements"]);
+        checkpoint("after_stock");
+        checkpoint("before_cash");
+        const shiftId = readJsonKey(`${STORE_PREFIX}shifts`, []).find(row => row.status === "open" && row.cashierId === user.id)?.id;
+        cashEntries = input.amountPaid > 0 ? [{ id: `cash_p_${crypto.randomUUID()}`, type: "purchase-payment", amount: -input.amountPaid, description: `Purchase ${input.invoiceNumber} ? ${supplier.name}`, referenceId: id, date: input.date, createdByUserId: user.id, shiftId, createdAt }] : [];
+        if (cashEntries.length) appendChunkedRows("cashEntries", cashEntries, rows);
+        const cashPrevious = queryProjection.captureChangedEntities(db, Object.fromEntries(Object.entries(rows).filter(([key]) => key.includes("cashEntries"))));
+        Object.assign(previous, cashPrevious);
+        write(["cashEntries"]);
+        checkpoint("after_cash");
+        checkpoint("before_supplier_balance");
+        // Supplier balance and dues derive from invoice remaining minus credit.
+        auditEntries = [{ id: `audit_${crypto.randomUUID()}`, action: "invoice_purchase_created", entityLabel: invoice.invoiceNumber, userId: user.id, userName: user.name, timestamp: createdAt }];
+        writeWholeChunkedRows("auditLogs", [...auditEntries, ...readJsonKey(`${STORE_PREFIX}auditLogs`, [])].slice(0, 1000), rows);
+        write(["auditLogs"]);
+        assertPendingBranchStockIntegrity(rows);
+        queryProjection.syncChangedEntities(db, rows, previous);
+        // Legacy/empty manifests may have invalidated owned projections before
+        // this command. Rebuild only this purchase's entities within its commit.
+        for (const entity of ["products", "purchaseInvoices", "stockMovements", "cashEntries"]) {
+          try { queryProjection.ensureEntity(db, entity); } catch { queryProjection.rebuildEntity(db, entity); }
+        }
+        for (const entity of queryProjection.PROJECTION_ENTITIES) {
+          const source = queryProjection.canonicalState(db, entity);
+          if (source.count !== 0) continue;
+          try { queryProjection.ensureEntity(db, entity); } catch { queryProjection.rebuildEntity(db, entity); }
+        }
+        queryProjection.adoptCurrentProjection(db);
+        checkpoint("before_commit");
+        productPatches = [...products.values()].map(({ id, quantity, avgCost, purchasePrice, expiryDate }) => ({ id, quantity, avgCost, purchasePrice, expiryDate }));
+      }).immediate();
+      purchaseRevision += 1;
+      checkpoint("after_commit_before_response");
+      return { ok: true, revision: purchaseRevision, invoice, productPatches, branchStockPatches, movements, cashEntries, auditEntries, committedRows: rows };
+    } catch (error) {
+      if (HW_E2E) console.error("[purchases:create] rejected:", error.message);
+      return { ok: false, error: error.message || "purchase_failed" };
+    }
+  });
+
+  ipcMain.handle("sales:create", (event, command) => {
+    const saleTraceStarted = performance.now();
+    let saleTraceLast = saleTraceStarted;
+    const saleTimings = {};
+    const markSaleStage = (name) => {
+      const now = performance.now();
+      saleTimings[name] = Number((now - saleTraceLast).toFixed(3));
+      saleTraceLast = now;
+    };
+    if (!sessionCanMutateModule(event, "salesInvoices", "add")) return { ok: false, error: "not_authorized" };
+    if (!projectionQueriesAvailable()) return { ok: false, error: "projection_upgrade_required" };
+    const user = getSessionUser(event);
+    const input = command?.invoice;
+    if (!user || !input || typeof input !== "object") return { ok: false, error: "invalid_sale" };
+    if (input.paymentType === "account" && !input.collectOnDelivery && !isFeatureLicensed("creditSales")) {
+      return { ok: false, error: "feature_not_licensed" };
+    }
+    if ((Number(command?.customerCredit?.amount) || 0) > 0 && !isFeatureLicensed("creditPayment")) {
+      return { ok: false, error: "feature_not_licensed" };
+    }
+    const requestedLines = Array.isArray(input.lines) ? input.lines : [];
+    if (!requestedLines.length || requestedLines.length > 500) return { ok: false, error: "invalid_lines" };
+
+    try {
+      assertMoney(command);
+      const db = openDatabase();
+      queryProjection.ensureEntity(db, "products");
+      queryProjection.ensureEntity(db, "customers");
+      queryProjection.ensureEntity(db, "salesInvoices");
+      const customer = queryProjection.catalogDetail(db, "customers", String(input.customerId || ""));
+      if (!customer || customer.archived) return { ok: false, error: "customer_not_found" };
+
+      const productDetails = new Map();
+      const lines = requestedLines.map((raw, index) => {
+        const productId = String(raw?.productId || "");
+        if (!productDetails.has(productId)) productDetails.set(productId, queryProjection.catalogDetail(db, "products", productId));
+        const product = productDetails.get(productId);
+        const quantity = Number(raw?.quantity);
+        const price = Number(raw?.price);
+        if (!product || product.archived || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0) {
+          throw new Error("invalid_sale_line");
+        }
+        return {
+          ...raw,
+          id: String(raw?.id || `line_${crypto.randomUUID()}`),
+          productId,
+          productName: product.name,
+          partNumber: product.partNumber,
+          partBrand: product.partBrand,
+          warrantyMonths: product.warrantyMonths,
+          quantity,
+          price,
+          costPrice: raw?.costPrice === undefined ? Number(product.avgCost ?? product.purchasePrice) || 0 : Number(raw.costPrice),
+          subtotal: quantity * price,
+          priceType: raw?.priceType === "retail" ? "retail" : "wholesale",
+          isRetailUnit: Boolean(raw?.isRetailUnit) || undefined,
+        };
+      });
+      const discount = Number(input.discount) || 0;
+      const shippingFee = Number(input.shippingFee) || 0;
+      const calculatedTotal = lines.reduce((sum, line) => sum + line.subtotal, 0) - discount + shippingFee;
+      if (!Number.isFinite(calculatedTotal) || !Number.isFinite(input.total) || !Number.isFinite(input.amountReceived) || discount < 0 || calculatedTotal < 0 || Math.abs(calculatedTotal - Number(input.total)) > 0.01) {
+        return { ok: false, error: "invalid_total" };
+      }
+
+      const createdAt = new Date().toISOString();
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(input.date || "")) ? String(input.date) : createdAt.slice(0, 10);
+      if (input.discountCodeId) {
+        const discountSettings = readJsonKey(`${STORE_PREFIX}settings`, {});
+        const codes = Array.isArray(discountSettings?.discountCodes) ? discountSettings.discountCodes : [];
+        const code = codes.find((item) => String(item?.id || "") === String(input.discountCodeId));
+        if (!code || !code.active) throw new Error("discount_code_unavailable");
+        if (String(input.discountCode || "").trim().toUpperCase().replace(/\s+/g, "") !== String(code.code || "").trim().toUpperCase().replace(/\s+/g, "")) {
+          throw new Error("discount_code_unavailable");
+        }
+        if ((code.startsAt && date < code.startsAt) || (code.expiresAt && date > code.expiresAt)) {
+          throw new Error("discount_code_unavailable");
+        }
+        const subtotal = lines.reduce((sum, line) => sum + line.subtotal, 0);
+        if (Number(code.minOrderTotal) > 0 && subtotal < Number(code.minOrderTotal)) {
+          throw new Error("discount_code_unavailable");
+        }
+        const salePriceType = lines.length > 0 && lines.every((line) => line.priceType === "retail") ? "retail" : "wholesale";
+        if (Array.isArray(code.allowedPriceTypes) && code.allowedPriceTypes.length > 0 && !code.allowedPriceTypes.includes(salePriceType)) {
+          throw new Error("discount_code_unavailable");
+        }
+        const rawDiscount = code.type === "percentage" ? subtotal * Number(code.value || 0) / 100 : Number(code.value || 0);
+        const expectedDiscount = Math.round(Math.min(subtotal, Math.max(0, Number(code.maxDiscount) > 0 ? Math.min(rawDiscount, Number(code.maxDiscount)) : rawDiscount)) * 100) / 100;
+        if (Math.abs(expectedDiscount - discount) > 0.01) throw new Error("discount_code_value_changed");
+
+        const usedInvoices = db.prepare("SELECT id FROM pf_query_records WHERE entity='salesInvoices' AND cancelled=0").all();
+        let totalUses = 0;
+        let customerUses = 0;
+        for (const row of usedInvoices) {
+          const used = queryProjection.recordDetail(db, "salesInvoices", row.id);
+          if (used?.discountCodeId !== code.id || used.cancelled) continue;
+          totalUses += 1;
+          if (used.customerId === customer.id) customerUses += 1;
+        }
+        if (Number(code.usageLimit) > 0 && totalUses >= Number(code.usageLimit)) throw new Error("discount_code_limit_reached");
+        if (Number(code.perCustomerLimit) > 0 && customerUses >= Number(code.perCustomerLimit)) throw new Error("discount_code_customer_limit_reached");
+      }
+      const invoiceId = String(command?.invoiceId || `sal_${crypto.randomUUID()}`);
+      const existingId = db.prepare("SELECT 1 present FROM pf_query_records WHERE entity='salesInvoices' AND id=?").get(invoiceId);
+      if (existingId) return { ok: false, error: "duplicate_sale" };
+      const amountReceivedInput = input.collectOnDelivery ? 0 : Math.max(0, Number(input.amountReceived) || 0);
+      const overpaymentInput = input.collectOnDelivery ? 0 : Math.max(0, Number(input.overpayment) || 0);
+      const initialPaid = amountReceivedInput + overpaymentInput;
+      const requestedCredit = Math.max(0, Number(command?.customerCredit?.amount) || 0);
+      const availableCredit = Math.max(0, -(Number(customer.financialSummary?.balance) || 0));
+      const creditToApply = Math.min(requestedCredit, availableCredit, Math.max(0, calculatedTotal - amountReceivedInput));
+      markSaleStage("validationAndCatalogMs");
+
+      const rows = {};
+      const productUpdates = new Map();
+      const soldByProduct = new Map();
+      for (const line of lines) {
+        const product = productDetails.get(line.productId);
+        const previous = productUpdates.get(line.productId) || product;
+        const requestedBase = product.piecesPerUnit && line.isRetailUnit ? line.quantity : line.quantity * (product.piecesPerUnit || 1);
+        const availableBase = Number(previous.quantity || 0) * (product.piecesPerUnit || 1) + Number(previous.looseQuantity || 0);
+        if (requestedBase > availableBase + 1e-9) throw new Error("insufficient_stock");
+        let next;
+        if (product.piecesPerUnit) {
+          if (line.isRetailUnit) {
+            const left = availableBase - line.quantity;
+            const normalizedLeft = Math.abs(left) < 1e-9 ? 0 : left;
+            next = { ...previous, quantity: Math.floor(normalizedLeft / product.piecesPerUnit), looseQuantity: normalizedLeft % product.piecesPerUnit };
+          } else {
+            const remaining = Number(previous.quantity || 0) - line.quantity;
+            next = { ...previous, quantity: Math.abs(remaining) < 1e-9 ? 0 : remaining };
+          }
+        } else {
+          const remaining = Number(previous.quantity || 0) - line.quantity;
+          next = { ...previous, quantity: Math.abs(remaining) < 1e-9 ? 0 : remaining };
+        }
+        productUpdates.set(line.productId, next);
+        soldByProduct.set(line.productId, (soldByProduct.get(line.productId) || 0) + line.quantity);
+      }
+      updateCatalogProducts(productUpdates, rows);
+      markSaleStage("productStockMs");
+
+      const branchId = String(input.branchId || "");
+      const branchStockPatches = branchId
+        ? updateBranchStockRows(branchId, soldByProduct, rows, createdAt)
+        : [];
+      markSaleStage("branchStockMs");
+
+      const historicalUpdates = new Map();
+      if (creditToApply > 0) {
+        let remainingCredit = creditToApply;
+        const sources = db.prepare("SELECT id FROM pf_query_records WHERE entity='salesInvoices' AND party_id=? AND cancelled=0 AND overpayment>0 ORDER BY date DESC,id DESC").all(customer.id);
+        for (const source of sources) {
+          if (remainingCredit <= 0) break;
+          const invoice = queryProjection.recordDetail(db, "salesInvoices", source.id);
+          const used = Math.min(remainingCredit, Number(invoice?.overpayment) || 0);
+          if (used <= 0) continue;
+          historicalUpdates.set(source.id, { ...invoice, overpayment: Math.max(0, Number(invoice.overpayment) - used) || undefined });
+          remainingCredit -= used;
+        }
+        if (remainingCredit > 0.005) throw new Error("credit_changed");
+        updateCanonicalRecords("salesInvoices", historicalUpdates, rows);
+      }
+      markSaleStage("customerDuesMs");
+
+      let invoiceNumber = "";
+      let invoice;
+      const movements = [];
+      const cashEntries = [];
+      const auditEntries = [];
+      const tx = db.transaction(() => {
+        db.exec("CREATE TABLE IF NOT EXISTS pf_invoice_sequences(scope TEXT PRIMARY KEY,last_value INTEGER NOT NULL,updated_at TEXT NOT NULL)");
+        let sequence = db.prepare("SELECT last_value FROM pf_invoice_sequences WHERE scope='global'").get()?.last_value;
+        if (!Number.isInteger(sequence)) {
+          sequence = 1000;
+          const numbers = db.prepare("SELECT number FROM pf_query_records WHERE entity='salesInvoices'").all();
+          for (const row of numbers) {
+            const parsed = Number.parseInt(String(row.number || "").replace(/\D/g, ""), 10);
+            if (Number.isFinite(parsed)) sequence = Math.max(sequence, parsed);
+          }
+        }
+        do {
+          sequence += 1;
+          invoiceNumber = `INV-${sequence}`;
+        } while (db.prepare("SELECT 1 present FROM pf_query_records WHERE entity='salesInvoices' AND number=? COLLATE NOCASE").get(invoiceNumber));
+        db.prepare("INSERT INTO pf_invoice_sequences(scope,last_value,updated_at) VALUES('global',?,?) ON CONFLICT(scope) DO UPDATE SET last_value=excluded.last_value,updated_at=excluded.updated_at").run(sequence, createdAt);
+        markSaleStage("invoiceSequenceMs");
+
+        const paid = Math.min(calculatedTotal, amountReceivedInput + creditToApply);
+        const remaining = Math.max(0, calculatedTotal - paid);
+        invoice = {
+          ...input,
+          id: invoiceId,
+          invoiceNumber,
+          date,
+          customerId: customer.id,
+          customerName: customer.name,
+          lines,
+          total: calculatedTotal,
+          amountReceived: paid,
+          overpayment: overpaymentInput || undefined,
+          status: remaining <= 0.005 ? "paid" : paid > 0 ? "partial" : "unpaid",
+          remaining,
+          createdByUserId: user.id,
+          shiftId: command?.shiftId || input.shiftId,
+          createdAt,
+          paymentLog: [
+            ...(initialPaid > 0 ? [{ id: `slog_${crypto.randomUUID()}`, date, amount: initialPaid, paymentMethod: input.paymentMethod || "cash" }] : []),
+            ...(creditToApply > 0 ? [{ id: `slog_cr_${crypto.randomUUID()}`, date, amount: creditToApply, paymentMethod: "credit", notes: "رصيد دائن مستخدم" }] : []),
+          ],
+        };
+        appendChunkedRows("salesInvoices", [invoice], rows);
+        markSaleStage("canonicalInvoiceAppendMs");
+        for (let index = 0; index < lines.length; index += 1) {
+          const line = lines[index];
+          movements.push({ id: `mov_s_${crypto.randomUUID()}`, productId: line.productId, productName: line.productName, type: "sale", quantity: -line.quantity, reason: `فاتورة مبيعات ${invoiceNumber}`, referenceId: invoiceId, referenceType: "sale", date });
+        }
+        appendChunkedRows("stockMovements", movements, rows);
+        markSaleStage("stockMovementAppendMs");
+        if (initialPaid > 0) {
+          cashEntries.push({ id: `cash_s_${crypto.randomUUID()}`, type: "sales-receipt", amount: initialPaid, description: `تحصيل فاتورة مبيعات ${invoiceNumber} — ${customer.name}`, referenceId: invoiceId, date, paymentMethod: input.paymentMethod, createdByUserId: user.id, shiftId: command?.shiftId || input.shiftId, createdAt });
+          appendChunkedRows("cashEntries", cashEntries, rows);
+        }
+        markSaleStage("cashAppendMs");
+        auditEntries.push({ id: `audit_${crypto.randomUUID()}`, action: "invoice_sale_created", entityLabel: `${invoiceNumber} — ${customer.name}`, userId: user.id, userName: user.name, timestamp: createdAt, details: `الإجمالي: ${calculatedTotal}` });
+        const audit = readJsonKey(`${STORE_PREFIX}auditLogs`, []);
+        writeWholeChunkedRows("auditLogs", [...auditEntries, ...audit].slice(0, 1000), rows);
+        if (command?.deliveryOrder) {
+          const orders = readJsonKey(`${STORE_PREFIX}deliveryOrders`, []);
+          rows[`${STORE_PREFIX}deliveryOrders`] = JSON.stringify([{ ...command.deliveryOrder, invoiceId, invoiceNumber }, ...orders.filter((order) => order?.id !== command.deliveryOrder.id)]);
+        }
+        assertMoney(invoice);
+        assertMoney([...productUpdates.values()]);
+        assertMoney(cashEntries);
+        assertPendingBranchStockIntegrity(rows);
+        markSaleStage("auditAndDeliveryMs");
+        const previousProjectionRows = queryProjection.captureChangedEntities(db, rows);
+        markSaleStage("projectionCaptureMs");
+        const injectedStage = HW_E2E ? String(command?.failureStage || process.env.PARTFLOW_HARDENING_FAIL_SALE_STAGE || "") : "";
+        const inject = (stage) => { if (injectedStage === stage) throw new Error(`Injected sale failure: ${stage}`); };
+        const pendingRows = Object.entries(rows);
+        const writeGroup = (names) => {
+          for (const [key, value] of pendingRows) {
+            if (names.some((name) => key === `${STORE_PREFIX}${name}` || key.startsWith(`${STORE_PREFIX}${name}#`))) {
+              getStmtSet().run(key, value, createdAt);
+            }
+          }
+        };
+        inject("before_sale_persistence");
+        writeGroup(["salesInvoices"]);
+        inject("after_sale_record");
+        writeGroup(["products", "branchStocks", "stockMovements"]);
+        inject("during_stock_update");
+        inject("before_cash_update");
+        writeGroup(["cashEntries"]);
+        inject("after_cash_update");
+        writeGroup(["auditLogs", "deliveryOrders", "quotations"]);
+        markSaleStage("canonicalSqlWritesMs");
+        inject("before_projection");
+        queryProjection.syncChangedEntities(db, rows, previousProjectionRows);
+        markSaleStage("projectionAndDashboardSyncMs");
+        inject("before_commit");
+      });
+      const transactionStarted = performance.now();
+      tx.immediate();
+      saleTimings.transactionAndCommitMs = Number((performance.now() - transactionStarted).toFixed(3));
+      saleTimings.mainTotalMs = Number((performance.now() - saleTraceStarted).toFixed(3));
+      if (HW_E2E && process.env.PARTFLOW_PHASE14A_TRACE === "1") {
+        const traceLine = JSON.stringify({ at: new Date().toISOString(), invoiceNumber, ...saleTimings });
+        console.error(`[phase14a:sale-timing] ${traceLine}`);
+        if (process.env.PARTFLOW_PHASE14A_TRACE_PATH) {
+          fs.appendFileSync(process.env.PARTFLOW_PHASE14A_TRACE_PATH, `${traceLine}\n`);
+        }
+      }
+      // Product, branch-stock and audit state are returned as bounded semantic
+      // patches below. Sending their serialized storage chunks as well made
+      // Chromium retain large IPC backing buffers outside V8's reported heap;
+      // repeated POS use therefore exhausted renderer working set while the JS
+      // heap appeared flat. Delivery orders have no bounded patch yet and are
+      // uncommon, so keep only that row when shipping changed.
+      const committedRows = command?.deliveryOrder && rows[`${STORE_PREFIX}deliveryOrders`]
+        ? { [`${STORE_PREFIX}deliveryOrders`]: rows[`${STORE_PREFIX}deliveryOrders`] }
+        : {};
+      // A catalog product can include a large embedded image. Returning the
+      // complete updated row on every sale leaves structured-clone backing
+      // storage resident in Chromium even after V8 has collected the object.
+      // The renderer only needs the stock fields changed by this transaction.
+      const productPatches = [...productUpdates.values()].map((product) => ({
+        id: product.id,
+        quantity: product.quantity,
+        ...(product.looseQuantity === undefined ? {} : { looseQuantity: product.looseQuantity }),
+      }));
+      return { ok: true, invoice, productPatches, branchStockPatches, cashEntries, movements, auditEntries, committedRows, timings: HW_E2E ? saleTimings : undefined };
+    } catch (error) {
+      if (HW_E2E) console.error("[sales:create] rejected:", error?.message || error);
+      const known = new Set(["invalid_sale_line", "invalid_total", "insufficient_stock", "insufficient_branch_stock", "branch_stock_missing", "credit_changed", "product_not_found", "customer_not_found", "discount_code_unavailable", "discount_code_value_changed", "discount_code_limit_reached", "discount_code_customer_limit_reached"]);
+      return { ok: false, error: known.has(error?.message) ? error.message : "sale_failed" };
+    }
+  });
+
   ipcMain.handle("sales:commit", (event, entries) => {
     if (!sessionCanMutateModule(event, "salesInvoices", "add")) return false;
     if (!entries || typeof entries !== "object") return false;
@@ -5438,6 +6604,7 @@ function registerIpc() {
     try {
       const allowed = authorizedRendererRows(event, entries);
       if (Object.keys(allowed).length !== rows.length) return false;
+      assertPendingBranchStockIntegrity(allowed);
       const failAfter = Number.parseInt(
         HW_E2E
           ? process.env.PARTFLOW_HARDENING_FAIL_SALE_COMMIT_AFTER_WRITES || "0"
@@ -5449,6 +6616,7 @@ function registerIpc() {
         : undefined;
       let writes = 0;
       const tx = openDatabase().transaction(() => {
+        const previousProjectionRows = queryProjection.captureChangedEntities(openDatabase(), allowed);
         for (const [key, value] of Object.entries(allowed)) {
           getStmtSet().run(
             String(key),
@@ -5466,6 +6634,7 @@ function registerIpc() {
             throw new Error("Injected sale commit failure");
           }
         }
+        queryProjection.syncChangedEntities(openDatabase(), allowed, previousProjectionRows);
       });
       tx();
       return true;
@@ -5502,11 +6671,13 @@ function registerIpc() {
       }
       const allowed = authorizedRendererRows(event, entries);
       if (Object.keys(allowed).length !== payload.rows.length) return { ok: false, error: "not_authorized" };
+      assertPendingBranchStockIntegrity(allowed);
       const insert = openDatabase().prepare(
         "INSERT INTO kv_store (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
       );
       openDatabase().transaction(() => {
         for (const row of payload.rows) insert.run(row.key, allowed[row.key], row.updated_at || new Date().toISOString());
+        queryProjection.invalidateChangedEntities(openDatabase(), allowed);
       })();
       cleanupMfaForMissingUsers();
       return { ok: true };
@@ -5516,7 +6687,12 @@ function registerIpc() {
   });
 
   ipcMain.handle("license:get-machine-code", () => getMachineCode());
-  ipcMain.handle("license:get-status", () => getLicenseStatus());
+  ipcMain.handle("license:get-status", () => {
+    const started = performance.now();
+    const status = getLicenseStatus();
+    phase9Record("license-verification", started, { state: status?.state });
+    return status;
+  });
   ipcMain.handle("license:get-referral", (event) => {
     if (!hasOwnerSession(event)) return { ok: false, error: "not_authorized" };
     return getReferralInfoOnline();
@@ -5613,6 +6789,7 @@ function registerIpc() {
     try {
       allowed = authorizedRendererRows(event, archive.state);
       if (Object.keys(allowed).length !== Object.keys(archive.state).length) throw new Error("incomplete_archive");
+      assertPendingBranchStockIntegrity(allowed);
     } catch {
       return { ok: false, error: "invalid_archive" };
     }
@@ -5622,6 +6799,7 @@ function registerIpc() {
     const now = new Date().toISOString();
     openDatabase().transaction(() => {
       for (const [key, value] of Object.entries(allowed)) insert.run(key, value, now);
+      queryProjection.invalidateChangedEntities(openDatabase(), allowed);
     })();
     const restored = Object.keys(allowed).length;
     // The audit log lives in the renderer's own store (autoparts_inventory_v1::
@@ -5961,7 +7139,9 @@ function registerIpc() {
     return hashPassword(password);
   });
   ipcMain.handle("auth:login", async (event, payload) => {
+    const authStarted = performance.now();
     const result = await login(payload?.username, payload?.password);
+    phase9Record("user-authentication", authStarted, { ok: Boolean(result.ok) });
     if (result.ok && result.user) {
       // The idle lock is renderer-only and intentionally keeps the established
       // main-process session. Re-authenticating the same user therefore needs
@@ -5984,6 +7164,15 @@ function registerIpc() {
     return user
       ? { ok: true, user: safeUserForRenderer(user) }
       : { ok: false, error: "not_authenticated" };
+  });
+  ipcMain.handle("projection:get-status", (event) => {
+    if (!getSession(event)) return { state: "REQUIRED", percent: 0, errorCode: "not_authenticated" };
+    if (projectionUpgradeWorker) return publicProjectionStatus();
+    return detectProjectionUpgrade();
+  });
+  ipcMain.handle("projection:start", (event) => {
+    if (!getSession(event)) return { state: "FAILED", percent: 0, errorCode: "not_authenticated" };
+    return startProjectionUpgrade();
   });
   ipcMain.handle("auth:verify-second-factor", (event, payload) =>
     verifyLoginSecondFactor(event, payload?.challengeId, payload?.code),
@@ -6436,6 +7625,9 @@ function registerIpc() {
 }
 
 app.whenReady().then(() => {
+  phase9Record("electron-ready-from-module-load", PHASE9_MODULE_STARTED, {
+    processUptimeMs: Math.round(process.uptime() * 1000),
+  });
   // ── SECURITY: Set Content Security Policy ──────────────────────────
   const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -6502,6 +7694,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  if (projectionUpgradeWorker) void interruptProjectionUpgrade();
   // Install-on-quit: if a downloaded update is pending and the user opted in,
   // trigger the installer now so the machine restarts into the new version.
   if (_updateState.phase === "downloaded" && getUpdatePreferences().autoInstallOnQuit) {

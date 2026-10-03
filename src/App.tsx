@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./store/AuthContext";
 import { ProtectedShell } from "./components/layout/ProtectedShell";
@@ -63,11 +63,33 @@ import { WarrantyCenterPage } from "./pages/WarrantyCenterPage";
 import { PurchasingAssistantPage } from "./pages/PurchasingAssistantPage";
 import { BranchesPage } from "./pages/BranchesPage";
 import { PricingRulesPage } from "./pages/PricingRulesPage";
+import { DiscountCodesPage } from "./pages/DiscountCodesPage";
 import { MarketingPage } from "./pages/MarketingPage";
 import { ShiftsPage } from "./pages/ShiftsPage";
 import { EmployeesPage } from "./pages/EmployeesPage";
 import { ShippingManagementPage } from "./pages/ShippingManagementPage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
+import { useCollectionHydration, type DeferredCollection } from "./store/HydrationContext";
+import { AppBootScreen } from "./components/layout/AppBootScreen";
+import { ProjectionUpgradeGate } from "./components/layout/ProjectionUpgradeGate";
+
+function CollectionHydrationGate({
+  collections,
+  children,
+}: {
+  collections: readonly DeferredCollection[];
+  children: ReactNode;
+}) {
+  const { collectionState, hydrateCollections, areCollectionsLoaded } = useCollectionHydration();
+  const loaded = areCollectionsLoaded(collections);
+  useEffect(() => {
+    if (!loaded) void hydrateCollections(collections);
+  }, [loaded, collections, collectionState, hydrateCollections]);
+  return loaded ? children : <AppBootScreen delayMs={0} />;
+}
+
+const SALES_PRINT_COLLECTIONS = ["customers", "salesInvoices", "salesReturns", "cashEntries"] as const;
+const PURCHASE_PRINT_COLLECTIONS = ["purchaseInvoices", "purchaseReturns", "cashEntries"] as const;
 
 export default function App() {
   const { auth, isDesktop, licenseStatus, ownerExists, ownerCheckPending } = useAuth();
@@ -97,19 +119,20 @@ export default function App() {
   }
 
   return (
+    <ProjectionUpgradeGate enabled={isDesktop && auth.isAuthenticated && !window.desktopAPI?.isInternalPrint}>
     <Routes>
       <Route
         path="/login"
         element={auth.isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
       />
       {/* Print routes (no layout) */}
-      <Route path="/sales/:id/print" element={<SalesInvoicePrintPage />} />
-      <Route path="/sales/:id/receipt" element={<SalesInvoiceReceiptPrintPage />} />
-      <Route path="/purchases/:id/print" element={<PurchaseInvoicePrintPage />} />
-      <Route path="/customers/:id/statement" element={<CustomerStatementPrintPage />} />
-      <Route path="/suppliers/:id/statement" element={<SupplierStatementPrintPage />} />
-      <Route path="/drivers/:id/statement" element={<DriverStatementPrintPage />} />
-      <Route path="/quotations/:id/print" element={<QuotationPrintPage />} />
+      <Route path="/sales/:id/print" element={<CollectionHydrationGate collections={SALES_PRINT_COLLECTIONS}><SalesInvoicePrintPage /></CollectionHydrationGate>} />
+      <Route path="/sales/:id/receipt" element={<CollectionHydrationGate collections={SALES_PRINT_COLLECTIONS}><SalesInvoiceReceiptPrintPage /></CollectionHydrationGate>} />
+      <Route path="/purchases/:id/print" element={<CollectionHydrationGate collections={PURCHASE_PRINT_COLLECTIONS}><PurchaseInvoicePrintPage /></CollectionHydrationGate>} />
+      <Route path="/customers/:id/statement" element={<CollectionHydrationGate collections={SALES_PRINT_COLLECTIONS}><CustomerStatementPrintPage /></CollectionHydrationGate>} />
+      <Route path="/suppliers/:id/statement" element={<CollectionHydrationGate collections={PURCHASE_PRINT_COLLECTIONS}><SupplierStatementPrintPage /></CollectionHydrationGate>} />
+      <Route path="/drivers/:id/statement" element={<CollectionHydrationGate collections={["salesInvoices", "cashEntries"]}><DriverStatementPrintPage /></CollectionHydrationGate>} />
+      <Route path="/quotations/:id/print" element={<CollectionHydrationGate collections={["customers", "quotations"]}><QuotationPrintPage /></CollectionHydrationGate>} />
       <Route path="/products/:id/barcode/print" element={<ProductBarcodePrintPage />} />
 
       <Route
@@ -197,6 +220,16 @@ export default function App() {
         element={
           <ProtectedShell ownerOnly feature="pricingRules">
             <PricingRulesPage />
+          </ProtectedShell>
+        }
+      />
+      <Route
+        path="/discount-codes"
+        element={
+          <ProtectedShell ownerOnly>
+            <CollectionHydrationGate collections={["salesInvoices"]}>
+              <DiscountCodesPage />
+            </CollectionHydrationGate>
           </ProtectedShell>
         }
       />
@@ -555,5 +588,6 @@ export default function App() {
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </ProjectionUpgradeGate>
   );
 }

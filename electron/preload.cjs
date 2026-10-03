@@ -136,6 +136,7 @@ contextBridge.exposeInMainWorld("desktopAPI", {
     savePdfRoute: (route) => ipcRenderer.invoke("print:save-pdf-route", route),
   },
   storage: {
+    adoptPurchase: (revision) => ipcRenderer.invoke("storage:adopt-purchase", revision),
     get: (key) => sync("storage:get", key),
     set: (key, value) => ipcRenderer.invoke("storage:set", key, value),
     remove: (key) => ipcRenderer.invoke("storage:remove", key),
@@ -146,8 +147,32 @@ contextBridge.exposeInMainWorld("desktopAPI", {
     // One call for a whole collection, used for the collections held back from
     // the startup payload.
     getCollection: (name) => ipcRenderer.invoke("storage:get-collection", name),
+    getDashboardSummary: () => ipcRenderer.invoke("storage:get-dashboard-summary"),
     setBatch: (entries) => ipcRenderer.invoke("storage:set-batch", entries),
     commitSale: (entries) => ipcRenderer.invoke("sales:commit", entries),
+  },
+  query: {
+    page: (entity, input) => ipcRenderer.invoke("query:page", entity, input),
+    detail: (entity, id) => ipcRenderer.invoke("query:detail", entity, id),
+    globalSearch: (input) => ipcRenderer.invoke("query:global-search", input),
+    statement: (kind, partyId, input) => ipcRenderer.invoke("query:statement", kind, partyId, input),
+    duesParties: (input) => ipcRenderer.invoke("query:dues-parties", input),
+    catalogSearch: (entity, input) => ipcRenderer.invoke("query:catalog-search", entity, input),
+    catalogDetail: (entity, id) => ipcRenderer.invoke("query:catalog-detail", entity, id),
+    branchStockDetail: (branchId, productId) => ipcRenderer.invoke("query:branch-stock-detail", branchId, productId),
+  },
+  purchases: { create: (command) => ipcRenderer.invoke("purchases:create", command) },
+  sales: {
+    create: (command) => ipcRenderer.invoke("sales:create", command),
+  },
+  projection: {
+    getStatus: () => ipcRenderer.invoke("projection:get-status"),
+    start: () => ipcRenderer.invoke("projection:start"),
+    onProgress: (cb) => {
+      const handler = (_event, status) => cb(status);
+      ipcRenderer.on("projection:progress", handler);
+      return () => ipcRenderer.removeListener("projection:progress", handler);
+    },
   },
   backup: {
     writeFile: (dir, fileName, content, passphrase) =>

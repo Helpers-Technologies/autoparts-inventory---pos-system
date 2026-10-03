@@ -71,7 +71,7 @@ export function ActivationPage() {
   const tone = TONES[state] ?? TONES.inactive;
 
   const activationWhatsappUrl = `https://wa.me/201118445625?text=${encodeURIComponent(
-    "طلب تفعيل / تجديد نسخة — PartFlow — By Helpers Tech\n" +
+    "طلب تفعيل / تجديد نسخة — PartFlow — By Dar Tech\n" +
       "الحالة: " + (statusText[state] || "—") + "\n" +
       "كود الجهاز: " + (licenseStatus.machineCode || "غير متاح")
   )}`;
@@ -104,10 +104,10 @@ export function ActivationPage() {
         {/* Top bar */}
         <header className="flex shrink-0 items-center py-5">
           <div className="flex items-center gap-3">
-            <img src="./helpers_tech_logo.png" alt="Helpers Technologies" className="h-10 w-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,.5)]" />
+            <img src="./dar_tech_logo.png" alt="Dar Tech" className="h-10 w-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,.5)]" />
             <div>
               <div className="text-sm font-bold leading-tight text-white">PartFlow</div>
-              <div className="text-[11px] font-medium text-slate-300">شركة هيلبيرز تيكنولوجي · Helpers Technologies</div>
+              <div className="text-[11px] font-medium text-slate-300">شركة دار تيك · Dar Tech</div>
             </div>
           </div>
         </header>
@@ -194,7 +194,7 @@ export function ActivationPage() {
 
         {/* Footer */}
         <footer className="flex shrink-0 flex-col items-center justify-between gap-2 border-t border-white/[0.07] py-4 text-[12px] text-slate-500 sm:flex-row">
-          <span>تطوير وتصميم Helpers Technologies © 2026</span>
+          <span>تطوير وتصميم Dar Tech © 2026</span>
           <div className="flex items-center gap-3">
             <a
               href="https://wa.me/201118445625"
@@ -210,13 +210,13 @@ export function ActivationPage() {
             </a>
             <span>·</span>
             <a
-              href="https://helpers-tech.com/"
+              href="https://dartecheg.com/"
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1.5 transition-colors hover:text-cyan-300"
             >
               <Globe className="h-3.5 w-3.5" />
-              helpers-tech.com
+              dartecheg.com
             </a>
           </div>
         </footer>

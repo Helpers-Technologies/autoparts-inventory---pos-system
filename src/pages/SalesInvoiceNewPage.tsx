@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBlocker, useNavigate } from "react-router-dom";
-import { ArrowRight, CarFront, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowRight, CarFront, Plus, Save, TicketPercent, Trash2 } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -33,6 +33,7 @@ import { hasPermission } from "../lib/permissions";
 import { parseNumericInput } from "../lib/numberInput";
 import { findProductScanCandidates } from "../lib/partSearch";
 import { aggregateSalesPriceType, salesLinePrice } from "../lib/salesPrice";
+import { evaluateDiscountCode } from "../lib/discountCodes";
 import { SearchableProductSelect } from "../components/ui/SearchableProductSelect";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import {
@@ -185,7 +186,7 @@ export function SalesInvoiceNewPage() {
   );
   const [date, setDate] = useState(() => loadDraft()?.date ?? todayISO());
   const [customerId, setCustomerId] = useState(
-    () => loadDraft()?.customerId ?? customers[0]?.id ?? "",
+    () => loadDraft()?.customerId ?? "",
   );
   const [driverId, setDriverId] = useState(() => loadDraft()?.driverId ?? "");
   const [selectedVehicleId, setSelectedVehicleId] = useState(
@@ -210,6 +211,8 @@ export function SalesInvoiceNewPage() {
   const [discount, setDiscount] = useState<number>(
     () => loadDraft()?.discount ?? 0,
   );
+  const [discountCodeInput, setDiscountCodeInput] = useState("");
+  const [appliedDiscountCodeId, setAppliedDiscountCodeId] = useState("");
   const [amountReceived, setAmountReceived] = useState<number>(
     () => loadDraft()?.amountReceived ?? 0,
   );
@@ -230,10 +233,6 @@ export function SalesInvoiceNewPage() {
     isDirtyRef.current = lines.length > 0;
   }, [lines]);
   const blocker = useBlocker(useCallback(() => isDirtyRef.current, []));
-
-  useEffect(() => {
-    if (!customerId && customers[0]) setCustomerId(customers[0].id);
-  }, [customers, customerId]);
 
   // The car the parts are for. The POS and the quotation already record it;
   // an invoice written on this page did not, so the same sale lost its vehicle
@@ -296,7 +295,7 @@ export function SalesInvoiceNewPage() {
       nextInvoiceNumber(salesInvoices.map((s) => s.invoiceNumber)),
     );
     setDate(todayISO());
-    setCustomerId(customers[0]?.id ?? "");
+    setCustomerId("");
     setDriverId("");
     setPaymentType("cash");
     setPaymentMethod("cash");
@@ -304,6 +303,9 @@ export function SalesInvoiceNewPage() {
     setUseCredit(false);
     setInvoicePriceType(DEFAULT_PRICE_TYPE);
     setPaymentDueDate("");
+    setDiscount(0);
+    setDiscountCodeInput("");
+    setAppliedDiscountCodeId("");
     setAmountReceived(0);
     setNotes("");
     setDelivery(EMPTY_DELIVERY);
@@ -313,6 +315,10 @@ export function SalesInvoiceNewPage() {
   const gross = useMemo(
     () => lines.reduce((a, l) => a + (l.quantity || 0) * (l.price || 0), 0),
     [lines],
+  );
+  const currentPriceType = lines.length ? aggregateSalesPriceType(lines) : invoicePriceType;
+  const appliedDiscountCode = (settings.discountCodes ?? []).find(
+    (item) => item.id === appliedDiscountCodeId,
   );
   const invoiceNet =
     Math.max(0, gross - (discount || 0)) + (delivery.shippingFee || 0);
@@ -351,6 +357,49 @@ export function SalesInvoiceNewPage() {
   useEffect(() => {
     if (paymentType === "cash") setPaymentDueDate("");
   }, [paymentType]);
+
+  useEffect(() => {
+    if (!appliedDiscountCodeId) return;
+    if (!appliedDiscountCode) {
+      setAppliedDiscountCodeId("");
+      setDiscount(0);
+      return;
+    }
+    const result = evaluateDiscountCode({
+      codes: settings.discountCodes ?? [],
+      input: appliedDiscountCode.code,
+      subtotal: gross,
+      customerId,
+      priceType: currentPriceType,
+      invoices: salesInvoices,
+      date,
+    });
+    if (result.ok) setDiscount(result.discount);
+    else {
+      setAppliedDiscountCodeId("");
+      setDiscount(0);
+    }
+  }, [appliedDiscountCode, appliedDiscountCodeId, currentPriceType, customerId, date, gross, salesInvoices, settings.discountCodes]);
+
+  function applyDiscountCode() {
+    const result = evaluateDiscountCode({
+      codes: settings.discountCodes ?? [],
+      input: discountCodeInput,
+      subtotal: gross,
+      customerId,
+      priceType: currentPriceType,
+      invoices: salesInvoices,
+      date,
+    });
+    if (!result.ok) {
+      toast.error("تعذر تطبيق كود الخصم", result.error);
+      return;
+    }
+    setDiscount(result.discount);
+    setDiscountCodeInput(result.code.code);
+    setAppliedDiscountCodeId(result.code.id);
+    toast.success("تم تطبيق كود الخصم", `${result.code.name} — ${formatCurrency(result.discount, settings.currency)}`);
+  }
 
   // A draft saved while the add-on was available must not silently create a
   // deferred sale after the license/package changes.
@@ -522,6 +571,26 @@ export function SalesInvoiceNewPage() {
     if (discount < 0 || discount > gross) {
       toast.error("قيمة الخصم غير صحيحة");
       return;
+    }
+    if (appliedDiscountCodeId) {
+      const result = evaluateDiscountCode({
+        codes: settings.discountCodes ?? [],
+        input: appliedDiscountCode?.code ?? discountCodeInput,
+        subtotal: gross,
+        customerId,
+        priceType: currentPriceType,
+        invoices: salesInvoices,
+        date,
+      });
+      if (!result.ok) {
+        toast.error("تعذر استخدام كود الخصم", result.error);
+        return;
+      }
+      if (Math.abs(result.discount - discount) > 0.001) {
+        setDiscount(result.discount);
+        toast.info("تم تحديث قيمة الخصم", "راجع إجمالي الفاتورة ثم اضغط الحفظ مرة أخرى.");
+        return;
+      }
     }
     if (amountReceived < 0) {
       toast.error("المبلغ المدفوع غير صحيح");
@@ -701,6 +770,8 @@ export function SalesInvoiceNewPage() {
         lines: invLines,
         total: invoiceNet,
         discount: discount > 0 ? discount : undefined,
+        discountCodeId: appliedDiscountCode?.id,
+        discountCode: appliedDiscountCode?.code,
         amountReceived: actualCashReceived,
         overpayment: cashOverpayment > 0 ? cashOverpayment : undefined,
         paymentType: effectivePaymentType,
@@ -1247,6 +1318,27 @@ export function SalesInvoiceNewPage() {
           <CardHeader title="الملخص" />
           <CardBody className="p-0">
             <div className="divide-y divide-line">
+              <div className="space-y-2 px-4 py-3">
+                <div className="flex items-center gap-2 text-xs font-semibold text-ink-muted"><TicketPercent className="h-4 w-4 text-brand-600" />كود الخصم</div>
+                <div className="flex gap-2">
+                  <Input
+                    value={discountCodeInput}
+                    onChange={(event) => {
+                      setDiscountCodeInput(event.target.value.toUpperCase());
+                      if (appliedDiscountCodeId) {
+                        setAppliedDiscountCodeId("");
+                        setDiscount(0);
+                      }
+                    }}
+                    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); applyDiscountCode(); } }}
+                    placeholder="أدخل الكود"
+                    className="h-8 flex-1 font-mono"
+                    dir="ltr"
+                  />
+                  <Button size="sm" variant="outline" onClick={applyDiscountCode}>تطبيق</Button>
+                </div>
+                {appliedDiscountCode ? <Badge tone="green">تم تطبيق {appliedDiscountCode.name}</Badge> : null}
+              </div>
               <SummaryRow
                 label="إجمالي"
                 value={formatCurrency(gross, settings.currency)}
@@ -1264,11 +1356,11 @@ export function SalesInvoiceNewPage() {
                         })
                   }
                   onFocus={(e) => e.currentTarget.select()}
-                  onChange={(e) =>
-                    setDiscount(
-                      Math.max(0, parseNumericInput(e.target.value, discount)),
-                    )
-                  }
+                  onChange={(e) => {
+                    setDiscount(Math.max(0, parseNumericInput(e.target.value, discount)));
+                    setAppliedDiscountCodeId("");
+                    setDiscountCodeInput("");
+                  }}
                   placeholder="0.00"
                   className="w-28 h-8 text-sm"
                 />

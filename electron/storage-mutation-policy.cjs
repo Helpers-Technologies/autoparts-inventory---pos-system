@@ -1,6 +1,7 @@
 "use strict";
+const { assertMoney } = require("./money-safety.cjs");
 const PREFIX = "autoparts_inventory_v1::";
-const CHUNKED = new Set(["salesInvoices", "purchaseInvoices", "stockMovements", "auditLogs", "customers", "products", "salesReturns", "purchaseReturns", "quotations", "shifts", "cashEntries"]);
+const CHUNKED = new Set(["salesInvoices", "purchaseInvoices", "stockMovements", "auditLogs", "customers", "products", "salesReturns", "purchaseReturns", "quotations", "shifts", "cashEntries", "branchStocks"]);
 const ARRAYS = new Set([...CHUNKED, "users", "suppliers", "drivers", "stocktakes", "offlineEmployees", "offlineTransactions", "vehicleMakes", "vehicleModels", "vehicleGenerations", "vehicleEngines", "productFitments", "productAlternatives", "customerVehicles", "warrantyClaims", "branches", "branchStocks", "stockTransfers", "priceTiers", "marketingCampaigns", "marketingContactLog", "shippingProviders", "shippingRates", "deliveryOrders"]);
 const OWNER_KEYS = new Set(["users", "settings", "branches", "priceTiers", "offlineEmployees", "offlineTransactions", "shippingProviders", "shippingRates", "marketingCampaigns", "marketingContactLog", "inventory_auto_backup_internal", "inventory_auto_backups_history", "autoPartsStarterCatalogVersion", "vehicleCatalogSchemaVersion"]);
 const PREFS = new Set(["sidebarCollapsed", "sidebarOpenGroup", "dashboardCards", "dashboardSections", "whatsNew_lastSeenVersion"]);
@@ -45,6 +46,7 @@ function mayWriteKey(user, key) {
   return rules.some(([module, action]) => has(user, module, action));
 }
 function validateRow(name, row) {
+  assertMoney(row, name);
   if (!plain(row)) throw new Error(`invalid_row:${name}`);
   if (name === "branchStocks") {
     if (typeof row.branchId !== "string" || !row.branchId || typeof row.productId !== "string" || !row.productId || !Number.isFinite(row.quantity) || row.quantity < 0) throw new Error("invalid_branch_stock");
@@ -68,6 +70,7 @@ function validateRow(name, row) {
 function validateValue(info, json) {
   if (typeof json !== "string" || json.length > 32 * 1024 * 1024) throw new Error("invalid_storage_value");
   const value = JSON.parse(json), { name, suffix } = info;
+  assertMoney(value, name);
   if (suffix === "meta") {
     if (!plain(value) || value.size !== 500 || !Number.isSafeInteger(value.total) || value.total < 0 || value.chunks !== Math.ceil(value.total / 500)) throw new Error("invalid_manifest");
   } else if (suffix === "order") {
@@ -190,6 +193,7 @@ function authorizeStorageBatch(entries, { user, read, normalize = (_key, value) 
   for (const name of names) {
     const before = readCollection(name, read), after = readCollection(name, projected);
     for (const row of after) validateRow(name, row);
+    if (name === "purchaseInvoices" && after.some(row => !before.some(old => old.id === row.id))) throw new Error("purchase_requires_authoritative_command");
     datasets.set(name, { before, after, diff: changes(before, after, name === "branchStocks" ? row => JSON.stringify([row.branchId, row.productId]) : undefined) });
   }
   if (Object.keys(allowed).length === 0) throw new Error("no_authorized_storage_changes");

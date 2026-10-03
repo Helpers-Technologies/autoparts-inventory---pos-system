@@ -25,20 +25,26 @@ export function registerAuxiliaryPersistenceOwner(read: PersistenceReader): () =
 }
 
 /** Include other state owners in the same awaited graceful-close transaction. */
-export function shutdownPersistenceEntries(state: Record<string, unknown>): Record<string, unknown> {
+export function shutdownPersistenceEntries(
+  state: Record<string, unknown>,
+  omittedKeys: ReadonlySet<string> = new Set(),
+): Record<string, unknown> {
   const auxiliary: Record<string, unknown> = {};
   for (const read of auxiliaryOwners.values()) {
     for (const [key, value] of Object.entries(read(state))) {
       if (AUXILIARY_PERSISTENCE_KEYS.has(key)) auxiliary[key] = value;
     }
   }
-  return { ...auxiliary, ...stateOwnedPersistenceEntries(state) };
+  return { ...auxiliary, ...stateOwnedPersistenceEntries(state, omittedKeys) };
 }
 
 export function stateOwnedPersistenceEntries(
   state: Record<string, unknown>,
+  omittedKeys: ReadonlySet<string> = new Set(),
 ): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(state).filter(([key]) => !DIRECT_PERSISTENCE_KEYS.has(key)),
+    Object.entries(state).filter(
+      ([key]) => !DIRECT_PERSISTENCE_KEYS.has(key) && !omittedKeys.has(key),
+    ),
   );
 }

@@ -174,12 +174,21 @@ function rankedMatches<T>(
   items: T[],
   score: (item: T) => number
 ): T[] {
-  return items
-    .map((item, index) => ({ item, index, score: score(item) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, MAX_PER_KIND)
-    .map((entry) => entry.item);
+  // Keep only the best bounded result set while scanning. Sorting every
+  // matching row made a broad product term allocate and sort thousands of
+  // temporary entries even though the dialog renders five per kind.
+  const best: Array<{ item: T; index: number; score: number }> = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const itemScore = score(item);
+    if (itemScore <= 0) continue;
+    let position = best.findIndex((entry) =>
+      itemScore > entry.score || (itemScore === entry.score && index < entry.index));
+    if (position < 0) position = best.length;
+    if (position < MAX_PER_KIND) best.splice(position, 0, { item, index, score:itemScore });
+    if (best.length > MAX_PER_KIND) best.pop();
+  }
+  return best.map((entry) => entry.item);
 }
 
 /**

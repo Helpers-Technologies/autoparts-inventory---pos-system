@@ -41,6 +41,7 @@ import {
   Clock3,
   PanelRightOpen,
   PanelRightClose,
+  TicketPercent,
 } from "lucide-react";
 import { hasPermission } from "../lib/permissions";
 import { useAuth } from "../store/AuthContext";
@@ -58,9 +59,11 @@ import { Button } from "../components/ui/Button";
 import { Input, Select } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
 import { todayISO, uid } from "../lib/utils";
+import { evaluateDiscountCode } from "../lib/discountCodes";
 import { useVirtualizer } from "../lib/useVirtualizer";
 import {
   buildProductSearchIndex,
+  canReuseProductSearchIndex,
   searchProductSearchIndex,
 } from "../lib/partSearchIndex";
 import type {
@@ -69,6 +72,7 @@ import type {
   PartAlternativeRelation,
   PaymentMethod,
   Product,
+  Customer,
   SalesInvoice,
   SalesPaymentType,
   SalesPriceType,
@@ -115,6 +119,7 @@ import { DeliveryReviewDialog } from "../features/shipping/DeliveryReviewDialog"
 import { BOSTA_PROVIDER_ID, prepareDeliveryOrder, useShipping } from "../store/ShippingContext";
 import { ShippingProviderLogo } from "../features/shipping/ShippingProviderLogo";
 import { useAppLayoutControls } from "../components/layout/AppLayoutControls";
+import { useCollectionHydration } from "../store/HydrationContext";
 
 // ── Held (parked) invoices — persisted in localStorage ──────────────────────
 interface HeldInvoice {
@@ -208,6 +213,7 @@ interface POSProductCardProps {
   hasAlternatives: boolean;
   price: number;
   selectedVehicle: boolean;
+  canIncrement: boolean;
   onClick: () => void;
 }
 
@@ -219,6 +225,7 @@ const POSProductCard = memo(function POSProductCard({
   hasAlternatives,
   price,
   selectedVehicle,
+  canIncrement,
   onClick,
 }: POSProductCardProps) {
   return (
@@ -228,6 +235,7 @@ const POSProductCard = memo(function POSProductCard({
       // the category tabs share words with the part names, so there is no
       // text-based selector that reliably means "a product tile".
       data-testid="pos-product-tile"
+      data-pos-can-increment={canIncrement ? "true" : "false"}
       onClick={onClick}
       disabled={isOutOfStock && !hasAlternatives}
       className={`flex flex-col text-right justify-between p-2.5 border rounded-xl bg-surface transition-all select-none relative ${
@@ -278,7 +286,7 @@ const POSProductCard = memo(function POSProductCard({
           </Badge>
         ) : null}
         <h3
-          className="font-semibold text-xs text-ink leading-snug line-clamp-2"
+          className="font-semibold text-xs text-ink leading-snug line-clamp-3"
           title={prod.name}
         >
           {prod.name}
@@ -321,15 +329,39 @@ export function POSPage() {
   const shippingManagementEnabled = isEnabled("shippingManagement");
   const toast = useToast();
   const { sidebarOpen, toggleSidebar } = useAppLayoutControls();
+  const { hydrateCollections } = useCollectionHydration();
 
   const products = useMemo(
     () => allProducts.filter((p) => !p.archived),
     [allProducts],
   );
-  const customers = useMemo(
+  const hydratedCustomers = useMemo(
     () => allCustomers.filter((c) => !c.archived),
     [allCustomers],
   );
+  const queryBackedCustomers = Boolean(window.desktopAPI?.query?.catalogSearch);
+  const [customerMatches, setCustomerMatches] = useState<Customer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<(Customer & { financialSummary?: { balance?: number } }) | null>(null);
+  const customerSearchRequest = useRef(0);
+  const searchCustomers = useCallback((rawQuery: string) => {
+    if (!queryBackedCustomers) return;
+    const request = ++customerSearchRequest.current;
+    const timer = window.setTimeout(async () => {
+      const result = await window.desktopAPI!.query!.catalogSearch("customers", { q: rawQuery, limit: 25 });
+      if (request !== customerSearchRequest.current || !result.ok) return;
+      setCustomerMatches((result.rows ?? []).map((row) => ({
+        id: row.id, name: row.name, code: row.code, phone: row.phone,
+        createdAt: "", archived: false,
+      })));
+    }, rawQuery ? 120 : 0);
+    return () => window.clearTimeout(timer);
+  }, [queryBackedCustomers]);
+  useEffect(() => searchCustomers(""), [searchCustomers]);
+  const customers = useMemo(() => {
+    if (!queryBackedCustomers) return hydratedCustomers;
+    if (!selectedCustomer || customerMatches.some((customer) => customer.id === selectedCustomer.id)) return customerMatches;
+    return [selectedCustomer, ...customerMatches];
+  }, [queryBackedCustomers, hydratedCustomers, customerMatches, selectedCustomer]);
 
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
@@ -341,6 +373,17 @@ export function POSPage() {
       relation: PartAlternativeRelation;
     }>;
   } | null>(null);
+
+  const openCustomerDialog = useCallback(async (name = "") => {
+    if (queryBackedCustomers && !(await hydrateCollections(["customers"]))) return;
+    setPendingCustomerName(name);
+    setIsCustomerDialogOpen(true);
+  }, [queryBackedCustomers, hydrateCollections]);
+
+  const openReturnLookup = useCallback(async () => {
+    if (queryBackedCustomers && !(await hydrateCollections(["salesInvoices", "salesReturns", "cashEntries"]))) return;
+    setIsReturnLookupOpen(true);
+  }, [queryBackedCustomers, hydrateCollections]);
 
   // Shift Dialogs State
   const [isOpenShiftOpen, setIsOpenShiftOpen] = useState(false);
@@ -379,8 +422,9 @@ export function POSPage() {
   }, [activeShift, canOpenShift, isCloseShiftOpen, isShiftReportOpen]);
 
   // Form State
-  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState(() => window.desktopAPI?.sales?.create ? "تلقائي" : "");
   useEffect(() => {
+    if (window.desktopAPI?.sales?.create) return;
     setInvoiceNumber(
       nextInvoiceNumber(salesInvoices.map((s) => s.invoiceNumber)),
     );
@@ -392,6 +436,8 @@ export function POSPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [useCredit, setUseCredit] = useState(false);
   const [discount, setDiscount] = useState<number>(0);
+  const [discountCodeInput, setDiscountCodeInput] = useState("");
+  const [appliedDiscountCodeId, setAppliedDiscountCodeId] = useState("");
   const [amountReceived, setAmountReceived] = useState<number>(0);
   const [notes, setNotes] = useState("");
   const [delivery, setDelivery] = useState<DeliveryDraft>(EMPTY_DELIVERY);
@@ -488,12 +534,21 @@ export function POSPage() {
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
-  // Set default customer
   useEffect(() => {
-    if (!customerId && customers[0]) {
-      setCustomerId(customers[0].id);
+    if (!customerId) {
+      setSelectedCustomer(null);
+      return;
     }
-  }, [customers, customerId]);
+    if (!queryBackedCustomers) {
+      setSelectedCustomer(hydratedCustomers.find((customer) => customer.id === customerId) ?? null);
+      return;
+    }
+    let active = true;
+    void window.desktopAPI!.query!.catalogDetail("customers", customerId).then((result) => {
+      if (active && result.ok) setSelectedCustomer((result.row as typeof selectedCustomer) ?? null);
+    });
+    return () => { active = false; };
+  }, [customerId, queryBackedCustomers, hydratedCustomers]);
 
   const customerVehicles = useMemo(
     () =>
@@ -552,10 +607,20 @@ export function POSPage() {
 
   const deferredQuery = useDeferredValue(searchQuery);
 
-  const productIndex = useMemo(
-    () => buildProductSearchIndex(products),
-    [products],
-  );
+  const productIndexCache = useRef<{
+    products: Product[];
+    index: ReturnType<typeof buildProductSearchIndex>;
+  } | null>(null);
+  const productIndex = useMemo(() => {
+    const cached = productIndexCache.current;
+    if (cached && canReuseProductSearchIndex(cached.products, products)) {
+      cached.products = products;
+      return cached.index;
+    }
+    const index = buildProductSearchIndex(products);
+    productIndexCache.current = { products, index };
+    return index;
+  }, [products]);
 
   // Filter products by category and search query using in-memory inverted index
   const filteredProducts = useMemo(() => {
@@ -577,7 +642,7 @@ export function POSPage() {
         !compatibilityOnly ||
         fitmentStatus === "compatible";
       return matchesCategory && matchesVehicle;
-    });
+    }).slice(0, 250);
   }, [
     compatibilityOnly,
     deferredQuery,
@@ -607,10 +672,16 @@ export function POSPage() {
     () => lines.reduce((a, l) => a + (l.quantity || 0) * (l.price || 0), 0),
     [lines],
   );
+  const currentPriceType = aggregateSalesPriceType(lines);
+  const appliedDiscountCode = (settings.discountCodes ?? []).find(
+    (item) => item.id === appliedDiscountCodeId,
+  );
   const itemsNet = Math.max(0, gross - (discount || 0));
   const invoiceNet = itemsNet + (delivery.shippingFee || 0);
   const creditAvailable = customerId
-    ? Math.max(0, -customerBalance(customerId))
+    ? Math.max(0, -(queryBackedCustomers
+        ? Number(selectedCustomer?.financialSummary?.balance || 0)
+        : customerBalance(customerId)))
     : 0;
 
   const { creditApplied, remainingDue, customerChange } =
@@ -644,6 +715,49 @@ export function POSPage() {
   useEffect(() => {
     if (delivery.collectOnDelivery) setUseCredit(false);
   }, [delivery.collectOnDelivery]);
+
+  useEffect(() => {
+    if (!appliedDiscountCodeId) return;
+    if (!appliedDiscountCode) {
+      setAppliedDiscountCodeId("");
+      setDiscount(0);
+      return;
+    }
+    const result = evaluateDiscountCode({
+      codes: settings.discountCodes ?? [],
+      input: appliedDiscountCode.code,
+      subtotal: gross,
+      customerId,
+      priceType: currentPriceType,
+      invoices: salesInvoices,
+      date,
+    });
+    if (result.ok) setDiscount(result.discount);
+    else {
+      setAppliedDiscountCodeId("");
+      setDiscount(0);
+    }
+  }, [appliedDiscountCode, appliedDiscountCodeId, currentPriceType, customerId, date, gross, salesInvoices, settings.discountCodes]);
+
+  function applyDiscountCode() {
+    const result = evaluateDiscountCode({
+      codes: settings.discountCodes ?? [],
+      input: discountCodeInput,
+      subtotal: gross,
+      customerId,
+      priceType: currentPriceType,
+      invoices: salesInvoices,
+      date,
+    });
+    if (!result.ok) {
+      toast.error("تعذر تطبيق كود الخصم", result.error);
+      return;
+    }
+    setDiscount(result.discount);
+    setDiscountCodeInput(result.code.code);
+    setAppliedDiscountCodeId(result.code.id);
+    toast.success("تم تطبيق كود الخصم", `${result.code.name} — ${formatCurrency(result.discount)}`);
+  }
 
   const branchAvailableAsBaseUnits = useCallback(
     (product: Product) => {
@@ -899,6 +1013,26 @@ export function POSPage() {
       toast.error("قيمة الخصم غير صحيحة");
       return;
     }
+    if (appliedDiscountCodeId) {
+      const result = evaluateDiscountCode({
+        codes: settings.discountCodes ?? [],
+        input: appliedDiscountCode?.code ?? discountCodeInput,
+        subtotal: gross,
+        customerId,
+        priceType: currentPriceType,
+        invoices: salesInvoices,
+        date,
+      });
+      if (!result.ok) {
+        toast.error("تعذر استخدام كود الخصم", result.error);
+        return;
+      }
+      if (Math.abs(result.discount - discount) > 0.001) {
+        setDiscount(result.discount);
+        toast.info("تم تحديث قيمة الخصم", "راجع إجمالي الفاتورة ثم اضغط إتمام البيع مرة أخرى.");
+        return;
+      }
+    }
     if (amountReceived < 0) {
       toast.error("المبلغ المدفوع غير صحيح");
       return;
@@ -915,7 +1049,13 @@ export function POSPage() {
       return;
     }
 
-    const customer = customers.find((c) => c.id === customerId)!;
+    const customer = queryBackedCustomers
+      ? selectedCustomer
+      : customers.find((c) => c.id === customerId);
+    if (!customer) {
+      toast.error("تعذر تحميل بيانات العميل", "أعد اختيار العميل ثم حاول مرة أخرى");
+      return;
+    }
     if (delivery.method !== "pickup") {
       if (
         !delivery.address?.governorate ||
@@ -975,7 +1115,9 @@ export function POSPage() {
       customer.creditLimit &&
       customer.creditLimit > 0
     ) {
-      const currentDebt = Math.max(0, customerBalance(customerId));
+      const currentDebt = Math.max(0, queryBackedCustomers
+        ? Number(selectedCustomer?.financialSummary?.balance || 0)
+        : customerBalance(customerId));
       const projectedDebt = currentDebt + remainingDue;
       if (projectedDebt > customer.creditLimit) {
         toast.error(
@@ -1015,7 +1157,10 @@ export function POSPage() {
     const deliveryOrderId =
       delivery.method === "pickup" ? undefined : uid("delivery");
     const invoiceId = uid("sal");
-    const branchStocks = selectedBranchId
+    // Desktop sales:create owns branch stock authoritatively. Building a full
+    // 25K-row replacement snapshot here was unused by that path and encouraged
+    // a second renderer writer after every successful sale.
+    const branchStocks = selectedBranchId && !window.desktopAPI?.sales?.create
       ? branchStocksAfterSale(
           pro.branchStocks,
           selectedBranchId,
@@ -1073,6 +1218,8 @@ export function POSPage() {
         lines: invLines,
         total: invoiceNet,
         discount: discount > 0 ? discount : undefined,
+        discountCodeId: appliedDiscountCode?.id,
+        discountCode: appliedDiscountCode?.code,
         amountReceived: actualCashReceived,
         overpayment: cashOverpayment > 0 ? cashOverpayment : undefined,
         paymentType:
@@ -1134,7 +1281,7 @@ export function POSPage() {
 
   // ── Hold / Resume invoice helpers ──
   const buildHeldInvoice = (): HeldInvoice => {
-    const customer = customers.find((c) => c.id === customerId);
+    const customer = queryBackedCustomers ? selectedCustomer : customers.find((c) => c.id === customerId);
     return {
       id: uid("held"),
       heldAt: new Date().toISOString(),
@@ -1194,6 +1341,8 @@ export function POSPage() {
     setCustomerId(held.customerId);
     setLines(held.lines);
     setDiscount(held.discount);
+    setDiscountCodeInput("");
+    setAppliedDiscountCodeId("");
     setNotes(held.notes);
     setPaymentType(held.paymentType);
     setPaymentMethod(held.paymentMethod);
@@ -1222,7 +1371,7 @@ export function POSPage() {
         holdCurrentInvoice();
       } else if (e.key === "F9") {
         e.preventDefault();
-        if (canAddReturn) setIsReturnLookupOpen(true);
+        if (canAddReturn) void openReturnLookup();
       } else if (e.key === "F10") {
         e.preventDefault();
         void submitSale();
@@ -1236,6 +1385,8 @@ export function POSPage() {
   function handleResetSale() {
     setLines([]);
     setDiscount(0);
+    setDiscountCodeInput("");
+    setAppliedDiscountCodeId("");
     setAmountReceived(0);
     setUseCredit(false);
     setNotes("");
@@ -1364,7 +1515,7 @@ export function POSPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setIsReturnLookupOpen(true)}
+                  onClick={() => void openReturnLookup()}
                   title="مرتجع مبيعات سريع (F9)"
                   className="h-8 text-xs px-2.5"
                 >
@@ -1435,7 +1586,7 @@ export function POSPage() {
             {/* Top row: Customer & Vehicle side-by-side */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {/* Customer select */}
-              <div className="flex items-center gap-1 min-w-0">
+              <div className="flex items-center gap-1 min-w-0" data-testid="pos-customer-select">
                 <span className="text-[11px] font-semibold text-ink-muted shrink-0 flex items-center gap-0.5">
                   <User className="w-3.5 h-3.5 text-brand-600" /> العميل:
                 </span>
@@ -1450,18 +1601,17 @@ export function POSPage() {
                   placeholder="اختر العميل..."
                   searchPlaceholder="ابحث باسم العميل..."
                   minChars={0}
+                  onSearchQuery={searchCustomers}
                   className="flex-1 min-w-0 text-xs"
                   onCreate={(query) => {
-                    setPendingCustomerName(query);
-                    setIsCustomerDialogOpen(true);
+                    void openCustomerDialog(query);
                   }}
                   createLabel={`أضف عميل: "${pendingCustomerName}"`}
                 />
                 <button
                   type="button"
                   onClick={() => {
-                    setPendingCustomerName("");
-                    setIsCustomerDialogOpen(true);
+                    void openCustomerDialog();
                   }}
                   className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink transition-colors shadow-sm"
                   title="إضافة عميل جديد"
@@ -1473,6 +1623,8 @@ export function POSPage() {
                   onClose={() => setIsCustomerDialogOpen(false)}
                   initialName={pendingCustomerName}
                   onCreated={(created) => {
+                    setSelectedCustomer(created);
+                    setCustomerMatches((current) => [created, ...current.filter((customer) => customer.id !== created.id)]);
                     setCustomerId(created.id);
                     setIsCustomerDialogOpen(false);
                   }}
@@ -1724,6 +1876,7 @@ export function POSPage() {
                           <div className="inline-flex items-center border border-line rounded-lg bg-surface">
                             <button
                               type="button"
+                              data-testid="pos-line-decrease"
                               onClick={() =>
                                 updateLineQty(line.id, line.quantity - 1, true)
                               }
@@ -1733,6 +1886,7 @@ export function POSPage() {
                             </button>
                             <input
                               type="number"
+                              data-testid="pos-line-quantity"
                               value={line.quantity}
                               onChange={(e) => {
                                 const v = parseInt(e.target.value);
@@ -1742,6 +1896,7 @@ export function POSPage() {
                             />
                             <button
                               type="button"
+                              data-testid="pos-line-increase"
                               onClick={() =>
                                 updateLineQty(line.id, line.quantity + 1, true)
                               }
@@ -1759,6 +1914,7 @@ export function POSPage() {
                         <td className="py-2 px-1 text-left">
                           <button
                             type="button"
+                            data-testid="pos-line-remove"
                             onClick={() => removeLine(line.id)}
                             className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
                           >
@@ -1837,6 +1993,31 @@ export function POSPage() {
                   </span>
                 </button> : null}
 
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-line bg-surface-muted/30 p-2">
+                  <TicketPercent className="h-4 w-4 shrink-0 text-brand-600" />
+                  <Input
+                    value={discountCodeInput}
+                    onChange={(event) => {
+                      setDiscountCodeInput(event.target.value.toUpperCase());
+                      if (appliedDiscountCodeId) {
+                        setAppliedDiscountCodeId("");
+                        setDiscount(0);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        applyDiscountCode();
+                      }
+                    }}
+                    placeholder="أدخل كود الخصم"
+                    className="h-8 min-w-[160px] flex-1 text-right font-mono"
+                    dir="ltr"
+                  />
+                  <Button size="sm" variant="outline" onClick={applyDiscountCode}>تطبيق</Button>
+                  {appliedDiscountCode ? <Badge tone="green">{appliedDiscountCode.name}</Badge> : null}
+                </div>
+
                 {/* Financial summary: large, scannable amounts with an explicit COD state. */}
                 <div className="grid min-h-[92px] grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.82fr)_minmax(0,1.08fr)_minmax(0,1fr)] overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
                   <div className="flex min-w-0 flex-col justify-center bg-brand-600 px-3.5 ring-1 ring-inset ring-white/10">
@@ -1870,11 +2051,11 @@ export function POSPage() {
                     <input
                       type="number"
                       value={discount}
-                      onChange={(event) =>
-                        setDiscount(
-                          Math.max(0, Number(event.target.value) || 0),
-                        )
-                      }
+                      onChange={(event) => {
+                        setDiscount(Math.max(0, Number(event.target.value) || 0));
+                        setAppliedDiscountCodeId("");
+                        setDiscountCodeInput("");
+                      }}
                       className="mt-1.5 h-9 w-full min-w-0 rounded-lg border border-line bg-surface-muted/30 px-2 text-center text-base font-extrabold tabular-nums text-ink outline-none transition focus:border-brand-500 focus:bg-surface [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     />
                   </label>
@@ -2164,6 +2345,7 @@ export function POSPage() {
                       hasAlternatives={hasAlternatives}
                       price={price}
                       selectedVehicle={!!selectedVehicle}
+                      canIncrement={quantityAsBaseUnits(prod, 2, DEFAULT_PRICE_TYPE) <= availableStock}
                       onClick={() => {
                         if (isOutOfStock && hasAlternatives) {
                           setStockAlternative({ product: prod, alternatives });
@@ -2345,10 +2527,12 @@ export function POSPage() {
                   lines={completedInvoice.lines}
                   total={completedInvoice.total}
                   discount={completedInvoice.discount}
+                  discountCode={completedInvoice.discountCode}
                   amountPaid={completedInvoice.amountReceived}
                   remaining={completedInvoice.remaining}
                   notes={completedInvoice.notes}
                   paymentLabel={paymentLabel}
+                  paymentType={completedInvoice.paymentType}
                   paymentDueDate={completedInvoice.paymentDueDate}
                   customerBalance={customerBalance(completedInvoice.customerId)}
                   customerName={completedInvoice.customerName}

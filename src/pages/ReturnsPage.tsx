@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useInvoicing } from "../store/InvoicingContext";
 import { useAuth } from "../store/AuthContext";
@@ -13,7 +13,9 @@ import { formatCurrency, formatDate } from "../lib/format";
 import { hasPermission } from "../lib/permissions";
 import { inRange } from "../lib/utils";
 import { SalesReturnDialog } from "../features/returns/SalesReturnDialog";
-import type { SalesInvoice } from "../types";
+import type { PurchaseReturn, SalesInvoice, SalesReturn } from "../types";
+import { useQueryPage } from "../lib/useQueryPage";
+import { useCollectionHydration } from "../store/HydrationContext";
 
 export function ReturnsPage() {
   const { salesReturns, purchaseReturns, salesInvoices } = useInvoicing();
@@ -30,6 +32,12 @@ export function ReturnsPage() {
   const [refundMode, setRefundMode] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [page, setPage] = useState(0);
+  const queryBacked = Boolean(window.desktopAPI?.query);
+  const salesRemote = useQueryPage<SalesReturn>("salesReturns", { q, partyId, refundMode, from, to, page, pageSize: 50 }, queryBacked && tab === "sales");
+  const purchasesRemote = useQueryPage<PurchaseReturn>("purchaseReturns", { q, partyId, from, to, page, pageSize: 50 }, queryBacked && tab === "purchases");
+  const { hydrateCollections } = useCollectionHydration();
+  useEffect(() => setPage(0), [q, partyId, refundMode, from, to, tab]);
 
   // Modal for initiating a return by searching invoice / receipt number
   const [isInvoiceSearchOpen, setIsInvoiceSearchOpen] = useState(false);
@@ -55,19 +63,19 @@ export function ReturnsPage() {
 
   const salesParties = useMemo(() => {
     const map = new Map<string, string>();
-    salesReturns.forEach((r) => map.set(r.customerId, r.customerName));
+    (queryBacked ? salesRemote.rows : salesReturns).forEach((r) => map.set(r.customerId, r.customerName));
     return [...map.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, "ar"));
-  }, [salesReturns]);
+  }, [queryBacked, salesRemote.rows, salesReturns]);
 
   const purchaseParties = useMemo(() => {
     const map = new Map<string, string>();
-    purchaseReturns.forEach((r) => map.set(r.supplierId, r.supplierName));
+    (queryBacked ? purchasesRemote.rows : purchaseReturns).forEach((r) => map.set(r.supplierId, r.supplierName));
     return [...map.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, "ar"));
-  }, [purchaseReturns]);
+  }, [purchaseReturns, purchasesRemote.rows, queryBacked]);
 
   const filteredSalesReturns = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -117,9 +125,11 @@ export function ReturnsPage() {
         inv.date.includes(term)
     ).slice(0, 15);
   }, [salesInvoices, invoiceQuery]);
+  const visibleSalesReturns = queryBacked ? salesRemote.rows : filteredSalesReturns;
+  const visiblePurchaseReturns = queryBacked ? purchasesRemote.rows : filteredPurchaseReturns;
 
   const activeParties = tab === "sales" ? salesParties : purchaseParties;
-  const activeCount = tab === "sales" ? filteredSalesReturns.length : filteredPurchaseReturns.length;
+  const activeCount = queryBacked ? (tab === "sales" ? salesRemote.total : purchasesRemote.total) : (tab === "sales" ? filteredSalesReturns.length : filteredPurchaseReturns.length);
 
   return (
     <>
@@ -130,7 +140,8 @@ export function ReturnsPage() {
           canCreateReturn && (
             <Button
               variant="primary"
-              onClick={() => {
+              onClick={async () => {
+                if (queryBacked && !(await hydrateCollections(["customers", "salesInvoices", "salesReturns", "cashEntries"]))) return;
                 setInvoiceQuery("");
                 setIsInvoiceSearchOpen(true);
               }}
@@ -229,14 +240,14 @@ export function ReturnsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {filteredSalesReturns.length === 0 ? (
+                {visibleSalesReturns.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-ink-muted">
                       لا توجد مرتجعات مبيعات مطابقة للفلاتر
                     </td>
                   </tr>
                 ) : (
-                  filteredSalesReturns.map((r) => (
+                  visibleSalesReturns.map((r) => (
                     <tr key={r.id} className="hover:bg-surface-muted">
                       <td className="px-4 py-3 font-medium text-brand-700">{r.returnNumber}</td>
                       <td className="px-4 py-3 text-ink-muted">{formatDate(r.date)}</td>
@@ -271,14 +282,14 @@ export function ReturnsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {filteredPurchaseReturns.length === 0 ? (
+                {visiblePurchaseReturns.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-ink-faint">
                       لا توجد مرتجعات مشتريات مطابقة للفلاتر
                     </td>
                   </tr>
                 ) : (
-                  filteredPurchaseReturns.map((r) => (
+                  visiblePurchaseReturns.map((r) => (
                     <tr key={r.id} className="hover:bg-surface-muted">
                       <td className="px-4 py-3 font-medium text-brand-700">{r.returnNumber}</td>
                       <td className="px-4 py-3 text-ink-muted">{formatDate(r.date)}</td>
@@ -296,6 +307,13 @@ export function ReturnsPage() {
             </table>
           </div>
         )}
+        {queryBacked && activeCount > 50 ? (
+          <div className="flex items-center justify-between border-t border-line p-4">
+            <Button variant="outline" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>السابق</Button>
+            <span className="text-xs text-ink-muted">صفحة {page + 1} من {Math.ceil(activeCount / 50)}</span>
+            <Button variant="outline" disabled={(page + 1) * 50 >= activeCount} onClick={() => setPage((value) => value + 1)}>التالي</Button>
+          </div>
+        ) : null}
       </div>
 
       {/* Invoice Search Modal to Initiate Return */}

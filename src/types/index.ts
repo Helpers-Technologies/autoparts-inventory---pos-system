@@ -3,6 +3,24 @@ export type ID = string;
 export type PaymentStatus = "paid" | "partial" | "unpaid";
 export type SalesPaymentType = "cash" | "account";
 export type SalesPriceType = "wholesale" | "retail";
+export type DiscountCodeType = "percentage" | "fixed";
+
+export interface DiscountCode {
+  id: ID;
+  code: string;
+  name: string;
+  type: DiscountCodeType;
+  value: number;
+  maxDiscount?: number;
+  minOrderTotal?: number;
+  startsAt?: string;
+  expiresAt?: string;
+  usageLimit?: number;
+  perCustomerLimit?: number;
+  allowedPriceTypes?: SalesPriceType[];
+  active: boolean;
+  createdAt: string;
+}
 export type MfaPolicyMode =
   "disabled" | "optional" | "required_owner" | "required_all";
 export type LoginResult = {
@@ -400,6 +418,8 @@ export interface SalesInvoice {
   lines: InvoiceLine[];
   total: number;
   discount?: number;
+  discountCodeId?: ID;
+  discountCode?: string;
   amountReceived: number;
   remaining: number;
   overpayment?: number;
@@ -746,6 +766,9 @@ export interface Settings {
   companyNameAr: string;
   ownerName: string;
   ownerPhone: string;
+  /** Public shop phone printed on invoices; separate from the owner's private contact. */
+  shopPhone?: string;
+  discountCodes?: DiscountCode[];
   invoiceFooter: string;
   /** Custom WhatsApp message template for sales/purchase invoices. */
   whatsappInvoiceTemplate?: string;

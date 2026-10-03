@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { phase9Mark } from "../lib/phase9Profile";
 import { useNavigate } from "react-router-dom";
 import { Search, PackageSearch, Users, Truck, FileText, ShoppingCart, ClipboardList, X } from "lucide-react";
 import { useCatalog } from "../store/CatalogContext";
@@ -13,6 +14,7 @@ import {
   type SearchResult,
   type SearchResultKind,
 } from "../lib/globalSearch";
+import { buildProductSearchIndex, searchProductSearchIndex } from "../lib/partSearchIndex";
 
 const KIND_ICONS: Record<SearchResultKind, typeof Search> = {
   product: PackageSearch,
@@ -75,7 +77,17 @@ export function GlobalSearch({
     quotations: hasPermission(currentUser, "salesInvoices") && isEnabled("quotations"),
   }), [currentUser, isEnabled]);
 
-  const catalog = useMemo(() => ({
+  const catalog = useMemo(() => {
+    if (!open || window.desktopAPI?.query) {
+      return { products: [], customers: [], suppliers: [], salesInvoices: [], purchaseInvoices: [], quotations: [] };
+    }
+    phase9Mark("global-search-catalog-start", {
+      products: products.length,
+      customers: customers.length,
+      salesInvoices: salesInvoices.length,
+      purchaseInvoices: purchaseInvoices.length,
+    });
+    const next = ({
     products: products.filter((p) => !p.archived).map((p) => ({
       id: p.id,
       name: p.name,
@@ -108,17 +120,79 @@ export function GlobalSearch({
       branchName: optionalText(q, "branchName"),
       partTerms: invoicePartTerms(q.lines),
     })),
-  }), [products, customers, suppliers, salesInvoices, purchaseInvoices, quotations, barcodeEnabled]);
+    });
+    phase9Mark("global-search-catalog-complete");
+    return next;
+  }, [open, products, customers, suppliers, salesInvoices, purchaseInvoices, quotations, barcodeEnabled]);
 
-  const results = useMemo(
+  const localResults = useMemo(
     () => globalSearch(query, catalog, permissions),
     [query, catalog, permissions]
   );
+  const [remoteResults, setRemoteResults] = useState<SearchResult[]>([]);
+  // Product data is already resident for ordinary catalog/POS work. Normalize
+  // it once per catalog change, then shape only the query's candidates rather
+  // than allocating 25K result objects for every keystroke.
+  const desktopProductIndex = useMemo(
+    () => buildProductSearchIndex(products),
+    [products],
+  );
+  const desktopProductCatalog = useMemo(() => searchProductSearchIndex(
+    desktopProductIndex,
+    query,
+    products,
+  ).map((product) => ({
+      id: product.id,
+      name: product.name,
+      code: product.code,
+      barcode: barcodeEnabled ? product.barcode : undefined,
+      partNumber: product.partNumber,
+      oemNumbers: product.oemNumbers,
+      partBrand: product.partBrand,
+    })), [desktopProductIndex, query, products, barcodeEnabled]);
+  const localProductResults = useMemo(() => {
+    if (!window.desktopAPI?.query || !permissions.products) return [];
+    return globalSearch(query, {
+      products: desktopProductCatalog,
+      customers: [], suppliers: [], salesInvoices: [], purchaseInvoices: [], quotations: [],
+    }, { products: true, customers: false, suppliers: false, salesInvoices: false, purchaseInvoices: false, quotations: false });
+  }, [query, desktopProductCatalog, permissions.products]);
+  const results = window.desktopAPI?.query ? [...localProductResults, ...remoteResults].slice(0, 30) : localResults;
+
+  useEffect(() => {
+    const api = window.desktopAPI?.query;
+    if (!open || !api || query.trim().length < 2) {
+      setRemoteResults([]);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      phase9Mark("global-search-query-start", { queryLength: query.trim().length });
+      void api.globalSearch({ q: query }).then((response) => {
+        if (!active) return;
+        const rows = response.ok && Array.isArray(response.rows) ? response.rows : [];
+        setRemoteResults(rows.map((row) => ({
+          id: row.id,
+          kind: row.kind as SearchResultKind,
+          title: row.label,
+          subtitle: row.subtitle,
+          to: row.to,
+        })));
+        phase9Mark("global-search-query-complete", {
+          rows: rows.length,
+          queryMs: response.queryMs,
+          payloadBytes: response.payloadBytes,
+        });
+      });
+    }, 120);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [open, query]);
 
   // Reset state when opened
   useEffect(() => {
     if (open) {
       setQuery("");
+      setRemoteResults([]);
       setActiveIdx(0);
       setTimeout(() => inputRef.current?.focus(), 30);
     }

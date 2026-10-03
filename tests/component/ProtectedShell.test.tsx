@@ -35,6 +35,21 @@ vi.mock("../../src/store/AuthContext", () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+vi.mock("../../src/store/HydrationContext", () => ({
+  useCollectionHydration: () => ({
+    collectionState: {},
+    hydrateCollections: vi.fn(async () => true),
+    areCollectionsLoaded: () => true,
+  }),
+}));
+
+vi.mock("../../src/store/InvoicingContext", () => ({
+  useInvoicing: () => ({
+    stockMovementsHydrated: true,
+    hydrateStockMovements: vi.fn(async () => []),
+  }),
+}));
+
 // ProtectedShell resolves module availability through useFeatures (license +
 // settings). These tests focus on auth/permission logic, so default every
 // feature to enabled; individual tests override to exercise feature gating.

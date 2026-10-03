@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -37,6 +37,9 @@ import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { useAutoPartsPro, vehicleDisplayName } from "../store/AutoPartsProContext";
 import { buildWhatsappHref } from "../lib/whatsappTemplate";
 import { groupByKey, latestValueByKey } from "../lib/grouping";
+import { useQueryPage } from "../lib/useQueryPage";
+import { useCollectionHydration } from "../store/HydrationContext";
+import { useDuesParties } from "../lib/useDuesParties";
 
 type DueStatus = "overdue" | "today" | "soon" | "scheduled" | "undated";
 type PartyType = "customer" | "supplier";
@@ -182,6 +185,28 @@ export function DuesPage() {
   const [showAllRows, setShowAllRows] = useState(false);
   const [priorityDisplayLimit, setPriorityDisplayLimit] = useState<number | "all">(5);
   const [showAllPriorityRows, setShowAllPriorityRows] = useState(false);
+  const [salesPage, setSalesPage] = useState(0);
+  const [purchasePage, setPurchasePage] = useState(0);
+  const [partyPage, setPartyPage] = useState(0);
+  const queryBacked = Boolean(window.desktopAPI?.query);
+  const salesRemote = useQueryPage<SalesInvoice>("salesInvoices", {
+    q: query, branchId: branchFilter === "all" ? "" : branchFilter,
+    dueFrom: startDate, dueTo: endDate, minAmount, maxAmount, sort: sortBy,
+    outstanding: true, page: salesPage, pageSize: 100,
+  }, queryBacked && canViewSales);
+  const purchasesRemote = useQueryPage<PurchaseInvoice>("purchaseInvoices", {
+    q: query, dueFrom: startDate, dueTo: endDate, minAmount, maxAmount, sort: sortBy,
+    outstanding: true, page: purchasePage, pageSize: 100,
+  }, queryBacked && canViewPurchases);
+  const { hydrateCollections } = useCollectionHydration();
+  const remotePartyKind = partyFilter === "customer" || !canViewPurchases ? "customer" : partyFilter === "supplier" || !canViewSales ? "supplier" : "all";
+  const partiesRemote = useDuesParties<PartyBalanceRow>({ kind: remotePartyKind, q: query, direction: directionFilter === "all" ? "" : directionFilter, page: partyPage, pageSize: 100 }, queryBacked && (canViewSales || canViewPurchases));
+
+  useEffect(() => {
+    setSalesPage(0);
+    setPurchasePage(0);
+    setPartyPage(0);
+  }, [query, statusFilter, partyFilter, branchFilter, directionFilter, minAmount, maxAmount, startDate, endDate, sortBy]);
 
   const resetFilters = () => {
     setQuery("");
@@ -214,7 +239,7 @@ export function DuesPage() {
   );
 
   const salesDueRows = useMemo<SalesDueRow[]>(() => {
-    return salesInvoices
+    return (queryBacked ? salesRemote.rows : salesInvoices)
       .filter((invoice) => !invoice.cancelled && invoice.remaining > 0)
       .map((invoice) => {
         const customer = customerLookup.get(invoice.customerId);
@@ -249,13 +274,13 @@ export function DuesPage() {
     branchLookup,
     customerLookup,
     customerVehicleLookup,
-    salesInvoices,
+    salesInvoices, queryBacked, salesRemote.rows,
     vehicleMakes,
     vehicleModels,
   ]);
 
   const purchaseDueRows = useMemo<PurchaseDueRow[]>(() => {
-    return purchaseInvoices
+    return (queryBacked ? purchasesRemote.rows : purchaseInvoices)
       .filter((invoice) => invoice.remaining > 0)
       .map((invoice) => {
         const supplier = supplierLookup.get(invoice.supplierId);
@@ -268,7 +293,7 @@ export function DuesPage() {
         };
       })
       .sort((a, b) => b.invoice.remaining - a.invoice.remaining);
-  }, [purchaseInvoices, supplierLookup]);
+  }, [purchaseInvoices, purchasesRemote.rows, queryBacked, supplierLookup]);
 
   const salesDueRowsByCustomer = useMemo(
     () => groupByKey(salesDueRows, (row) => row.invoice.customerId),
@@ -299,6 +324,7 @@ export function DuesPage() {
   );
 
   const partyRows = useMemo<PartyBalanceRow[]>(() => {
+    if (queryBacked) return partiesRemote.rows;
     const customerRows: PartyBalanceRow[] = customers
       .map((customer) => {
         const balance = customerBalance(customer.id);
@@ -357,6 +383,8 @@ export function DuesPage() {
     customerLastActivity,
     purchaseDueRowsBySupplier,
     supplierLastActivity,
+    queryBacked,
+    partiesRemote.rows,
   ]);
 
   const filteredSalesRows = useMemo(() => {
@@ -1055,6 +1083,7 @@ export function DuesPage() {
                   </Button>
                 </div>
               )}
+              {queryBacked ? <RemotePagination page={salesPage} pageSize={100} total={salesRemote.total} loading={salesRemote.loading} onPageChange={setSalesPage} /> : null}
             </CardBody>
           </Card>
         </TabsContent>
@@ -1210,6 +1239,7 @@ export function DuesPage() {
                   </Button>
                 </div>
               )}
+              {queryBacked ? <RemotePagination page={partyPage} pageSize={100} total={partiesRemote.total} loading={partiesRemote.loading} onPageChange={setPartyPage} /> : null}
             </CardBody>
           </Card>
         </TabsContent>
@@ -1350,6 +1380,7 @@ export function DuesPage() {
                   </Button>
                 </div>
               )}
+              {queryBacked ? <RemotePagination page={purchasePage} pageSize={100} total={purchasesRemote.total} loading={purchasesRemote.loading} onPageChange={setPurchasePage} /> : null}
             </CardBody>
           </Card>
         </TabsContent>
@@ -1358,8 +1389,12 @@ export function DuesPage() {
       <ConfirmDialog
         open={!!settleTarget}
         onClose={() => setSettleTarget(null)}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!settleTarget) return;
+          if (queryBacked && !(await hydrateCollections(["customers", "salesInvoices", "purchaseInvoices", "cashEntries"]))) {
+            toast.error("تعذر تحميل بيانات التسوية");
+            return;
+          }
           const settled =
             settleTarget.type === "customer"
               ? settleAllDues(settleTarget.id)
@@ -1384,6 +1419,20 @@ export function DuesPage() {
         confirmText="تأكيد التسوية"
       />
     </>
+  );
+}
+
+function RemotePagination({ page, pageSize, total, loading, onPageChange }: { page: number; pageSize: number; total: number; loading: boolean; onPageChange: (page: number) => void }) {
+  if (total <= pageSize) return null;
+  const pages = Math.ceil(total / pageSize);
+  return (
+    <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
+      <span className="text-xs text-ink-muted">صفحة {page + 1} من {pages} · {total} سجل</span>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" disabled={page === 0 || loading} onClick={() => onPageChange(Math.max(0, page - 1))}>السابق</Button>
+        <Button size="sm" variant="outline" disabled={(page + 1) * pageSize >= total || loading} onClick={() => onPageChange(page + 1)}>التالي</Button>
+      </div>
+    </div>
   );
 }
 

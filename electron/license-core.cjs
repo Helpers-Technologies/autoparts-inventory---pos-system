@@ -139,7 +139,8 @@ function parseDateMs(value) {
  * Decides what a serial entitles this machine to, right now.
  *
  * @param serial   the raw `APLIC.` token, or a falsy value when none is stored
- * @param deps.publicKey            KeyObject the serial must verify against
+ * @param deps.publicKey            KeyObject, or an ordered array of trusted
+ *                                  keys during a signing-key rotation
  * @param deps.schema               zod schema for the license payload
  * @param deps.isMachineHashAccepted (hash) => boolean — machine binding
  * @param deps.storageGet           (key) => string | null
@@ -166,7 +167,17 @@ function evaluateLicense(serial, deps) {
 
   let license;
   try {
-    license = parseSignedPayload(serial, "APLIC.", schema, publicKey);
+    const trustedKeys = Array.isArray(publicKey) ? publicKey : [publicKey];
+    let verificationError;
+    for (const trustedKey of trustedKeys) {
+      try {
+        license = parseSignedPayload(serial, "APLIC.", schema, trustedKey);
+        break;
+      } catch (error) {
+        verificationError = error;
+      }
+    }
+    if (!license) throw verificationError || new Error("Invalid signature");
   } catch (error) {
     return buildStatus("inactive", {
       message: error instanceof Error ? error.message : "Invalid license",

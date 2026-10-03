@@ -322,7 +322,7 @@ export function FirstRunSetupPage() {
                 <div className="hw-t2 text-xl text-white/90">{companyNameAr.trim()}</div>
               )}
               <div className="hw-t3 text-xs text-white/60">
-                {companyName.trim() || "Helpers Technologies"}
+                {companyName.trim() || "Dar Tech"}
               </div>
             </div>
 
@@ -395,7 +395,7 @@ export function FirstRunSetupPage() {
           </ol>
         </div>
 
-        <div className="relative flex items-center justify-between text-[11px] text-slate-500"><span>Helpers Technologies © 2026</span><span>نظام قطع الغيار · v{__APP_VERSION__}</span></div>
+        <div className="relative flex items-center justify-between text-[11px] text-slate-500"><span>Dar Tech © 2026</span><span>نظام قطع الغيار · v{__APP_VERSION__}</span></div>
       </div>
 
       {/* Right form panel — one step at a time */}

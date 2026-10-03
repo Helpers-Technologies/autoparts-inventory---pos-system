@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, FileDown, Filter, MessageCircle, Plus, Receipt, Search, Printer, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
@@ -27,9 +27,12 @@ import { InvoicePrintLayout } from "../features/invoices/InvoicePrintLayout";
 import { useReporting } from "../store/ReportingContext";
 import { useFeatures } from "../lib/useFeatures";
 import { salesInvoicePriceTypeLabel } from "../lib/salesPrice";
+import { useQueryPage } from "../lib/useQueryPage";
+import { useCollectionHydration } from "../store/HydrationContext";
 
 export function SalesInvoicesPage() {
   const { salesInvoices, salesReturns, deleteSalesInvoice } = useInvoicing();
+  const { hydrateCollections } = useCollectionHydration();
   const { customers } = useCatalog();
   const { currentUser } = useAuth();
   const { settings } = useSettings();
@@ -86,15 +89,24 @@ export function SalesInvoicesPage() {
   }, [salesInvoices, customerCodeMap, customerPhoneMap, q, customerId, status, payment, from, to]);
 
   const [page, setPage] = useState(0);
+  const [useHydratedInvoices, setUseHydratedInvoices] = useState(false);
 
   const PAGE_SIZE = 30;
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE) || 1;
-  const paginatedInvoices = useMemo(
+  const queryBacked = Boolean(window.desktopAPI?.query);
+  const useRemoteInvoices = queryBacked && !useHydratedInvoices;
+  const remote = useQueryPage<SalesInvoice>("salesInvoices", {
+    page, pageSize: PAGE_SIZE, q, partyId: customerId, status, payment, from, to,
+  }, queryBacked);
+  useEffect(() => { setPage(0); }, [q, customerId, status, payment, from, to]);
+  const resultCount = useRemoteInvoices ? remote.total : filtered.length;
+  const totalPages = Math.ceil(resultCount / PAGE_SIZE) || 1;
+  const localPage = useMemo(
     () => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
     [filtered, page]
   );
+  const paginatedInvoices = useRemoteInvoices ? remote.rows : localPage;
 
-  const totals = useMemo(() => {
+  const localTotals = useMemo(() => {
     const total = filtered.reduce((a, s) => a + (s.cancelled ? 0 : s.total), 0);
     const received = filtered.reduce(
       (a, s) => a + (s.cancelled ? 0 : s.amountReceived),
@@ -106,12 +118,32 @@ export function SalesInvoicesPage() {
     );
     return { total, received, remaining };
   }, [filtered]);
+  const totals = useRemoteInvoices
+    ? { total: remote.totals.total, received: remote.totals.paid, remaining: remote.totals.remaining }
+    : localTotals;
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages - 1));
+  }, [totalPages]);
+
+  async function openPreview(summary: SalesInvoice) {
+    const api = window.desktopAPI?.query;
+    if (!api) { setPreviewInv(summary); return; }
+    const result = await api.detail("salesInvoices", summary.id);
+    if (result.ok && result.row) setPreviewInv(result.row as SalesInvoice);
+    else toast.error("تعذر تحميل الفاتورة");
+  }
+
+  async function prepareDelete(summary: SalesInvoice) {
+    if (queryBacked) await hydrateCollections(["salesInvoices", "salesReturns", "cashEntries"]);
+    setToDelete(summary);
+  }
 
   return (
     <>
       <PageHeader
         title="فواتير المبيعات"
-        description={`إدارة فواتير العملاء (${salesInvoices.length})`}
+        description={`إدارة فواتير العملاء (${resultCount})`}
         actions={
           canAddSalesInvoice ? (
             <Button onClick={() => navigate("/sales/new")}>
@@ -196,7 +228,7 @@ export function SalesInvoicesPage() {
               مسح الفلاتر
             </Button>
           </div>
-          {filtered.length === 0 ? (
+          {!remote.loading && resultCount === 0 ? (
             <EmptyState
               icon={<Receipt className="w-5 h-5" />}
               title="لا توجد فواتير"
@@ -285,7 +317,7 @@ export function SalesInvoicesPage() {
                           size="icon"
                           variant="ghost"
                           title="معاينة وطباعة"
-                          onClick={() => setPreviewInv(s)}
+                          onClick={() => void openPreview(s)}
                         >
                           <Printer className="w-4 h-4" />
                         </Button>
@@ -295,7 +327,7 @@ export function SalesInvoicesPage() {
                             variant="ghost"
                             title="حذف"
                             className="text-rose-500 hover:text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:bg-rose-500/10"
-                            onClick={() => setToDelete(s)}
+                            onClick={() => void prepareDelete(s)}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -308,10 +340,10 @@ export function SalesInvoicesPage() {
             </Table>
           )}
 
-          {filtered.length > PAGE_SIZE && (
+          {resultCount > PAGE_SIZE && (
             <div className="flex items-center justify-between pt-3 border-t border-line text-xs">
               <span className="text-ink-muted">
-                عرض الصف {page * PAGE_SIZE + 1} إلى {Math.min((page + 1) * PAGE_SIZE, filtered.length)} من إجمالي {filtered.length} فاتورة
+                عرض الصف {page * PAGE_SIZE + 1} إلى {Math.min((page + 1) * PAGE_SIZE, resultCount)} من إجمالي {resultCount} فاتورة
               </span>
               <div className="flex items-center gap-1.5">
                 <Button
@@ -347,7 +379,10 @@ export function SalesInvoicesPage() {
         onConfirm={() => {
           if (!toDelete) return;
           const ok = deleteSalesInvoice(toDelete.id);
-          if (ok) toast.success("تم حذف الفاتورة");
+          if (ok) {
+            setUseHydratedInvoices(true);
+            toast.success("تم حذف الفاتورة");
+          }
           else toast.error("تعذر الحذف", "الفواتير المرتبطة بمرتجعات لا يمكن حذفها");
           setToDelete(null);
         }}
@@ -423,10 +458,12 @@ export function SalesInvoicesPage() {
                 lines={inv.lines}
                 total={inv.total}
                 discount={inv.discount}
+                discountCode={inv.discountCode}
                 amountPaid={inv.amountReceived}
                 remaining={inv.remaining}
                 notes={inv.notes}
                 paymentLabel={salesPaymentDisplay(inv)}
+                paymentType={inv.paymentType}
                 returns={linkedReturns.length > 0 ? linkedReturns : undefined}
                 paymentDueDate={inv.paymentDueDate}
                 customerBalance={totalBalance}

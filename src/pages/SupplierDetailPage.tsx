@@ -37,10 +37,12 @@ import { useFeatures } from "../lib/useFeatures";
 import { useToast } from "../components/ui/Toast";
 import { PaidFeatureNotice } from "../components/PaidFeatureNotice";
 import { formatCurrency, formatDate } from "../lib/format";
-import type { CommissionTier, CommissionType } from "../types";
+import type { CommissionTier, CommissionType, PurchaseInvoice } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { printAppRoute } from "../lib/print";
 import { buildWhatsappHref } from "../lib/whatsappTemplate";
+import { useStatementPage } from "../lib/useStatementPage";
+import { useCollectionHydration } from "../store/HydrationContext";
 
 const whatsappHref = buildWhatsappHref;
 
@@ -74,6 +76,10 @@ export function SupplierDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [invoiceQuery, setInvoiceQuery] = useState("");
+  const [invoicePage, setInvoicePage] = useState(0);
+  const queryBacked = Boolean(window.desktopAPI?.query);
+  const statement = useStatementPage<PurchaseInvoice>("supplier", id, { q: invoiceQuery, page: invoicePage, pageSize: 50 }, queryBacked);
+  const { hydrateCollections } = useCollectionHydration();
 
   const [tierDialogOpen, setTierDialogOpen] = useState(false);
   // The trash icon sits next to the edit pencil, so a misclick used to delete
@@ -88,16 +94,16 @@ export function SupplierDetailPage() {
   });
 
   const invoices = useMemo(
-    () => (supplier ? purchaseInvoices.filter((p) => p.supplierId === supplier.id) : []),
-    [purchaseInvoices, supplier]
+    () => queryBacked ? statement.rows : (supplier ? purchaseInvoices.filter((p) => p.supplierId === supplier.id) : []),
+    [purchaseInvoices, queryBacked, statement.rows, supplier]
   );
   const suppliedParts = useMemo(
     () => (supplier ? products.filter((p) => p.supplierId === supplier.id && !p.archived) : []),
     [products, supplier]
   );
-  const balance = supplier ? supplierBalance(supplier.id) : 0;
-  const totalPurchases = useMemo(() => invoices.reduce((sum, p) => sum + p.total, 0), [invoices]);
-  const totalPaid = useMemo(() => invoices.reduce((sum, p) => sum + p.amountPaid, 0), [invoices]);
+  const balance = queryBacked ? statement.balance : supplier ? supplierBalance(supplier.id) : 0;
+  const totalPurchases = queryBacked ? statement.totals.total : invoices.reduce((sum, purchase) => sum + purchase.total, 0);
+  const totalPaid = queryBacked ? statement.totals.paid : invoices.reduce((sum, purchase) => sum + purchase.amountPaid, 0);
   const commissions = supplier ? calculateSupplierCommission(supplier.id) : [];
   const commissionEarned = commissions.reduce((s, r) => s + r.earned, 0);
 
@@ -123,8 +129,9 @@ export function SupplierDetailPage() {
     );
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!supplier) return;
+    if (queryBacked && !(await hydrateCollections(["purchaseInvoices", "purchaseReturns", "cashEntries"]))) return;
     const ok = deleteSupplier(supplier.id);
     if (ok) {
       toast.success("تم حذف المورد");
@@ -439,14 +446,14 @@ export function SupplierDetailPage() {
       <Card>
         <CardHeader
           title="سجل فواتير الشراء"
-          subtitle={`${filteredInvoices.length} من ${invoices.length} فاتورة`}
+          subtitle={queryBacked ? `${filteredInvoices.length} من ${statement.total} فاتورة` : `${filteredInvoices.length} من ${invoices.length} فاتورة`}
           actions={
             invoices.length > 0 ? (
               <div className="relative w-56">
                 <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
                 <Input
                   value={invoiceQuery}
-                  onChange={(e) => setInvoiceQuery(e.target.value)}
+                  onChange={(e) => { setInvoiceQuery(e.target.value); setInvoicePage(0); }}
                   placeholder="بحث برقم الفاتورة"
                   className="pe-9 h-8 text-xs"
                 />
@@ -497,6 +504,17 @@ export function SupplierDetailPage() {
               </TBody>
             </Table>
           )}
+          {queryBacked && statement.total > 50 ? (
+            <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
+              <span className="text-xs text-ink-muted">
+                صفحة {invoicePage + 1} من {Math.ceil(statement.total / 50)} · {statement.total} فاتورة
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={invoicePage === 0 || statement.loading} onClick={() => setInvoicePage((page) => Math.max(0, page - 1))}>السابق</Button>
+                <Button size="sm" variant="outline" disabled={(invoicePage + 1) * 50 >= statement.total || statement.loading} onClick={() => setInvoicePage((page) => page + 1)}>التالي</Button>
+              </div>
+            </div>
+          ) : null}
         </CardBody>
       </Card>
 

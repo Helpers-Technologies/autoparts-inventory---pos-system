@@ -32,6 +32,8 @@ import {
 } from "../lib/whatsappTemplate";
 import { MfaPolicyCard } from "../components/security/MfaPolicyCard";
 import { TwoFactorSecurityPanel } from "../components/security/TwoFactorSecurityPanel";
+import { InvoicePrintLayout } from "../features/invoices/InvoicePrintLayout";
+import { ReceiptPrintLayout } from "../features/invoices/ReceiptPrintLayout";
 
 const SUPPORT_WHATSAPP = "201118445625";
 const FEATURE_PREVIEW_LIMIT = 8;
@@ -165,7 +167,7 @@ export function SettingsPage() {
   const [pendingRestore, setPendingRestore] = useState<{ file: File; pass?: string; isProtected: boolean } | null>(null);
   const [pendingInternalRestore, setPendingInternalRestore] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewTab, setPreviewTab] = useState<"invoice" | "whatsapp">("invoice");
+  const [previewTab, setPreviewTab] = useState<"invoice" | "receipt" | "whatsapp">("invoice");
   const [whatsappTemplateExpanded, setWhatsappTemplateExpanded] = useState(false);
   const [mfaRefreshKey, setMfaRefreshKey] = useState(0);
   const [cloudArchiveBusy, setCloudArchiveBusy] = useState(false);
@@ -422,6 +424,10 @@ export function SettingsPage() {
     }
     if (!isValidEgyptianMobile(form.ownerPhone)) {
       toast.error("رقم موبايل غير صحيح", "رقم الموبايل يجب أن يتكون من 11 رقمًا ويبدأ بـ 01 (مثال: 01018194709)");
+      return;
+    }
+    if (form.shopPhone?.trim() && !isValidEgyptianMobile(form.shopPhone)) {
+      toast.error("رقم موبايل المحل غير صحيح", "رقم موبايل المحل يجب أن يتكون من 11 رقمًا ويبدأ بـ 01");
       return;
     }
 
@@ -949,6 +955,18 @@ export function SettingsPage() {
                   className="min-h-[64px] resize-y"
                 />
               </Field>
+
+              <Field label="رقم موبايل المحل على الفاتورة" hint="يظهر في رأس الفاتورة، وهو مستقل عن رقم صاحب المحل">
+                <Input
+                  type="tel"
+                  maxLength={11}
+                  value={form.shopPhone ?? ""}
+                  onChange={(e) => setForm({ ...form, shopPhone: normalizePhoneInput(e.target.value) })}
+                  placeholder="01xxxxxxxxx"
+                  dir="ltr"
+                  className="text-right"
+                />
+              </Field>
             </section>
 
             <section className="space-y-4 rounded-xl border border-line bg-surface-muted/20 p-4">
@@ -1180,9 +1198,9 @@ export function SettingsPage() {
         <Dialog
           open={previewOpen}
           onClose={() => setPreviewOpen(false)}
-          title="معاينة مظهر الفاتورة والرسائل"
-          subtitle="مظهر تجريبي للفاتورة والرسالة عند الطباعة أو المشاركة"
-          width="xl"
+          title="معاينة مظهر الفاتورة والريسيت والرسائل"
+          subtitle="المعاينات تعرض قوالب الطباعة الفعلية، وتتحدث مع تغييرات الإعدادات"
+          width="2xl"
         >
           <div className="flex flex-col gap-4">
             {/* Tabs */}
@@ -1201,6 +1219,18 @@ export function SettingsPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setPreviewTab("receipt")}
+                className={cn(
+                  "px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors",
+                  previewTab === "receipt"
+                    ? "border-brand-600 text-brand-600 dark:text-brand-400 dark:border-brand-400"
+                    : "border-transparent text-ink-muted hover:text-ink"
+                )}
+              >
+                معاينة الريسيت (80mm)
+              </button>
+              <button
+                type="button"
                 onClick={() => setPreviewTab("whatsapp")}
                 className={cn(
                   "px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors",
@@ -1216,99 +1246,47 @@ export function SettingsPage() {
             {/* Tab content */}
             <div className="min-h-[300px]">
               {previewTab === "invoice" ? (
-                <div className="bg-slate-100 dark:bg-slate-900 rounded-lg p-6 flex justify-center overflow-x-auto">
-                  {/* Mock Paper A4/A5 size */}
-                  <div
-                    className={cn(
-                      "bg-white text-slate-900 p-8 shadow-md border border-slate-200 rounded text-xs select-none",
-                      form.printPaperSize === "A4" ? "w-[595px]" : "w-[420px]"
-                    )}
-                    dir="rtl"
-                  >
-                    {/* Header */}
-                    <div className="flex justify-between items-start border-b border-slate-300 pb-4 mb-4">
-                      <div>
-                        <div className="font-bold text-base text-slate-800">{form.companyNameAr || "اسم الشركة بالعربية"}</div>
-                        {form.companyName && (
-                          <div className="text-[10px] text-slate-500 font-mono" dir="ltr">{form.companyName}</div>
-                        )}
-                        <div className="text-[10px] text-slate-600 mt-1">صاحب المحل: {form.ownerName || "عمر أحمد"}</div>
-                        <div className="text-[10px] text-slate-600">الموبايل: {form.ownerPhone || "01118445625"}</div>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-bold text-slate-800">فاتورة مبيعات مبسطة</div>
-                        <div className="text-[10px] text-slate-500">الرقم: INV-2026-0042</div>
-                        <div className="text-[10px] text-slate-500">التاريخ: 2026-07-21</div>
-                      </div>
-                    </div>
-
-                    {/* Customer Info */}
-                    <div className="mb-4 bg-slate-50 p-2 rounded border border-slate-100 flex justify-between">
-                      <div>
-                        <span className="font-bold text-slate-700">العميل:</span> جلال محمد
-                      </div>
-                      <div>
-                        <span className="font-bold text-slate-700">طريقة الدفع:</span> نقدي
-                      </div>
-                    </div>
-
-                    {/* Table */}
-                    <table className="w-full text-[10px] text-right border-collapse mb-4">
-                      <thead>
-                        <tr className="border-b border-slate-300 font-bold text-slate-700 bg-slate-50">
-                          <th className="py-1 px-1">#</th>
-                          <th className="py-1 px-1">البيان</th>
-                          <th className="py-1 px-1 text-center">الكمية</th>
-                          <th className="py-1 px-1 text-left">السعر</th>
-                          <th className="py-1 px-1 text-left">الإجمالي</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b border-slate-100">
-                          <td className="py-1 px-1">1</td>
-                          <td className="py-1 px-1">تيل فرامل خلفي كوري</td>
-                          <td className="py-1 px-1 text-center">1</td>
-                          <td className="py-1 px-1 text-left">450.00 ج.م</td>
-                          <td className="py-1 px-1 text-left">450.00 ج.م</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="py-1 px-1">2</td>
-                          <td className="py-1 px-1">طنبورة فرامل أمامية ياباني</td>
-                          <td className="py-1 px-1 text-center">2</td>
-                          <td className="py-1 px-1 text-left">400.00 ج.م</td>
-                          <td className="py-1 px-1 text-left">800.00 ج.م</td>
-                        </tr>
-                      </tbody>
-                    </table>
-
-                    {/* Totals */}
-                    <div className="flex justify-end mb-6">
-                      <div className="w-1/2 space-y-1 text-[10px]">
-                        <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                          <span className="text-slate-500">الإجمالي الفرعي:</span>
-                          <span>1,250.00 ج.م</span>
-                        </div>
-                        <div className="flex justify-between border-b border-slate-100 pb-0.5 font-bold text-slate-800">
-                          <span>الإجمالي النهائي:</span>
-                          <span>1,250.00 ج.م</span>
-                        </div>
-                        <div className="flex justify-between text-emerald-600">
-                          <span>المدفوع:</span>
-                          <span>1,250.00 ج.م</span>
-                        </div>
-                        <div className="flex justify-between text-slate-400">
-                          <span>المتبقي:</span>
-                          <span>0.00 ج.م</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Footer Text */}
-                    {form.invoiceFooter && (
-                      <div className="border-t border-slate-200 pt-3 text-center text-[10px] text-slate-500 font-medium whitespace-pre-line">
-                        {form.invoiceFooter}
-                      </div>
-                    )}
+                <div className="rounded-lg bg-slate-100 p-3 dark:bg-slate-900 overflow-auto max-h-[65vh]">
+                  <InvoicePrintLayout
+                    kind="sales"
+                    invoiceNumber="INV-2026-0042"
+                    date="2026-07-21"
+                    partyLabel="العميل"
+                    partyName="جلال محمد"
+                    lines={[
+                      { id: "preview-line-1", productId: "preview-part-1", productName: "تيل فرامل خلفي كوري", unit: "قطعة", quantity: 1, price: 450, subtotal: 450 },
+                      { id: "preview-line-2", productId: "preview-part-2", productName: "طنبورة فرامل أمامية ياباني", unit: "قطعة", quantity: 2, price: 400, subtotal: 800 },
+                    ]}
+                    total={1250}
+                    amountPaid={1250}
+                    remaining={0}
+                    paymentLabel="نقدي"
+                    paymentType="cash"
+                    branchName="الفرع الرئيسي"
+                    settingsOverride={form}
+                    showToolbar={false}
+                  />
+                </div>
+              ) : previewTab === "receipt" ? (
+                <div className="max-h-[65vh] overflow-auto rounded-lg bg-slate-100 p-6 dark:bg-slate-900">
+                  <div className="mx-auto w-fit rounded-lg bg-white shadow-xl">
+                    <ReceiptPrintLayout
+                      invoiceNumber="INV-2026-0042"
+                      date="2026-07-21"
+                      partyName="جلال محمد"
+                      lines={[
+                        { id: "receipt-preview-line-1", productId: "preview-part-1", productName: "تيل فرامل خلفي كوري", unit: "قطعة", quantity: 1, price: 450, subtotal: 450 },
+                        { id: "receipt-preview-line-2", productId: "preview-part-2", productName: "طنبورة فرامل أمامية ياباني", unit: "قطعة", quantity: 2, price: 400, subtotal: 800 },
+                      ]}
+                      total={1250}
+                      amountPaid={1250}
+                      remaining={0}
+                      paymentLabel="نقدي"
+                      cashierName="admin"
+                      branchName="الفرع الرئيسي"
+                      settingsOverride={form}
+                      showToolbar={false}
+                    />
                   </div>
                 </div>
               ) : (

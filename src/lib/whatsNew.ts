@@ -30,6 +30,18 @@ export interface Release {
 /** Newest release first. */
 export const RELEASES: Release[] = [
   {
+    version: "10.5.4",
+    date: "سبتمبر 2026",
+    highlights: [
+      {
+        title: "إصلاح تجهيز قاعدة البيانات بعد التحديث",
+        description:
+          "يعالج PartFlow تلقائيًا بنية جدول البحث القديمة، ثم يعيد إنشاء بيانات العرض والتقارير بأمان من دون تغيير بيانات المبيعات أو المخزون الأصلية.",
+        tone: "fix",
+      },
+    ],
+  },
+  {
     version: "10.5.0",
     date: "أغسطس 2026",
     highlights: [

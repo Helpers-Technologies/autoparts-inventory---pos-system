@@ -256,7 +256,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-ink-muted">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-brand-600">
-                    © 2026 جميع الحقوق محفوظة لشركة Helpers Technologies
+                    © 2026 جميع الحقوق محفوظة لشركة Dar Tech
                   </span>
                   <span className="hidden md:inline">|</span>
                   <button
@@ -291,13 +291,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     <span>واتساب الدعم: +201118445625</span>
                   </a>
                   <a
-                    href="https://helpers-tech.com/"
+                    href="https://dartecheg.com/"
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-brand-600 flex items-center gap-1.5 transition-colors"
                   >
                     <Globe className="w-4 h-4" />
-                    <span>الموقع الرسمي: helpers-tech.com</span>
+                    <span>الموقع الرسمي: dartecheg.com</span>
                   </a>
                 </div>
               </div>

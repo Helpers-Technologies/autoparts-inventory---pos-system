@@ -21,6 +21,8 @@ const today = todayISO();
 export const seedSettings: Settings = {
   ownerName: "",
   ownerPhone: "",
+  shopPhone: "",
+  discountCodes: [],
   companyName: "AutoParts Store",
   companyNameAr: "محل قطع غيار السيارات",
   invoiceFooter: "شكراً لتعاملكم معنا — يرجى مراجعة الفاتورة قبل الاستلام.",
@@ -136,7 +138,13 @@ const legacySeedProducts: Product[] = [
   { id: uid("p"), code: "TRN-004", name: "أكصورة (اكس) داخلية - شيري Tiggo", category: "ناقل حركة", unit: "قطعة", purchasePrice: 80, wholesalePrice: 120, retailPrice: 160, quantity: 15, minStock: 5, hasExpiry: false, createdAt: today },
 ];
 export const seedProducts: Product[] = [
-  ...legacySeedProducts.map(upgradeLegacyAutoPartsProduct),
+  // Seed identity must be stable across launches. The legacy literals predate
+  // deterministic IDs and still call uid() above; overwrite those transient
+  // values before anything can reconcile or persist them.
+  ...legacySeedProducts.map((product) => upgradeLegacyAutoPartsProduct({
+    ...product,
+    id: `p_legacy_${product.code.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+  })),
   ...starterProductRows(today, (code) => `p_starter_${code.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`),
 ];
 export const seedPurchaseInvoices: PurchaseInvoice[] = [];

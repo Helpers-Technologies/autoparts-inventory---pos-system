@@ -42,6 +42,7 @@ const {
 // ── Two keypairs: the vendor's, and an attacker who has their own ────────
 const vendor = crypto.generateKeyPairSync("ed25519");
 const attacker = crypto.generateKeyPairSync("ed25519");
+const legacyVendor = crypto.generateKeyPairSync("ed25519");
 
 const THIS_MACHINE = "a".repeat(64);
 const OTHER_MACHINE = "b".repeat(64);
@@ -141,6 +142,20 @@ describe("a genuine serial — TC-LIC", () => {
     for (const empty of [null, undefined, "", 0, false]) {
       expect(evaluateLicense(empty, deps()).state).toBe("inactive");
     }
+  });
+
+  it("TC-LIC-032: a serial signed by a trusted legacy key remains active after key rotation", () => {
+    const token = mint(
+      licensePayload({ licenseId: "LIC-LEGACY" }),
+      "APLIC.",
+      legacyVendor.privateKey,
+    );
+    const status = evaluateLicense(
+      token,
+      deps({ publicKey: [vendor.publicKey, legacyVendor.publicKey] }),
+    );
+    expect(status.state).toBe("active");
+    expect(status.license.licenseId).toBe("LIC-LEGACY");
   });
 });
 

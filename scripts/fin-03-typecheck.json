@@ -1,0 +1,1 @@
+{"extends":"../tsconfig.test.json","compilerOptions":{"tsBuildInfoFile":"../node_modules/.tmp/fin-03-typecheck.tsbuildinfo"},"include":["fin-03-store.audit.test.tsx","fin-03-vitest.config.ts","../src"]}

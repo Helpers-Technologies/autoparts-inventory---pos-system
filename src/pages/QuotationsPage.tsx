@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import { CarFront, Eye, FileCheck2, FileText, Pencil, Plus, Printer, Search, Trash2 } from "lucide-react";
 import { AutoPartsHero } from "../components/AutoPartsHero";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -18,6 +19,8 @@ import { useAuth } from "../store/AuthContext";
 import { printAppRoute } from "../lib/print";
 import type { Quotation } from "../types";
 import { todayISO } from "../lib/utils";
+import { useQueryPage } from "../lib/useQueryPage";
+import { useCollectionHydration } from "../store/HydrationContext";
 
 export function QuotationsPage() {
   const { quotations, deleteQuotation } = useInvoicing();
@@ -29,7 +32,12 @@ export function QuotationsPage() {
   const canEdit = hasPermission(currentUser, "salesInvoices", "edit");
   const canDelete = hasPermission(currentUser, "salesInvoices", "delete");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
   const [toDelete, setToDelete] = useState<Quotation | null>(null);
+  const queryBacked = Boolean(window.desktopAPI?.query);
+  const remote = useQueryPage<Quotation>("quotations", { q: search, page, pageSize: 50 }, queryBacked);
+  const { hydrateCollections } = useCollectionHydration();
+  useEffect(() => setPage(0), [search]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -43,10 +51,12 @@ export function QuotationsPage() {
       ...quotation.lines.flatMap((line) => [line.productName, line.partNumber, line.partBrand]),
     ].some((value) => value?.toLowerCase().includes(q)));
   }, [quotations, search]);
+  const visible = queryBacked ? remote.rows : filtered;
+  const totalCount = queryBacked ? remote.total : quotations.length;
 
-  const draftCount = quotations.filter((q) => q.status === "draft").length;
-  const convertedCount = quotations.filter((q) => q.status === "converted").length;
-  const expiredCount = quotations.filter((quotation) =>
+  const draftCount = queryBacked ? Number(remote.facets?.draft || 0) : quotations.filter((q) => q.status === "draft").length;
+  const convertedCount = queryBacked ? Number(remote.facets?.converted || 0) : quotations.filter((q) => q.status === "converted").length;
+  const expiredCount = queryBacked ? Number(remote.facets?.expired || 0) : quotations.filter((quotation) =>
     quotation.status === "draft" && Boolean(quotation.validUntil && quotation.validUntil < todayISO()),
   ).length;
 
@@ -58,7 +68,7 @@ export function QuotationsPage() {
         title="عروض أسعار قطع الغيار"
         description="جهّز عرضًا مرتبطًا بسيارة العميل والفرع وشريحة السعر، مع فحص التوافق والمخزون قبل التحويل إلى فاتورة."
         stats={[
-          { label: "إجمالي العروض", value: quotations.length },
+          { label: "إجمالي العروض", value: totalCount },
           { label: "مفتوحة", value: draftCount },
           { label: "محولة", value: convertedCount },
           { label: "انتهت صلاحيتها", value: expiredCount },
@@ -73,7 +83,7 @@ export function QuotationsPage() {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-2">
-        <StatCard label="إجمالي العروض" value={quotations.length} />
+        <StatCard label="إجمالي العروض" value={totalCount} />
         <StatCard label="عروض مفتوحة" value={draftCount} tone="amber" />
         <StatCard label="محولة لفواتير" value={convertedCount} tone="green" />
         <StatCard label="منتهية الصلاحية" value={expiredCount} tone="rose" />
@@ -81,7 +91,7 @@ export function QuotationsPage() {
 
       <Card>
         <CardHeader
-          title={`عروض الأسعار (${filtered.length})`}
+          title={`عروض الأسعار (${queryBacked ? remote.total : filtered.length})`}
           actions={
             <div className="relative">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-faint" />
@@ -95,7 +105,7 @@ export function QuotationsPage() {
           }
         />
         <CardBody>
-          {filtered.length === 0 ? (
+          {visible.length === 0 ? (
             <EmptyState
               icon={<FileText className="w-5 h-5" />}
               title="لا توجد عروض أسعار"
@@ -124,7 +134,7 @@ export function QuotationsPage() {
                 </TR>
               </THead>
               <TBody>
-                {filtered.map((q) => (
+                {visible.map((q) => (
                   <TR key={q.id}>
                     <TD className="font-mono text-xs text-ink-muted">{q.quotationNumber}</TD>
                     <TD>{formatDate(q.date)}</TD>
@@ -184,13 +194,24 @@ export function QuotationsPage() {
               </TBody>
             </Table>
           )}
+          {queryBacked && remote.total > 50 ? (
+            <div className="mt-4 flex items-center justify-between">
+              <Button variant="outline" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>السابق</Button>
+              <span className="text-xs text-ink-muted">صفحة {page + 1} من {Math.ceil(remote.total / 50)}</span>
+              <Button variant="outline" disabled={(page + 1) * 50 >= remote.total} onClick={() => setPage((value) => value + 1)}>التالي</Button>
+            </div>
+          ) : null}
         </CardBody>
       </Card>
       <ConfirmDialog
         open={!!toDelete}
         onClose={() => setToDelete(null)}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!toDelete) return;
+          if (queryBacked && !(await hydrateCollections(["quotations"]))) {
+            toast.error("تعذر تحميل بيانات عروض الأسعار");
+            return;
+          }
           deleteQuotation(toDelete.id);
           toast.success("تم حذف عرض السعر");
           setToDelete(null);

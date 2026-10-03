@@ -25,6 +25,7 @@ export function SearchableSelect({
   disabled = false,
   dropUp,
   clearable = true,
+  onSearchQuery,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -38,6 +39,7 @@ export function SearchableSelect({
   disabled?: boolean;
   dropUp?: boolean;
   clearable?: boolean;
+  onSearchQuery?: (query: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -81,6 +83,10 @@ export function SearchableSelect({
   useEffect(() => {
     setActiveIndex(0);
   }, [filtered]);
+
+  useEffect(() => {
+    onSearchQuery?.(query);
+  }, [query, onSearchQuery]);
 
   useEffect(() => {
     if (open && itemRefs.current[activeIndex]) {

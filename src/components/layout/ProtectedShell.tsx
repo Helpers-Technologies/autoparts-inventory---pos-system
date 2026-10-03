@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../store/AuthContext";
 import { AppBootScreen } from "./AppBootScreen";
@@ -8,6 +8,62 @@ import { hasPermission } from "../../lib/permissions";
 import { useFeatures } from "../../lib/useFeatures";
 import { FEATURE_MAP, featureEntitlementMessage, type FeatureKey } from "../../lib/features";
 import type { UserPermissions } from "../../types";
+import { useCollectionHydration, type DeferredCollection } from "../../store/HydrationContext";
+import { useInvoicing } from "../../store/InvoicingContext";
+
+function requiredCollections(pathname: string): DeferredCollection[] {
+  if (pathname === "/") return [];
+  // Phase 12 list pages use bounded SQL-backed pages.  Detail/edit/new routes
+  // retain their existing hydrated business model until they are explicitly
+  // migrated; exact matching here prevents broadening that boundary.
+  if (pathname === "/sales") return ["customers"];
+  if (pathname === "/pos") return [];
+  if (pathname === "/purchases") return [];
+  if (pathname.startsWith("/audit-log")) return [];
+  if (pathname === "/quotations") return [];
+  if (pathname.startsWith("/quotations")) return ["customers", "quotations", "salesInvoices", "cashEntries"];
+  if (pathname.startsWith("/customer-garage")) return ["customers"];
+  if (pathname.startsWith("/marketing")) return ["customers", "salesInvoices"];
+  if (pathname.startsWith("/warranty-center")) return ["customers", "salesInvoices", "salesReturns"];
+  if (pathname === "/customers") return ["customers"];
+  if (/^\/customers\/[^/]+$/.test(pathname)) return [];
+  if (pathname.startsWith("/customers")) return ["customers", "salesInvoices", "salesReturns", "cashEntries"];
+  if (pathname === "/suppliers" || /^\/suppliers\/[^/]+$/.test(pathname)) return [];
+  if (pathname.startsWith("/suppliers")) return ["purchaseInvoices", "purchaseReturns", "cashEntries"];
+  if (pathname.startsWith("/purchases") || pathname.startsWith("/purchasing-assistant")) {
+    return ["purchaseInvoices", "purchaseReturns", "cashEntries"];
+  }
+  if (pathname.startsWith("/sales") || pathname.startsWith("/pos") || pathname.startsWith("/shipping")) {
+    return ["customers", "salesInvoices", "salesReturns", "cashEntries", "quotations"];
+  }
+  if (pathname === "/returns") return [];
+  if (pathname.startsWith("/returns")) {
+    return ["customers", "salesInvoices", "purchaseInvoices", "salesReturns", "purchaseReturns", "cashEntries"];
+  }
+  if (
+    pathname.startsWith("/cashbox") ||
+    pathname.startsWith("/reports") ||
+    pathname.startsWith("/employees") ||
+    pathname.startsWith("/users/")
+  ) {
+    return ["customers", "salesInvoices", "purchaseInvoices", "salesReturns", "purchaseReturns", "cashEntries"];
+  }
+  if (pathname === "/dues") return [];
+  if (pathname.startsWith("/backup-and-restore")) return [...DEFERRED_FOR_BACKUP];
+  return [];
+}
+
+const DEFERRED_FOR_BACKUP: DeferredCollection[] = [
+  "customers", "salesInvoices", "purchaseInvoices", "cashEntries", "salesReturns",
+  "purchaseReturns", "quotations",
+];
+
+function routeNeedsLedger(pathname: string): boolean {
+  if (pathname === "/inventory") return false;
+  if (pathname === "/pos") return false;
+  return ["/sales", "/purchases", "/returns", "/stocktakes"]
+    .some((prefix) => pathname.startsWith(prefix));
+}
 
 /**
  * True once the very first authenticated screen of this session has been
@@ -22,6 +78,7 @@ import type { UserPermissions } from "../../types";
  * navigation afterwards.
  */
 let firstScreenPainted = false;
+let firstRouteContentPainted = false;
 
 function useFirstScreenGate(): boolean {
   const [ready, setReady] = useState(firstScreenPainted);
@@ -35,6 +92,21 @@ function useFirstScreenGate(): boolean {
     );
     return () => cancelAnimationFrame(frame);
   }, [ready]);
+  return ready;
+}
+
+function useFirstRouteContentGate(shellReady: boolean): boolean {
+  const [ready, setReady] = useState(firstRouteContentPainted);
+  useEffect(() => {
+    if (!shellReady || ready) return;
+    const frame = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        firstRouteContentPainted = true;
+        setReady(true);
+      }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [shellReady, ready]);
   return ready;
 }
 
@@ -94,6 +166,25 @@ export function ProtectedShell({
   const { isEnabled } = useFeatures();
   const loc = useLocation();
   const firstScreenReady = useFirstScreenGate();
+  const firstRouteContentReady = useFirstRouteContentGate(firstScreenReady);
+  const { collectionState, hydrateCollections, areCollectionsLoaded } = useCollectionHydration();
+  const { stockMovementsHydrated, hydrateStockMovements } = useInvoicing();
+  const collections = useMemo(() => requiredCollections(loc.pathname), [loc.pathname]);
+  const needsLedger = routeNeedsLedger(loc.pathname);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated || !currentUser) return;
+    if (!areCollectionsLoaded(collections)) void hydrateCollections(collections);
+    if (needsLedger && !stockMovementsHydrated && !ledgerLoading) {
+      setLedgerLoading(true);
+      void hydrateStockMovements().finally(() => setLedgerLoading(false));
+    }
+  }, [
+    auth.isAuthenticated, currentUser, collections, collectionState,
+    hydrateCollections, areCollectionsLoaded, needsLedger,
+    stockMovementsHydrated, hydrateStockMovements, ledgerLoading,
+  ]);
 
   if (!auth.isAuthenticated || !currentUser) {
     return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
@@ -140,5 +231,23 @@ export function ProtectedShell({
     return <AppBootScreen delayMs={0} />;
   }
 
-  return <AppLayout>{children}</AppLayout>;
+  if (!areCollectionsLoaded(collections) || (needsLedger && !stockMovementsHydrated)) {
+    return (
+      <AppBootScreen
+        delayMs={0}
+        message="Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù‚Ø³Ù…..."
+        hint="ÙŠØªÙ… ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø³Ø¬Ù„ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨ ÙÙ‚Ø·ØŒ ÙˆÙ„Ù† ÙŠØªÙ… Ø§Ø¹ØªØ¨Ø§Ø± Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ØºÙŠØ± Ø§Ù„Ù…Ø­Ù…Ù„Ø© ÙØ§Ø±ØºØ©."
+      />
+    );
+  }
+
+  return (
+    <AppLayout>
+      {firstRouteContentReady ? children : (
+        <div role="status" className="grid min-h-48 place-items-center text-sm text-ink-muted">
+          جاري تجهيز لوحة العمل…
+        </div>
+      )}
+    </AppLayout>
+  );
 }

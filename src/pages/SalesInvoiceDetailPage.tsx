@@ -183,7 +183,7 @@ export function SalesInvoiceDetailPage() {
           <div className="divide-y divide-line">
             <AmountRow label="إجمالي البنود" value={formatCurrency(grossBeforeDiscount, settings.currency)} />
             {(inv.discount ?? 0) > 0 && (
-              <AmountRow label="خصم" value={`- ${formatCurrency(inv.discount!, settings.currency)}`} valueClass="text-emerald-700 dark:text-emerald-400" />
+              <AmountRow label={inv.discountCode ? `خصم (${inv.discountCode})` : "خصم"} value={`- ${formatCurrency(inv.discount!, settings.currency)}`} valueClass="text-emerald-700 dark:text-emerald-400" />
             )}
             {(inv.shippingFee ?? 0) > 0 && <AmountRow label="رسوم التوصيل" value={`+ ${formatCurrency(inv.shippingFee!, settings.currency)}`} valueClass="text-brand-600" />}
             {((inv.discount ?? 0) > 0 || (inv.shippingFee ?? 0) > 0) && <AmountRow label="إجمالي الفاتورة" value={formatCurrency(inv.total, settings.currency)} bold />}
@@ -615,10 +615,12 @@ export function SalesInvoiceDetailPage() {
               lines={inv.lines}
               total={inv.total}
               discount={inv.discount}
+              discountCode={inv.discountCode}
               amountPaid={inv.amountReceived}
               remaining={inv.remaining}
               notes={inv.notes}
               paymentLabel={paymentDisplay}
+              paymentType={inv.paymentType}
               returns={linkedReturns.length > 0 ? linkedReturns : undefined}
               paymentDueDate={inv.paymentDueDate}
               customerBalance={totalCustomerBalance}

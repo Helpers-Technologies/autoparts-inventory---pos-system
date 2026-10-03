@@ -1,3 +1,4 @@
+import { assertMoney } from "../lib/moneySafety";
 import {
   createContext,
   useCallback,
@@ -239,6 +240,7 @@ export function prepareDeliveryOrder(
   existingOrderCount: number,
   timestamp = new Date().toISOString(),
 ): DeliveryOrder {
+  assertMoney(input);
   return {
     ...input,
     id: input.id ?? uid("delivery"),
@@ -299,6 +301,8 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
   const [hydratedIdentity, setHydratedIdentity] = useState<string | null>(
     isDesktop ? null : "web",
   );
+  const skipHydrationPersistenceRef = useRef<string | null>(null);
+  const skipAuthoritativeSalePersistenceRef = useRef(false);
   const [providers, setProviders] = useState<ShippingProvider[]>(() =>
     withMissingDefaults(lsGet("shippingProviders", DEFAULT_PROVIDERS)),
   );
@@ -332,6 +336,7 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
       setHydratedIdentity(isDesktop ? null : "web");
       return;
     }
+    skipHydrationPersistenceRef.current = authenticatedIdentity;
     reloadShippingData();
     setHydratedIdentity(authenticatedIdentity);
     if (window.desktopAPI?.integrations?.bosta) {
@@ -343,6 +348,14 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isDesktop && hydratedIdentity !== authenticatedIdentity) return;
+    if (isDesktop && skipHydrationPersistenceRef.current === authenticatedIdentity) {
+      skipHydrationPersistenceRef.current = null;
+      return;
+    }
+    if (isDesktop && skipAuthoritativeSalePersistenceRef.current) {
+      skipAuthoritativeSalePersistenceRef.current = false;
+      return;
+    }
     lsSetBatch({
       shippingProviders: providers,
       shippingRates: rates,
@@ -351,8 +364,14 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
   }, [auth.isAuthenticated, authenticatedIdentity, hydratedIdentity, isDesktop, providers, rates, orders]);
 
   useEffect(() => {
+    const handleSaleCommitted = (event: Event) => {
+      const detail = (event as CustomEvent<{ shippingChanged?: boolean }>).detail;
+      if (detail?.shippingChanged === false) return;
+      skipAuthoritativeSalePersistenceRef.current = true;
+      reloadShippingData();
+    };
     window.addEventListener("autoparts:pro-data-restored", reloadShippingData);
-    window.addEventListener("autoparts:sale-committed", reloadShippingData);
+    window.addEventListener("autoparts:sale-committed", handleSaleCommitted);
     return () => {
       window.removeEventListener(
         "autoparts:pro-data-restored",
@@ -360,7 +379,7 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
       );
       window.removeEventListener(
         "autoparts:sale-committed",
-        reloadShippingData,
+        handleSaleCommitted,
       );
     };
   }, [reloadShippingData]);
@@ -396,6 +415,7 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
 
   const addRate = useCallback(
     (input: Omit<ShippingRate, "id" | "createdAt" | "updatedAt">) => {
+      assertMoney(input);
       const timestamp = new Date().toISOString();
       const rate: ShippingRate = {
         ...input,
@@ -410,6 +430,7 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
   );
 
   const updateRate = useCallback((id: ID, patch: Partial<ShippingRate>) => {
+    assertMoney(patch);
     setRates((items) =>
       items.map((item) =>
         item.id === id
@@ -453,6 +474,7 @@ export function ShippingProvider({ children }: { children: ReactNode }) {
   );
 
   const updateOrder = useCallback((id: ID, patch: Partial<DeliveryOrder>) => {
+    assertMoney(patch);
     setOrders((items) =>
       items.map((item) =>
         item.id === id

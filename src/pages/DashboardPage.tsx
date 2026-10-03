@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Package, Warehouse, AlertTriangle, TrendingUp,
@@ -27,6 +27,23 @@ import { lsGet, lsSet } from "../lib/storage";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { useAutoPartsPro } from "../store/AutoPartsProContext";
 import { useFeatures } from "../lib/useFeatures";
+import { phase9Mark } from "../lib/phase9Profile";
+import type { SalesInvoice } from "../types";
+
+interface DashboardHistorySummary {
+  stats: {
+    todaySales: number; monthlySales: number; grossProfitMonth: number;
+    deadStockValue: number; receivables: number; payables: number; cashBalance: number;
+  };
+  accounts: {
+    total: number; count: number; overdueCount: number; overdueTotal: number;
+    overdue: SalesInvoice[];
+  };
+  chartData: Array<{ date: string; sales: number; purchases: number }>;
+  topProductsByStock: Array<{ name: string; qty: number }>;
+  topSellingProducts: Array<{ name: string; revenue: number }>;
+  recentActivity: Array<{ id: string; title: string; sub: string; amount?: number; date: string; tone: "green" | "blue"; to?: string }>;
+}
 
 /* ─── Types ─── */
 type CardId =
@@ -295,6 +312,7 @@ function CustomizeDialog({
 
 /* ─── Main Page ─── */
 export function DashboardPage() {
+  phase9Mark("dashboard-render-start");
   const navigate = useNavigate();
   const { products, customers, suppliers } = useCatalog();
   const { purchaseInvoices, salesInvoices, salesReturns, currentCashBalance, activeShift } = useInvoicing();
@@ -308,7 +326,34 @@ export function DashboardPage() {
   const activeProducts = useMemo(() => products.filter((product) => !product.archived), [products]);
 
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardHistorySummary | null>(null);
   const { cards, sections, toggleCard, toggleSection, moveCard, reset } = useDashboardConfig();
+  useEffect(() => {
+    phase9Mark("dashboard-react-commit");
+    requestAnimationFrame(() => phase9Mark("dashboard-first-frame"));
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const load = window.desktopAPI?.storage?.getDashboardSummary;
+    if (!load) return;
+    // Let the authenticated shell paint and accept input before starting the
+    // CPU-heavy aggregate worker. The worker is off the event loop, but
+    // launching it during the first commit still competes for CPU and makes
+    // login latency noisy on ordinary dual/quad-core shop machines.
+    const timer = window.setTimeout(() => {
+      void load().then((value) => {
+        if (!cancelled && value && typeof value === "object" && "accounts" in value && "stats" in value) {
+          setDashboardSummary(value as DashboardHistorySummary);
+        }
+      }).catch(() => {
+        // Keep local totals visible if the desktop summary cannot be loaded.
+      });
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   const canViewProducts  = hasPermission(currentUser, "products");
   const canViewInventory = hasPermission(currentUser, "inventory");
@@ -326,7 +371,7 @@ export function DashboardPage() {
   const canViewPOS       = hasPermission(currentUser, "pos");
 
   // ── Stats ──
-  const stats = useMemo(() => {
+  const localStats = useMemo(() => {
     const now = new Date();
     const monthStart = localISODate(new Date(now.getFullYear(), now.getMonth(), 1));
 
@@ -384,8 +429,9 @@ export function DashboardPage() {
       activeBranches: pro.branches.filter((branch) => branch.active).length,
     };
   }, [activeProducts, salesInvoices, salesReturns, customers, suppliers, customerBalance, supplierBalance, currentCashBalance, pro.branchStocks, pro.branches, pro.customerVehicles, pro.warrantyClaims, vehicleCatalog.productFitments]);
+  const stats = dashboardSummary ? { ...localStats, ...dashboardSummary.stats } : localStats;
 
-  const { accountInvoicesTotal, accountInvoicesCount, overdueInvoices, overdueTotal } = useMemo(() => {
+  const localAccounts = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const accountList = salesInvoices.filter((s) => !s.cancelled && s.remaining > 0);
     const overdue = accountList
@@ -398,9 +444,14 @@ export function DashboardPage() {
       overdueTotal: overdue.reduce((a, s) => a + s.remaining, 0),
     };
   }, [salesInvoices]);
+  const accountInvoicesTotal = dashboardSummary?.accounts?.total ?? localAccounts.accountInvoicesTotal;
+  const accountInvoicesCount = dashboardSummary?.accounts?.count ?? localAccounts.accountInvoicesCount;
+  const overdueInvoices = dashboardSummary?.accounts?.overdue ?? localAccounts.overdueInvoices;
+  const overdueInvoiceCount = dashboardSummary?.accounts?.overdueCount ?? localAccounts.overdueInvoices.length;
+  const overdueTotal = dashboardSummary?.accounts?.overdueTotal ?? localAccounts.overdueTotal;
 
   // ── Charts ──
-  const chartData = useMemo(() => {
+  const localChartData = useMemo(() => {
     const days: { date: string; sales: number; purchases: number }[] = [];
     const cancelledInvoiceIds = new Set(salesInvoices.filter((invoice) => invoice.cancelled).map((invoice) => invoice.id));
     for (let i = 13; i >= 0; i--) {
@@ -417,8 +468,9 @@ export function DashboardPage() {
     }
     return days;
   }, [salesInvoices, salesReturns, purchaseInvoices, canViewSales, canViewPurchases]);
+  const chartData = dashboardSummary?.chartData ?? localChartData;
 
-  const topProductsByStock = useMemo(() => {
+  const localTopProductsByStock = useMemo(() => {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - 90);
     const cutoff = localISODate(cutoffDate);
@@ -428,8 +480,9 @@ export function DashboardPage() {
       .slice(0, 5)
       .map((product) => ({ name: product.name, qty: product.quantity * (product.avgCost ?? product.purchasePrice) }));
   }, [activeProducts, salesInvoices]);
+  const topProductsByStock = dashboardSummary?.topProductsByStock ?? localTopProductsByStock;
 
-  const topSellingProducts = useMemo(() => {
+  const localTopSellingProducts = useMemo(() => {
     const map: Record<string, { name: string; revenue: number; qty: number }> = {};
     const cancelledInvoiceIds = new Set(salesInvoices.filter((invoice) => invoice.cancelled).map((invoice) => invoice.id));
     const cutoffDate = new Date();
@@ -448,18 +501,20 @@ export function DashboardPage() {
     return Object.values(map).filter((item) => item.revenue > 0).sort((a, b) => b.revenue - a.revenue).slice(0, 5)
       .map((p) => ({ name: p.name, revenue: p.revenue }));
   }, [salesInvoices, salesReturns]);
+  const topSellingProducts = dashboardSummary?.topSellingProducts ?? localTopSellingProducts;
 
   const lowStockList = useMemo(() =>
     activeProducts.filter((p) => p.quantity > 0 && p.quantity <= p.minStock).sort((a, b) => a.quantity - b.quantity).slice(0, 6),
     [activeProducts]
   );
 
-  const recentActivity = useMemo(() => {
+  const localRecentActivity = useMemo(() => {
     const items: { id: string; title: string; sub: string; amount?: number; date: string; tone: "green"|"blue"; to?: string }[] = [];
     if (canViewSales) salesInvoices.filter((invoice) => !invoice.cancelled).slice(0, 6).forEach((s) => items.push({ id: s.id, title: `بيع قطع · ${s.invoiceNumber}`, sub: [s.customerName, s.vehicleLabel, s.branchName].filter(Boolean).join(" · "), amount: s.total, date: s.date, tone: "green", to: `/sales/${s.id}` }));
     if (canViewPurchases) purchaseInvoices.slice(0, 4).forEach((p) => items.push({ id: p.id, title: `توريد قطع · ${p.invoiceNumber}`, sub: `${p.supplierName} · ${p.lines.length} بند`, amount: p.total, date: p.date, tone: "blue", to: `/purchases/${p.id}` }));
     return items.sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 8);
   }, [salesInvoices, purchaseInvoices, canViewSales, canViewPurchases]);
+  const recentActivity = dashboardSummary?.recentActivity ?? localRecentActivity;
 
   // ── Card permission map ──
   const cardAllowed: Record<CardId, boolean> = {
@@ -508,7 +563,7 @@ export function DashboardPage() {
       case "payables":         return <StatCard key={id} title="مستحقات الموردين" value={formatCurrency(stats.payables, cur)} icon={<ShoppingBag className="w-5 h-5" />} tone="slate" onClick={() => navigate("/dues")} />;
       case "cashBalance":      return <StatCard key={id} title="رصيد الخزينة الحالي" value={formatCurrency(stats.cashBalance, cur)} icon={<Wallet className="w-5 h-5" />} tone="green" onClick={canViewCashbox ? () => navigate("/cashbox") : undefined} />;
       case "accountInvoices":  return <StatCard key={id} title="فواتير آجل مفتوحة" value={formatCurrency(accountInvoicesTotal, cur)} icon={<Clock className="w-5 h-5" />} tone="indigo" delta={`${accountInvoicesCount} فاتورة`} onClick={() => navigate("/dues")} />;
-      case "overdueCount":     return <StatCard key={id} title="فواتير متأخرة" value={formatNumber(overdueInvoices.length)} icon={<AlertTriangle className="w-5 h-5" />} tone="red" delta={overdueTotal > 0 ? formatCurrency(overdueTotal, cur) : "لا يوجد تأخير"} onClick={() => navigate("/dues")} />;
+      case "overdueCount":     return <StatCard key={id} title="فواتير متأخرة" value={formatNumber(overdueInvoiceCount)} icon={<AlertTriangle className="w-5 h-5" />} tone="red" delta={overdueTotal > 0 ? formatCurrency(overdueTotal, cur) : "لا يوجد تأخير"} onClick={() => navigate("/dues")} />;
       case "totalCustomers":   return <StatCard key={id} title="سيارات العملاء المسجلة" value={formatNumber(stats.totalCustomerVehicles)} icon={<CarFront className="w-5 h-5" />} tone="violet" onClick={canViewCustomers ? () => navigate("/customer-garage") : undefined} />;
       case "totalSuppliers":   return <StatCard key={id} title="الفروع النشطة" value={formatNumber(stats.activeBranches)} icon={<GitBranch className="w-5 h-5" />} tone="slate" onClick={() => navigate("/branches")} />;
       case "netProfitToday":   return <StatCard key={id} title="مجمل ربح القطع الشهري" value={formatCurrency(stats.grossProfitMonth, cur)} icon={<CircleDollarSign className="w-5 h-5" />} tone={stats.grossProfitMonth >= 0 ? "green" : "rose"} delta="بعد خصم المرتجعات" onClick={() => navigate("/reports")} />;
@@ -522,7 +577,7 @@ export function DashboardPage() {
   const showTopSelling = sections.topSellingChart && sectionAllowed.topSellingChart;
   const showRecent = sections.recentActivity && sectionAllowed.recentActivity;
   const showLowStock = sections.lowStockPanel && sectionAllowed.lowStockPanel;
-  const showOverdue = sections.overduePanel && sectionAllowed.overduePanel && overdueInvoices.length > 0;
+  const showOverdue = sections.overduePanel && sectionAllowed.overduePanel && overdueInvoiceCount > 0;
   const showQuickActions = sections.quickActions && sectionAllowed.quickActions;
 
   const trendTitle = canViewSales && canViewPurchases ? "بيع وتوريد قطع الغيار — آخر 14 يوم" : canViewSales ? "مبيعات قطع الغيار — آخر 14 يوم" : "توريد قطع الغيار — آخر 14 يوم";
@@ -554,6 +609,11 @@ export function DashboardPage() {
           </div>
         }
       />
+      {!dashboardSummary && window.desktopAPI ? (
+        <div role="status" className="rounded-xl border border-line bg-surface px-4 py-2 text-xs text-ink-muted">
+          جاري حساب المؤشرات المالية والتاريخية الدقيقة في الخلفية… يمكنك استخدام بقية النظام الآن.
+        </div>
+      ) : null}
 
       {/* ── Stat Cards ──
           auto-rows-fr, not a fixed 8rem: a row is now as tall as its own
@@ -710,7 +770,7 @@ export function DashboardPage() {
       {/* ── Overdue Invoices ── */}
       {showOverdue && (
         <Card>
-          <CardHeader title="فواتير آجل متأخرة عن الاستحقاق" subtitle={`${overdueInvoices.length} فاتورة — إجمالي: ${formatCurrency(overdueTotal, settings.currency)}`} actions={<Link to="/sales" className="text-xs text-brand-700 hover:underline">عرض كل الفواتير</Link>} />
+          <CardHeader title="فواتير آجل متأخرة عن الاستحقاق" subtitle={`${overdueInvoiceCount} فاتورة — إجمالي: ${formatCurrency(overdueTotal, settings.currency)}`} actions={<Link to="/sales" className="text-xs text-brand-700 hover:underline">عرض كل الفواتير</Link>} />
           <CardBody className="divide-y divide-line p-0">
             {overdueInvoices.slice(0, 8).map((inv) => {
               const due = new Date(inv.paymentDueDate!); due.setHours(0,0,0,0);

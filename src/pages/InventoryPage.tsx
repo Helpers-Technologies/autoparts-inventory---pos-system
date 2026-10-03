@@ -32,13 +32,14 @@ import { useToast } from "../components/ui/Toast";
 import { daysUntil } from "../lib/utils";
 import { formatDate, formatQualityGradeLabel } from "../lib/format";
 import { formatStockMovementReference } from "../lib/stockMovement";
-import type { Product } from "../types";
+import type { Product, StockMovement } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { useFeatures } from "../lib/useFeatures";
 import { findProductScanCandidates, productMatchesSearch } from "../lib/partSearch";
 import { VEHICLE_COUNTRIES } from "../data/vehicleCountries";
 import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { useQueryPage } from "../lib/useQueryPage";
 
 type InventoryColumnKey =
   | "identity"
@@ -84,14 +85,11 @@ function loadInventoryColumns(): Record<InventoryColumnKey, boolean> {
 
 export function InventoryPage() {
   const { products, suppliers, adjustStock } = useCatalog();
-  const { stockMovements, stockMovementsHydrated, hydrateStockMovements, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns } = useInvoicing();
+  const { stockMovements, salesInvoices, purchaseInvoices, salesReturns, purchaseReturns } = useInvoicing();
 
   // The ledger is not loaded at startup — it is 316,000 records on a large
   // shop and only these two screens read it. Pull it in when one of them
   // actually opens.
-  useEffect(() => {
-    if (!stockMovementsHydrated) hydrateStockMovements();
-  }, [stockMovementsHydrated, hydrateStockMovements]);
   const { currentUser } = useAuth();
   const { settings } = useSettings();
   const { isEnabled } = useFeatures();
@@ -345,6 +343,15 @@ export function InventoryPage() {
   // Pagination & limit state for movements log
   const [movementsPageSize, setMovementsPageSize] = useState(10);
   const [movementsVisibleCount, setMovementsVisibleCount] = useState(10);
+  const movementQueryBacked = Boolean(window.desktopAPI?.query);
+  const remoteMovements = useQueryPage<StockMovement>("stockMovements", {
+    page: 0,
+    pageSize: Math.min(100, movementsVisibleCount),
+    q: movQ,
+    type: movType === "all" ? "" : movType,
+    from: movDateFrom,
+    to: movDateTo,
+  }, movementQueryBacked);
 
   useEffect(() => {
     setMovementsVisibleCount(movementsPageSize);
@@ -375,8 +382,10 @@ export function InventoryPage() {
   }, [filtered, inventoryVisibleCount]);
 
   const visibleMovements = useMemo(() => {
-    return filteredMovements.slice(0, movementsVisibleCount);
-  }, [filteredMovements, movementsVisibleCount]);
+    return movementQueryBacked
+      ? remoteMovements.rows
+      : filteredMovements.slice(0, movementsVisibleCount);
+  }, [movementQueryBacked, remoteMovements.rows, filteredMovements, movementsVisibleCount]);
 
   return (
     <>

@@ -84,6 +84,7 @@ export interface InvoicingContextValue {
   addPurchaseInvoice: (
     inv: Omit<PurchaseInvoice, "id" | "createdAt" | "status" | "remaining">
   ) => PurchaseInvoice;
+  addPurchaseInvoiceAwait: (inv: Omit<PurchaseInvoice, "id" | "createdAt" | "status" | "remaining">) => Promise<PurchaseInvoice>;
   updatePurchaseInvoice: (
     id: string,
     patch: { lines: InvoiceLine[]; date: string; notes?: string }

@@ -1,3 +1,4 @@
+import { assertMoney } from "../lib/moneySafety";
 import {
   createContext,
   useCallback,
@@ -22,12 +23,13 @@ import type {
   VehicleModel,
   WarrantyClaim,
 } from "../types";
-import { lsGet, lsSetBatch } from "../lib/storage";
+import { adoptCommittedStorageRows, lsGet, lsSetBatch } from "../lib/storage";
 import { uid } from "../lib/utils";
 import { useAuth } from "./AuthContext";
 import { useCatalog } from "./CatalogContext";
 import { useAuditLog } from "./AuditLogContext";
 import { registerAuxiliaryPersistenceOwner } from "./persistenceBoundaries";
+import { phase9Mark } from "../lib/phase9Profile";
 
 export const MAIN_BRANCH_ID = "branch_main";
 
@@ -126,21 +128,35 @@ function initialBranchStocks(products: Product[]): BranchStock[] {
 }
 
 export function reconcileBranchStocks(
-  current: BranchStock[],
-  products: Product[],
-  branches: Branch[],
+  current: BranchStock[] | unknown,
+  products: Product[] | unknown,
+  branches: Branch[] | unknown,
 ): BranchStock[] {
-  const productIds = new Set(products.map((product) => product.id));
-  const branchIds = new Set(branches.map((branch) => branch.id));
-  const mainId = branches.find((branch) => branch.isMain)?.id ?? branches[0]?.id ?? MAIN_BRANCH_ID;
+  // Persisted values cross a runtime boundary and older/restored databases can
+  // contain a legacy scalar or object where an array is expected. Previously
+  // that value reached `current.filter(...)` and crashed the entire app after
+  // login. Rebuild an invalid allocation snapshot from authoritative product
+  // quantities instead, preserving global inventory.
+  const currentRows: BranchStock[] = Array.isArray(current) ? current : [];
+  const productRows: Product[] = Array.isArray(products) ? products : [];
+  const branchRows: Branch[] = Array.isArray(branches) ? branches : [];
+  const productIds = new Set(productRows.map((product) => product.id));
+  const branchIds = new Set(branchRows.map((branch) => branch.id));
+  const mainId = branchRows.find((branch) => branch.isMain)?.id ?? branchRows[0]?.id ?? MAIN_BRANCH_ID;
   const now = new Date().toISOString();
-  const next = current
+  const next = currentRows
     .filter((row) => productIds.has(row.productId) && branchIds.has(row.branchId))
     .map((row) => ({ ...row, quantity: Math.max(0, Number(row.quantity) || 0) }));
   const byKey = new Map(next.map((row) => [`${row.branchId}:${row.productId}`, row]));
+  const rowsByProduct = new Map<string, BranchStock[]>();
+  for (const row of next) {
+    const rows = rowsByProduct.get(row.productId);
+    if (rows) rows.push(row);
+    else rowsByProduct.set(row.productId, [row]);
+  }
 
-  for (const product of products) {
-    const productRows = next.filter((row) => row.productId === product.id);
+  for (const product of productRows) {
+    const productRows = rowsByProduct.get(product.id) ?? [];
     const allocated = productRows.reduce((sum, row) => sum + row.quantity, 0);
     const diff = product.quantity - allocated;
     if (Math.abs(diff) < 0.000001) continue;
@@ -153,6 +169,7 @@ export function reconcileBranchStocks(
       const row = { branchId: mainId, productId: product.id, quantity: Math.max(0, diff), updatedAt: now };
       next.push(row);
       byKey.set(key, row);
+      rowsByProduct.set(product.id, [...productRows, row]);
     } else {
       // A stock correction or a sale made outside a branch can reduce the global
       // quantity below the current allocations. Consume the main branch first,
@@ -240,10 +257,17 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   const [hydratedIdentity, setHydratedIdentity] = useState<string | null>(
     isDesktop ? null : "web",
   );
+  const skipHydrationPersistenceRef = useRef<string | null>(null);
+  const skipAuthoritativeSalePersistenceRef = useRef(false);
   const [customerVehicles, setCustomerVehicles] = useState<CustomerVehicle[]>(() => lsGet("customerVehicles", []));
   const [warrantyClaims, setWarrantyClaims] = useState<WarrantyClaim[]>(() => lsGet("warrantyClaims", []));
   const [branches, setBranches] = useState<Branch[]>(() => lsGet("branches", DEFAULT_BRANCHES));
-  const [branchStocks, setBranchStocks] = useState<BranchStock[]>(() => lsGet("branchStocks", initialBranchStocks(products)));
+  const [branchStocks, setBranchStocks] = useState<BranchStock[]>(() => (
+    // An Electron renderer has no authenticated storage cache at mount time.
+    // Keep this empty until reloadProData runs after login; otherwise the
+    // runtime-generated starter IDs become real branch-stock rows.
+    isDesktop ? [] : lsGet("branchStocks", initialBranchStocks(products))
+  ));
   const branchStocksRef = useRef(branchStocks);
   useLayoutEffect(() => { branchStocksRef.current = branchStocks; }, [branchStocks]);
   const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>(() => lsGet("stockTransfers", []));
@@ -290,10 +314,31 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     setPriceTiers(lsGet("priceTiers", DEFAULT_PRICE_TIERS));
   }, []);
 
-  const reloadCommittedBranchStocks = useCallback(() => {
+  const skipAuthoritativeSaleReconcileRef = useRef(false);
+  const reloadCommittedBranchStocks = useCallback((event?: Event) => {
     // A sale owns branch stock only. Reloading every Pro collection here would
     // discard a transfer (or vehicle/branch edit) still awaiting its debounce.
+    // The acknowledged main-process transaction is also the durable owner of
+    // this change. Do not schedule the provider's legacy snapshot writer for
+    // the same branch-stock mutation.
+    skipAuthoritativeSalePersistenceRef.current = true;
+    const patches = (event as CustomEvent<{ branchStockPatches?: BranchStock[] }> | undefined)
+      ?.detail?.branchStockPatches;
+    if (patches?.length) {
+      skipAuthoritativeSaleReconcileRef.current = true;
+      const byKey = new Map(patches.map((row) => [`${row.branchId}:${row.productId}`, row]));
+      setBranchStocks((current) => {
+        const next = current.map((row) => byKey.get(`${row.branchId}:${row.productId}`) ?? row);
+        const existingKeys = new Set(current.map(row => `${row.branchId}:${row.productId}`));
+        next.push(...patches.filter(row => !existingKeys.has(`${row.branchId}:${row.productId}`)));
+        adoptCommittedStorageRows({}, { branchStocks: next });
+        branchStocksRef.current = next;
+        return next;
+      });
+      return;
+    }
     const stored = lsGet<BranchStock[]>("branchStocks", []);
+    adoptCommittedStorageRows({}, { branchStocks: stored });
     branchStocksRef.current = stored;
     setBranchStocks(stored);
   }, []);
@@ -303,6 +348,7 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
       setHydratedIdentity(isDesktop ? null : "web");
       return;
     }
+    skipHydrationPersistenceRef.current = authenticatedIdentity;
     reloadProData();
     setHydratedIdentity(authenticatedIdentity);
   }, [authenticatedIdentity, isDesktop, reloadProData]);
@@ -311,11 +357,26 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     if (isDesktop && (
       !authenticatedIdentity || hydratedIdentity !== authenticatedIdentity
     )) return;
+    if (isDesktop && skipAuthoritativeSaleReconcileRef.current) {
+      skipAuthoritativeSaleReconcileRef.current = false;
+      return;
+    }
+    phase9Mark("branch-stock-reconcile-effect-start", {
+      products: products.length,
+      branches: branches.length,
+      branchStocks: branchStocksRef.current.length,
+    });
     setBranchStocks((current) => {
       const next = reconcileBranchStocks(current, products, branches);
-      const before = current.map((row) => `${row.branchId}:${row.productId}:${row.quantity}`).sort().join("|");
-      const after = next.map((row) => `${row.branchId}:${row.productId}:${row.quantity}`).sort().join("|");
-      return before === after ? current : next;
+      phase9Mark("branch-stock-reconcile-calculation-complete");
+      const currentByKey = new Map(
+        current.map((row) => [`${row.branchId}:${row.productId}`, row.quantity]),
+      );
+      const unchanged = current.length === next.length && next.every(
+        (row) => currentByKey.get(`${row.branchId}:${row.productId}`) === row.quantity,
+      );
+      phase9Mark("branch-stock-reconcile-complete");
+      return unchanged ? current : next;
     });
   }, [products, branches, authenticatedIdentity, hydratedIdentity, isDesktop]);
 
@@ -323,6 +384,14 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     if (isDesktop && (
       !authenticatedIdentity || hydratedIdentity !== authenticatedIdentity
     )) return;
+    if (isDesktop && skipHydrationPersistenceRef.current === authenticatedIdentity) {
+      skipHydrationPersistenceRef.current = null;
+      return;
+    }
+    if (isDesktop && skipAuthoritativeSalePersistenceRef.current) {
+      skipAuthoritativeSalePersistenceRef.current = false;
+      return;
+    }
     const timer = window.setTimeout(() => {
       lsSetBatch({ customerVehicles, warrantyClaims, branches, branchStocks: branchStocksRef.current, stockTransfers, priceTiers });
     }, 1200);
@@ -368,6 +437,7 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addWarrantyClaim = useCallback((input: NewWarrantyClaim) => {
+    assertMoney(input);
     const now = new Date().toISOString();
     const item: WarrantyClaim = { ...input, id: uid("claim"), status: "open", openedAt: now, updatedAt: now };
     setWarrantyClaims((items) => [item, ...items]);
@@ -375,6 +445,7 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateWarrantyClaim = useCallback((id: string, patch: Partial<WarrantyClaim>) => {
+    assertMoney(patch);
     setWarrantyClaims((items) => items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item));
   }, []);
 
@@ -408,9 +479,13 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
     }));
   }, [logAudit]);
 
+  const branchStockQuantityByKey = useMemo(
+    () => new Map(branchStocks.map((row) => [`${row.branchId}:${row.productId}`, row.quantity])),
+    [branchStocks],
+  );
   const branchQuantity = useCallback((branchId: string, productId: string) => (
-    branchStocks.find((row) => row.branchId === branchId && row.productId === productId)?.quantity ?? 0
-  ), [branchStocks]);
+    branchStockQuantityByKey.get(`${branchId}:${productId}`) ?? 0
+  ), [branchStockQuantityByKey]);
 
   const transferStock = useCallback((input: Omit<StockTransfer, "id" | "transferNumber" | "createdAt" | "status">) => {
     if (transferInFlightRef.current) return null;
@@ -471,12 +546,14 @@ export function AutoPartsProProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addPriceTier = useCallback((input: NewPriceTier) => {
+    assertMoney(input);
     const item: PriceTier = { ...input, id: uid("tier"), createdAt: new Date().toISOString() };
     setPriceTiers((items) => [...items, item]);
     return item;
   }, []);
 
   const updatePriceTier = useCallback((id: string, patch: Partial<PriceTier>) => {
+    assertMoney(patch);
     setPriceTiers((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
   }, []);
 

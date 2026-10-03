@@ -14,8 +14,8 @@ const source = process.env.PARTFLOW_HARDENING_SOURCE_DB ||
   JSON.parse(fs.readFileSync(path.join(root, 'reports/system-audit-2026-09-14/load-small.json'), 'utf8')).sourceDb;
 const results = [];
 const save = () => fs.writeFileSync(path.join(work, 'critical-reproduction.json'), JSON.stringify(results, null, 2));
-export async function startApp(db) {
-  const env = { ...process.env, HW_E2E: '1', HW_E2E_DB_PATH: db, NODE_ENV: 'test' };
+export async function startApp(db, extraEnv = {}) {
+  const env = { ...process.env, HW_E2E: '1', HW_E2E_DB_PATH: db, NODE_ENV: 'test', ...extraEnv };
   delete env.ELECTRON_RENDERER_URL;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: [path.join(root, 'scripts/hardening-electron-bootstrap.cjs')], cwd: root, env, timeout: 180000 });
@@ -26,7 +26,13 @@ export async function startApp(db) {
     await page.getByPlaceholder('Login username').fill('admin');
     await page.locator('input[type=password]').first().fill('stress123');
     await page.getByRole('button', { name: 'تسجيل الدخول', exact: true }).click();
-    await page.getByRole('button', { name: 'تسجيل الخروج', exact: true }).first().waitFor({ timeout: 240000 });
+    // The logout action can be inside a collapsed sidebar or user menu. The
+    // authenticated redirect and absence of the login form are the stable
+    // login contract for this certification harness.
+    await page.waitForFunction(() =>
+      !window.location.hash.startsWith('#/login') &&
+      !document.querySelector('input[placeholder="Login username"]'),
+    { timeout: 240000 });
     const dismiss = page.getByRole('button', { name: 'تمام، فهمت', exact: true });
     if (await dismiss.isVisible()) { await dismiss.evaluate(button => button.click()); await dismiss.waitFor({ state: 'hidden' }); }
     return { app, page };
@@ -86,6 +92,10 @@ export async function openPos(page) {
   await page.evaluate(() => { location.hash = '/pos'; });
   await page.getByPlaceholder('ابحث عن منتج بالاسم أو الرمز...').waitFor({ timeout: 90000 });
   const floating = page.getByPlaceholder('مثال: 500');
+  // POS mounts the open-shift dialog from an effect after the page itself is
+  // already ready. Give that effect a bounded chance to publish the dialog so
+  // the first product click cannot race the modal backdrop.
+  await floating.waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
   if (!(await floating.isVisible())) {
     const open = page.getByRole('button', { name: 'فتح وردية', exact: true }).first();
     if (await open.isVisible()) await open.click();
@@ -94,6 +104,16 @@ export async function openPos(page) {
     await floating.fill('2000');
     await page.getByRole('button', { name: /بدء الوردية الآن/ }).click();
     await floating.waitFor({ state: 'hidden' });
+  }
+  // A fresh profile can publish the post-update dialog after authentication
+  // while the large projection is still settling. The shift dialog is later
+  // in the DOM and must be handled first; then dismiss What's New so neither
+  // backdrop can cover the first product tile.
+  const whatsNew = page.getByRole('button', { name: '\u062a\u0645\u0627\u0645\u060c \u0641\u0647\u0645\u062a', exact: true });
+  await whatsNew.waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
+  if (await whatsNew.isVisible()) {
+    await whatsNew.click();
+    await whatsNew.waitFor({ state: 'hidden', timeout: 30000 });
   }
   await page.locator('[data-testid="pos-product-tile"]:not([disabled])').first().waitFor({ timeout: 45000 });
 }
@@ -107,7 +127,13 @@ export async function sell(page, rejected = false) {
     // that occupied that position in the previous filtered result.
     await page.waitForTimeout(600);
   }
-  const index = await tiles.evaluateAll(items => items.findIndex(el => !el.disabled && Number((el.textContent.match(/متاح:\s*([\d.,]+)/) || [])[1]?.replaceAll(',', '')) > 0));
+  // Positive displayed stock is not enough when less than one sellable unit
+  // remains. In that case the POS correctly opens the alternatives dialog and
+  // an automation loop would misreport a sale timeout. Select only a tile that
+  // publishes that another unit can actually be added to the cart.
+  const index = await tiles.evaluateAll(items => items.findIndex(el =>
+    !el.disabled && el.getAttribute('data-pos-can-increment') === 'true'
+  ));
   if (index < 0) throw new Error('NO_AVAILABLE_FIXTURE_PRODUCT');
   const product = await tiles.nth(index).locator('h3').innerText();
   await tiles.nth(index).click();

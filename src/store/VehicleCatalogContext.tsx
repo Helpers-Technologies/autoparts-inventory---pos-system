@@ -4,10 +4,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import type {
+  Product,
   ProductAlternative,
   ProductFitment,
   VehicleCatalogPreferences,
@@ -40,6 +42,21 @@ type NewGeneration = Omit<VehicleGeneration, "id" | "createdAt">;
 type NewEngine = Omit<VehicleEngine, "id" | "createdAt">;
 type NewFitment = Omit<ProductFitment, "id" | "createdAt">;
 type NewAlternative = Omit<ProductAlternative, "id" | "createdAt">;
+
+function sameStarterFitmentInputs(previous: readonly Product[], next: readonly Product[]): boolean {
+  if (previous.length !== next.length) return false;
+  for (let index = 0; index < next.length; index += 1) {
+    const before = previous[index];
+    const after = next[index];
+    if (before === after) continue;
+    if (
+      before.id !== after.id || before.code !== after.code || before.name !== after.name ||
+      before.partBrand !== after.partBrand || before.manufacturer !== after.manufacturer ||
+      Boolean(before.archived) !== Boolean(after.archived)
+    ) return false;
+  }
+  return true;
+}
 
 export interface VehicleCatalogContextValue {
   vehicleMakes: VehicleMake[];
@@ -143,6 +160,7 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
   const [hydratedIdentity, setHydratedIdentity] = useState<string | null>(
     isDesktop ? null : "web",
   );
+  const skipHydrationPersistenceRef = useRef<string | null>(null);
   const loadMakes = useCallback(
     () => mergeSeedRecords(lsGet<VehicleMake[]>("vehicleMakes", []), seedVehicleMakes).map(enrichMakeCountry),
     [],
@@ -176,8 +194,15 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
   const [productAlternatives, setProductAlternatives] = useState<ProductAlternative[]>(() =>
     lsGet("productAlternatives", []),
   );
+  const productsRef = useRef(products);
+  const fitmentInputsRef = useRef({ products, vehicleMakes, vehicleModels });
+
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
 
   const reloadVehicleCatalog = useCallback(() => {
+    const currentProducts = productsRef.current;
     setVehicleMakes(loadMakes());
     setVehicleCatalogPreferences(
       normalizePreferences(lsGet("vehicleCatalogPreferences", DEFAULT_VEHICLE_CATALOG_PREFERENCES)),
@@ -187,16 +212,26 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
     setVehicleEngines(lsGet("vehicleEngines", []));
     setProductFitments(
       buildStarterProductFitments(
-        products,
+        currentProducts,
         loadMakes(),
         loadModels(),
         lsGet("productFitments", []),
       ),
     );
     setProductAlternatives(lsGet("productAlternatives", []));
-  }, [loadMakes, loadModels, loadGenerations, products]);
+  }, [loadMakes, loadModels, loadGenerations]);
 
   useEffect(() => {
+    const previous = fitmentInputsRef.current;
+    if (
+      previous.vehicleMakes === vehicleMakes &&
+      previous.vehicleModels === vehicleModels &&
+      sameStarterFitmentInputs(previous.products, products)
+    ) {
+      fitmentInputsRef.current = { products, vehicleMakes, vehicleModels };
+      return;
+    }
+    fitmentInputsRef.current = { products, vehicleMakes, vehicleModels };
     setProductFitments((current) =>
       buildStarterProductFitments(products, vehicleMakes, vehicleModels, current),
     );
@@ -213,6 +248,7 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
       setHydratedIdentity(isDesktop ? null : "web");
       return;
     }
+    skipHydrationPersistenceRef.current = authenticatedIdentity;
     reloadVehicleCatalog();
     // React batches this with the collection state updates above. Persistence
     // is enabled only on the following committed render, so the pre-login
@@ -222,6 +258,10 @@ export function VehicleCatalogProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isDesktop && hydratedIdentity !== authenticatedIdentity) return;
+    if (isDesktop && skipHydrationPersistenceRef.current === authenticatedIdentity) {
+      skipHydrationPersistenceRef.current = null;
+      return;
+    }
     const timer = window.setTimeout(() => {
       lsSetBatch({
         vehicleCatalogSchemaVersion,

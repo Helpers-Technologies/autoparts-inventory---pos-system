@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Minus, Wallet, HandCoins, Factory, NotebookPen, Search, ChevronDown, ChevronUp, PieChart, Banknote, CreditCard, Landmark, Smartphone, MoreHorizontal } from "lucide-react";
+import { Plus, Minus, Wallet, HandCoins, Factory, NotebookPen, Search, ChevronDown, ChevronUp, PieChart, Banknote, CreditCard, Landmark, Smartphone, MoreHorizontal, SlidersHorizontal } from "lucide-react";
 import { PageHeader } from "../components/layout/AppLayout";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -44,6 +44,8 @@ export function CashboxPage() {
 
   const [open, setOpen] = useState(false);
   const [balanceBreakdownOpen, setBalanceBreakdownOpen] = useState(false);
+  const [receivedDetailsOpen, setReceivedDetailsOpen] = useState(false);
+  const [supplierPaymentsDetailsOpen, setSupplierPaymentsDetailsOpen] = useState(false);
   const [entryType, setEntryType] = useState<CashEntryType>("manual-add");
   const [amount, setAmount] = useState(0);
   const [desc, setDesc] = useState("");
@@ -409,8 +411,22 @@ export function CashboxPage() {
           onDetails={() => setBalanceBreakdownOpen(true)}
           detailsLabel="تفاصيل الرصيد حسب طريقة الدفع"
         />
-        <Stat icon={<HandCoins className="w-5 h-5" />} label="إجمالي المحصل" value={formatCurrency(totalReceived, settings.currency)} tone="blue" />
-        <Stat icon={<Factory className="w-5 h-5" />} label="مدفوعات الموردين" value={formatCurrency(totalPurchasePayments, settings.currency)} tone="amber" />
+        <Stat
+          icon={<HandCoins className="w-5 h-5" />}
+          label="إجمالي المحصل"
+          value={formatCurrency(totalReceived, settings.currency)}
+          tone="blue"
+          onDetails={() => setReceivedDetailsOpen(true)}
+          detailsLabel="تفاصيل إجمالي المحصل"
+        />
+        <Stat
+          icon={<Factory className="w-5 h-5" />}
+          label="مدفوعات الموردين"
+          value={formatCurrency(totalPurchasePayments, settings.currency)}
+          tone="amber"
+          onDetails={() => setSupplierPaymentsDetailsOpen(true)}
+          detailsLabel="تفاصيل مدفوعات الموردين"
+        />
       </div>
 
       <Card>
@@ -704,7 +720,7 @@ export function CashboxPage() {
         onClose={() => setBalanceBreakdownOpen(false)}
         title="تفاصيل الرصيد الحالي"
         subtitle="الرصيد موزّع على طرق الدفع اللي دخلت أو خرجت بيها الفلوس"
-        width="lg"
+        width="2xl"
         footer={<Button variant="outline" onClick={() => setBalanceBreakdownOpen(false)}>إغلاق</Button>}
       >
         <div className="space-y-3">
@@ -766,6 +782,62 @@ export function CashboxPage() {
       </Dialog>
 
       <Dialog
+        open={receivedDetailsOpen}
+        onClose={() => setReceivedDetailsOpen(false)}
+        title="تفاصيل إجمالي المحصل"
+        subtitle="مدفوعات فواتير البيع غير الملغاة"
+        width="2xl"
+        footer={<Button variant="outline" onClick={() => setReceivedDetailsOpen(false)}>إغلاق</Button>}
+      >
+        <CashboxInvoiceDetails
+          rows={salesInvoices
+            .filter((invoice) => !invoice.cancelled && invoice.amountReceived + (invoice.overpayment ?? 0) > 0)
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((invoice) => ({
+              id: invoice.id,
+              number: invoice.invoiceNumber,
+              date: invoice.date,
+              party: invoice.customerName,
+              methodKey: invoice.paymentMethod ?? "cash",
+              method: invoice.paymentMethodLabel || PAYMENT_METHOD_LABELS[invoice.paymentMethod ?? "cash"] || "—",
+              amount: invoice.amountReceived + (invoice.overpayment ?? 0),
+            }))}
+          partyLabel="العميل"
+          total={totalReceived}
+          currency={settings.currency}
+          emptyTitle="لا توجد محصلات بعد"
+        />
+      </Dialog>
+
+      <Dialog
+        open={supplierPaymentsDetailsOpen}
+        onClose={() => setSupplierPaymentsDetailsOpen(false)}
+        title="تفاصيل مدفوعات الموردين"
+        subtitle="المبالغ المدفوعة لفواتير الشراء"
+        width="2xl"
+        footer={<Button variant="outline" onClick={() => setSupplierPaymentsDetailsOpen(false)}>إغلاق</Button>}
+      >
+        <CashboxInvoiceDetails
+          rows={purchaseInvoices
+            .filter((invoice) => invoice.amountPaid + (invoice.overpayment ?? 0) > 0)
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((invoice) => ({
+              id: invoice.id,
+              number: invoice.invoiceNumber,
+              date: invoice.date,
+              party: invoice.supplierName,
+              methodKey: invoice.paymentLog?.[0]?.paymentMethod ?? "other",
+              method: invoice.paymentLog?.length ? "مدفوعات مسجلة" : "مدفوعات الفاتورة",
+              amount: invoice.amountPaid + (invoice.overpayment ?? 0),
+            }))}
+          partyLabel="المورد"
+          total={totalPurchasePayments}
+          currency={settings.currency}
+          emptyTitle="لا توجد مدفوعات بعد"
+        />
+      </Dialog>
+
+      <Dialog
         open={openBalOpen}
         onClose={() => setOpenBalOpen(false)}
         title="تعديل الرصيد الافتتاحي"
@@ -801,6 +873,176 @@ const PAYMENT_METHOD_ICONS: Record<string, React.ReactNode> = {
   bank: <Landmark className="h-3.5 w-3.5" />,
   other: <MoreHorizontal className="h-3.5 w-3.5" />,
 };
+
+function CashboxInvoiceDetails({
+  rows,
+  partyLabel,
+  total,
+  currency,
+  emptyTitle,
+}: {
+  rows: Array<{ id: string; number: string; date: string; party: string; methodKey: string; method: string; amount: number }>;
+  partyLabel: string;
+  total: number;
+  currency: string;
+  emptyTitle: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [methodFilter, setMethodFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "highest" | "lowest">("newest");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  const summary = useMemo(() => {
+    const totals = new Map<string, number>();
+    rows.forEach((row) => totals.set(row.methodKey, (totals.get(row.methodKey) ?? 0) + row.amount));
+    return Array.from(totals.entries()).sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const filtered = rows.filter((row) => {
+      const matchesQuery = !normalized || `${row.number} ${row.party} ${row.method}`.toLowerCase().includes(normalized);
+      const matchesMethod = methodFilter === "all" || row.methodKey === methodFilter;
+      const matchesFrom = !dateFrom || row.date >= dateFrom;
+      const matchesTo = !dateTo || row.date <= dateTo;
+      const matchesMin = !minAmount || row.amount >= Number(minAmount);
+      const matchesMax = !maxAmount || row.amount <= Number(maxAmount);
+      return matchesQuery && matchesMethod && matchesFrom && matchesTo && matchesMin && matchesMax;
+    });
+    return filtered.sort((a, b) => {
+      if (sortBy === "oldest") return a.date.localeCompare(b.date);
+      if (sortBy === "highest") return b.amount - a.amount;
+      if (sortBy === "lowest") return a.amount - b.amount;
+      return b.date.localeCompare(a.date);
+    });
+  }, [rows, query, methodFilter, dateFrom, dateTo, minAmount, maxAmount, sortBy]);
+
+  const visibleRows = showAll ? filteredRows : filteredRows.slice(0, 5);
+
+  if (rows.length === 0) {
+    return <EmptyState icon={<PieChart className="h-5 w-5" />} title={emptyTitle} />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-4 gap-2">
+        {summary.map(([methodKey, amount]) => (
+          <button
+            key={methodKey}
+            type="button"
+            onClick={() => setMethodFilter(methodFilter === methodKey ? "all" : methodKey)}
+            className={`flex items-center justify-between rounded-lg border p-3 text-start transition ${methodFilter === methodKey ? "border-brand-500 bg-brand-50 dark:bg-brand-500/10" : "border-line bg-surface"}`}
+          >
+            <span className="text-xs text-ink-muted">{PAYMENT_METHOD_LABELS[methodKey] ?? (methodKey === "other" ? "أخرى" : methodKey)}</span>
+            <span className="font-semibold text-ink">{formatCurrency(amount, currency)}</span>
+          </button>
+        ))}
+      </div>
+
+      <StatRow label="الإجمالي" value={total} tone="total" settings={{ currency }} />
+
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setFiltersOpen((current) => !current)}
+          aria-expanded={filtersOpen}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          {filtersOpen ? "إخفاء الفلاتر" : "إظهار الفلاتر"}
+          {query || methodFilter !== "all" || dateFrom || dateTo || minAmount || maxAmount ? (
+            <span className="rounded-full bg-brand-600 px-1.5 text-[10px] text-white">مفعّلة</span>
+          ) : null}
+        </Button>
+        <span className="text-xs text-ink-muted">{filteredRows.length} عملية</span>
+      </div>
+
+      {filtersOpen ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 rounded-xl border border-line bg-surface-muted/40 p-3">
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="ابحث برقم الفاتورة أو الاسم..."
+            aria-label="بحث في العمليات"
+          />
+          <Select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} aria-label="فلترة طريقة الدفع">
+            <option value="all">كل طرق الدفع</option>
+            {summary.map(([methodKey]) => (
+              <option key={methodKey} value={methodKey}>{PAYMENT_METHOD_LABELS[methodKey] ?? methodKey}</option>
+            ))}
+          </Select>
+          <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="من تاريخ" />
+          <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="إلى تاريخ" />
+          <Input type="number" min="0" step="0.01" value={minAmount} onChange={(event) => setMinAmount(event.target.value)} placeholder="أقل مبلغ" aria-label="أقل مبلغ" />
+          <Input type="number" min="0" step="0.01" value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} placeholder="أقصى مبلغ" aria-label="أقصى مبلغ" />
+          <Select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)} aria-label="ترتيب العمليات">
+            <option value="newest">الأحدث أولًا</option>
+            <option value="oldest">الأقدم أولًا</option>
+            <option value="highest">الأعلى مبلغًا</option>
+            <option value="lowest">الأقل مبلغًا</option>
+          </Select>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setQuery("");
+              setMethodFilter("all");
+              setDateFrom("");
+              setDateTo("");
+              setMinAmount("");
+              setMaxAmount("");
+              setSortBy("newest");
+              setShowAll(false);
+            }}
+          >
+            مسح الفلاتر
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-xl border border-line">
+        <Table>
+          <THead>
+            <TR>
+              <TH>الفاتورة</TH>
+              <TH>{partyLabel}</TH>
+              <TH>التاريخ</TH>
+              <TH>طريقة الدفع</TH>
+              <TH className="text-end">المبلغ</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {visibleRows.map((row) => (
+              <TR key={row.id}>
+                <TD className="font-semibold text-ink">{row.number}</TD>
+                <TD>{row.party}</TD>
+                <TD className="text-ink-muted">{formatDate(row.date)}</TD>
+                <TD className="text-ink-muted">{row.method}</TD>
+                <TD className="text-end font-semibold text-emerald-600 dark:text-emerald-400">
+                  {formatCurrency(row.amount, currency)}
+                </TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      </div>
+      {filteredRows.length > 5 ? (
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => setShowAll((current) => !current)}
+        >
+          {showAll ? "عرض أقل" : `عرض المزيد (${filteredRows.length - 5})`}
+        </Button>
+      ) : null}
+      {filteredRows.length === 0 ? <EmptyState title="لا توجد عمليات مطابقة للفلترة" /> : null}
+    </div>
+  );
+}
 
 function TypeBadge({ type }: { type: CashEntryType }) {
   if (type === "sales-receipt") return <Badge tone="green">تحصيل مبيعات</Badge>;

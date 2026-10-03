@@ -45,10 +45,12 @@ export function SalesInvoicePrintPage() {
       lines={inv.lines}
       total={inv.total}
       discount={inv.discount}
+      discountCode={inv.discountCode}
       amountPaid={inv.amountReceived}
       remaining={effectiveRemaining}
       notes={inv.notes}
       paymentLabel={paymentLabel}
+      paymentType={inv.paymentType}
       returns={invoiceReturns.length > 0 ? invoiceReturns : undefined}
       paymentDueDate={inv.paymentDueDate}
       customerBalance={totalBalance}

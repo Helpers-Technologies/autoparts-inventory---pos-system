@@ -84,4 +84,17 @@ describe("Auto Parts Pro rules", () => {
     expect(increased.reduce((sum, row) => sum + row.quantity, 0)).toBe(12);
     expect(increased.find((row) => row.branchId === "main")?.quantity).toBe(5);
   });
+
+  it("recovers from a legacy non-array branch-stock value", () => {
+    const product = { ...seedProducts[0]!, id: "p-runtime", quantity: 7 };
+    const runtimeBranches: Branch[] = [{ ...branches[0]!, id: "main-runtime" }];
+
+    expect(reconcileBranchStocks({ rows: "legacy" }, [product], runtimeBranches)).toEqual([
+      expect.objectContaining({
+        branchId: "main-runtime",
+        productId: "p-runtime",
+        quantity: 7,
+      }),
+    ]);
+  });
 });

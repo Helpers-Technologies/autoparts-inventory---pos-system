@@ -1,3 +1,4 @@
+import { assertMoney } from "../lib/moneySafety";
 import {
   createContext,
   useCallback,
@@ -62,6 +63,7 @@ import {
 } from "../data/autoPartsStarterCatalog";
 import { localISODate, todayISO, uid } from "../lib/utils";
 import { buildXlsx } from "../lib/xlsx";
+import { phase9Mark } from "../lib/phase9Profile";
 import { isAutoBackupDue, backupFileName, startAutoBackupChecks } from "../lib/backupSchedule";
 import {
   computeStatus,
@@ -93,6 +95,12 @@ import { UsersContext } from "./UsersContext";
 import { VehicleCatalogProvider } from "./VehicleCatalogContext";
 import { AutoPartsProProvider } from "./AutoPartsProContext";
 import { ShippingProvider } from "./ShippingContext";
+import {
+  DEFERRED_COLLECTIONS,
+  HydrationContext,
+  type CollectionHydrationState,
+  type DeferredCollection,
+} from "./HydrationContext";
 import { hasAuxiliaryPersistenceOwners, shutdownPersistenceEntries, stateOwnedPersistenceEntries } from "./persistenceBoundaries";
 import { DEFAULT_BRANCHES, reconcileBranchStocks } from "./AutoPartsProContext";
 import { adoptCommittedStorageRows, withPendingPersistenceCollections } from "../lib/storage";
@@ -198,6 +206,7 @@ interface AppActions {
   addPurchaseInvoice: (
     inv: Omit<PurchaseInvoice, "id" | "createdAt" | "status" | "remaining">
   ) => PurchaseInvoice;
+  addPurchaseInvoiceAwait: (inv: Omit<PurchaseInvoice, "id" | "createdAt" | "status" | "remaining">) => Promise<PurchaseInvoice>;
   updatePurchaseInvoice: (
     id: string,
     patch: { lines: InvoiceLine[]; date: string; notes?: string }
@@ -453,13 +462,19 @@ function normalizeProduct(product: LegacyProduct): Product {
 }
 
 function loadProductsWithStarterCatalog(allowCatalogInstall = true): Product[] {
-  const stored = lsGet<LegacyProduct[]>("products", seedProducts).map(normalizeProduct);
+  const persisted = lsGet<LegacyProduct[] | null>("products", null);
+  const stored = (persisted ?? seedProducts).map(normalizeProduct);
   // Installing a new starter-catalog revision mutates the real product list.
   // An employee who merely signs in must not inherit product.add authority
   // from this startup convenience; the next owner session performs it.
   if (!allowCatalogInstall) return stored;
   const installedVersion = lsGet<number>("autoPartsStarterCatalogVersion", 0);
   if (installedVersion >= AUTO_PARTS_STARTER_CATALOG_VERSION) return stored;
+  // Version 0 plus an established product collection means the shop predates
+  // the managed starter-catalog marker. Injecting sample stock during login is
+  // an unexpected business mutation; only brand-new stores or previously
+  // managed starter catalogs may receive catalog additions automatically.
+  if (installedVersion === 0 && persisted && persisted.length > 0) return stored;
   return mergeAutoPartsStarterCatalog(stored, seedProducts);
 }
 
@@ -539,19 +554,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const advancedSecurityEnabled = isFeatureEnabled("advancedSecurity", settings, licenseStatus?.license ?? null);
   const [products, setProducts] = useState<Product[]>(() =>
-    loadProductsWithStarterCatalog()
+    // Desktop providers mount before an authenticated storage snapshot exists.
+    // Seeding that transient render with runtime-generated demo product IDs can
+    // leak those IDs into auxiliary branch-stock reconciliation before login.
+    isDesktop ? [] : loadProductsWithStarterCatalog()
   );
   const [suppliers, setSuppliers] = useState<Supplier[]>(() =>
     lsGet<Supplier[]>("suppliers", seedSuppliers)
   );
   const [customers, setCustomers] = useState<Customer[]>(() =>
-    lsGet<Customer[]>("customers", seedCustomers)
+    isDesktop ? [] : lsGet<Customer[]>("customers", seedCustomers)
   );
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>(
-    () => lsGet<PurchaseInvoice[]>("purchaseInvoices", seedPurchaseInvoices)
+    () => isDesktop ? [] : lsGet<PurchaseInvoice[]>("purchaseInvoices", seedPurchaseInvoices)
   );
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>(() =>
-    lsGet<LegacySalesInvoice[]>("salesInvoices", seedSalesInvoices).map(
+    (isDesktop ? [] : lsGet<LegacySalesInvoice[]>("salesInvoices", seedSalesInvoices)).map(
       normalizeSalesInvoice
     )
   );
@@ -570,7 +588,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [stockMovementsHydrated, setStockMovementsHydrated] = useState(false);
   const [cashEntries, setCashEntries] = useState<CashEntry[]>(() =>
-    lsGet<CashEntry[]>("cashEntries", seedCashEntries)
+    isDesktop ? [] : lsGet<CashEntry[]>("cashEntries", seedCashEntries)
   );
   const [nextProductCode, setNextProductCode] = useState<number>(() =>
     lsGet<number>("nextProductCode", 1000)
@@ -589,18 +607,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     lsGet<AppUser[]>("users", seedUsers).map(normalizeUser)
   );
   const [salesReturns, setSalesReturns] = useState<SalesReturn[]>(() =>
-    lsGet<SalesReturn[]>("salesReturns", [])
+    isDesktop ? [] : lsGet<SalesReturn[]>("salesReturns", [])
   );
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>(() =>
-    lsGet<PurchaseReturn[]>("purchaseReturns", [])
+    isDesktop ? [] : lsGet<PurchaseReturn[]>("purchaseReturns", [])
   );
   const [drivers, setDrivers] = useState<Driver[]>(() => lsGet("drivers", []));
   const [offlineEmployees, setOfflineEmployees] = useState<OfflineEmployee[]>(() => lsGet<OfflineEmployee[]>("offlineEmployees", []));
   const [offlineTransactions, setOfflineTransactions] = useState<OfflineEmployeeTransaction[]>(() => lsGet<OfflineEmployeeTransaction[]>("offlineTransactions", []));
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => lsGet<AuditLog[]>("auditLogs", []));
-  const [quotations, setQuotations] = useState<Quotation[]>(() => lsGet<Quotation[]>("quotations", []));
+  const [quotations, setQuotations] = useState<Quotation[]>(() => isDesktop ? [] : lsGet<Quotation[]>("quotations", []));
   const [stocktakes, setStocktakes] = useState<Stocktake[]>(() => lsGet<Stocktake[]>("stocktakes", []));
   const [shifts, setShifts] = useState<CashierShift[]>(() => lsGet<CashierShift[]>("shifts", []));
+  const initialDeferredState = Object.fromEntries(
+    DEFERRED_COLLECTIONS.map((key) => [key, isDesktop ? "unloaded" : "loaded"]),
+  ) as Record<DeferredCollection, CollectionHydrationState>;
+  const [collectionState, setCollectionState] = useState(initialDeferredState);
+  const unloadedDeferredKeysRef = useRef<Set<string>>(
+    new Set(isDesktop ? DEFERRED_COLLECTIONS : []),
+  );
+  const hydrationPromisesRef = useRef(
+    new Map<DeferredCollection, Promise<boolean>>(),
+  );
   const currentUserRef = useRef<AppUser | null>(null);
   // BUG-01: code counters mirrored in refs so several add* calls inside ONE
   // event handler (CSV bulk import) each get a distinct code — the state value
@@ -636,22 +664,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadStoredStateFromDesktop = useCallback((allowCatalogInstall = false) => {
+    phase9Mark("app-context-hydration-start");
     const storedSettings = lsGet<Settings>("settings", seedSettings);
+    phase9Mark("hydrate-settings-complete");
     setSettings(applyLicenseSettings(storedSettings, licenseStatus));
     setProducts(loadProductsWithStarterCatalog(allowCatalogInstall));
+    phase9Mark("hydrate-products-complete");
     const storedSuppliers = lsGet<Supplier[]>("suppliers", seedSuppliers);
     setSuppliers(storedSuppliers);
-    setCustomers(lsGet<Customer[]>("customers", seedCustomers));
-    setPurchaseInvoices(lsGet<PurchaseInvoice[]>("purchaseInvoices", seedPurchaseInvoices));
-    setSalesInvoices(
-      lsGet<LegacySalesInvoice[]>("salesInvoices", seedSalesInvoices).map(
-        normalizeSalesInvoice
-      )
-    );
+    // Suppliers are a legacy single-row collection. Unlike chunked arrays,
+    // lsGet cannot establish its persisted reference automatically. Adopt the
+    // exact hydrated array so a later unrelated state change does not rewrite
+    // unchanged suppliers and invalidate their authoritative query projection.
+    adoptCommittedStorageRows({}, { suppliers: storedSuppliers });
+    phase9Mark("hydrate-suppliers-complete");
+    setCustomers([]);
+    phase9Mark("hydrate-customers-complete");
+    setPurchaseInvoices([]);
+    setSalesInvoices([]);
     // The ledger is loaded on demand, not at startup — see the state declaration.
     setStockMovements([]);
     setStockMovementsHydrated(false);
-    setCashEntries(lsGet<CashEntry[]>("cashEntries", seedCashEntries));
+    setCashEntries([]);
     setNextProductCode(lsGet<number>("nextProductCode", 1000));
     setNextSupplierCode(
       Math.max(
@@ -661,16 +695,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     setNextCustomerCode(lsGet<number>("nextCustomerCode", 1));
     setUsers(lsGet<AppUser[]>("users", []).map(normalizeUser));
-    setSalesReturns(lsGet<SalesReturn[]>("salesReturns", []));
-    setPurchaseReturns(lsGet<PurchaseReturn[]>("purchaseReturns", []));
+    setSalesReturns([]);
+    setPurchaseReturns([]);
     setDrivers(lsGet<Driver[]>("drivers", []));
     setOfflineEmployees(lsGet<OfflineEmployee[]>("offlineEmployees", []));
     setOfflineTransactions(lsGet<OfflineEmployeeTransaction[]>("offlineTransactions", []));
     setAuditLogs(lsGet<AuditLog[]>("auditLogs", []));
-    setQuotations(lsGet<Quotation[]>("quotations", []));
+    setQuotations([]);
     setStocktakes(lsGet<Stocktake[]>("stocktakes", []));
     setShifts(lsGet<CashierShift[]>("shifts", []));
+    unloadedDeferredKeysRef.current = new Set(DEFERRED_COLLECTIONS);
+    setCollectionState(Object.fromEntries(
+      DEFERRED_COLLECTIONS.map((key) => [key, "unloaded"]),
+    ) as Record<DeferredCollection, CollectionHydrationState>);
+    phase9Mark("app-context-hydration-complete");
   }, [licenseStatus]);
+
+  const hydrateCollections = useCallback(async (
+    requested: readonly DeferredCollection[],
+  ): Promise<boolean> => {
+    const loadOne = (key: DeferredCollection): Promise<boolean> => {
+      if (!unloadedDeferredKeysRef.current.has(key)) return Promise.resolve(true);
+      const existing = hydrationPromisesRef.current.get(key);
+      if (existing) return existing;
+      const task = (async () => {
+        setCollectionState((current) => ({ ...current, [key]: "loading" }));
+        try {
+          await lsLoadCollection(key);
+          switch (key) {
+            case "customers": setCustomers(lsGet<Customer[]>(key, [])); break;
+            case "salesInvoices":
+              setSalesInvoices(lsGet<LegacySalesInvoice[]>(key, []).map(normalizeSalesInvoice));
+              break;
+            case "purchaseInvoices": setPurchaseInvoices(lsGet<PurchaseInvoice[]>(key, [])); break;
+            case "cashEntries": setCashEntries(lsGet<CashEntry[]>(key, [])); break;
+            case "salesReturns": setSalesReturns(lsGet<SalesReturn[]>(key, [])); break;
+            case "purchaseReturns": setPurchaseReturns(lsGet<PurchaseReturn[]>(key, [])); break;
+            case "quotations": setQuotations(lsGet<Quotation[]>(key, [])); break;
+          }
+          unloadedDeferredKeysRef.current.delete(key);
+          setCollectionState((current) => ({ ...current, [key]: "loaded" }));
+          return true;
+        } catch {
+          setCollectionState((current) => ({ ...current, [key]: "error" }));
+          return false;
+        } finally {
+          hydrationPromisesRef.current.delete(key);
+        }
+      })();
+      hydrationPromisesRef.current.set(key, task);
+      return task;
+    };
+    const results = await Promise.all([...new Set(requested)].map(loadOne));
+    return results.every(Boolean);
+  }, []);
+
+  const areCollectionsLoaded = useCallback(
+    (requested: readonly DeferredCollection[]) => requested.every(
+      (key) => !unloadedDeferredKeysRef.current.has(key),
+    ),
+    [],
+  );
 
   const clearDesktopRendererState = useCallback(() => {
     setSettings(applyLicenseSettings(seedSettings, licenseStatus));
@@ -755,6 +840,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // lets the shutdown handler skip its synchronous full-state write when
   // everything is already persisted.
   const unflushedChangesRef = useRef(false);
+  // Hydration populates React from rows that are already durable. Treating
+  // that first commit as an edit causes an immediate full serialization of
+  // unchanged startup state, blocking the renderer for seconds at scale.
+  const skipHydrationFlushRef = useRef(false);
   const saleCommitInFlightRef = useRef(false);
   const saleDurabilityRef = useRef<Promise<boolean> | null>(null);
 
@@ -863,6 +952,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
    */
   const hydrateStockMovements = useCallback(async (): Promise<StockMovement[]> => {
     await lsLoadCollection("stockMovements");
+    if (!lsIsOldestFirst("stockMovements")) {
+      const migrated = lsMigrateToOldestFirst<StockMovement>("stockMovements");
+      if (migrated === null && !lsIsOldestFirst("stockMovements")) {
+        throw new Error("stock_movement_migration_failed");
+      }
+    }
     const all = lsGet<StockMovement[]>("stockMovements", []);
     // Storage keeps oldest-first so appends are cheap; screens want newest.
     const newestFirst = all.slice().reverse();
@@ -887,7 +982,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // every keystroke. Used on quit/close to close the 2s debounce window —
   // without this, a sale committed just before a graceful window close is
   // lost because win.destroy() kills the pending debounce timer outright.
-  const flushPendingWritesNow = useCallback(async (): Promise<boolean> => {
+  const flushPendingWritesNow = useCallback(async (pendingOnly = false): Promise<boolean> => {
     if (isDesktop && (!auth.isAuthenticated || !desktopStorageHydrated)) return true;
     // The main-process transaction already owns checkout's write set. An
     // older React snapshot must not replace it while IPC acknowledgment is
@@ -897,8 +992,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const s = liveStateRef.current;
     const ok = await lsSetBatchAwait({
       autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-      ...shutdownPersistenceEntries(s),
-    });
+      ...shutdownPersistenceEntries(s, unloadedDeferredKeysRef.current),
+    }, pendingOnly);
     unflushedChangesRef.current = false;
     return ok;
   }, [isDesktop, auth.isAuthenticated, desktopStorageHydrated]);
@@ -927,17 +1022,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       if (shouldBackup) {
-        await lsLoadCollection("stockMovements");
+        await Promise.all([
+          lsLoadCollection("stockMovements"),
+          ...DEFERRED_COLLECTIONS.map((key) => lsLoadCollection(key)),
+        ]);
         const durableStockMovements = lsGet<StockMovement[]>(
           "stockMovements",
           [],
         ).slice().reverse();
-        const safeUsers = redactUserPasswordHashes(s.users);
+        const durableState = liveStateRef.current;
+        const safeUsers = redactUserPasswordHashes(durableState.users);
         const data = {
           version: "1.0",
           timestamp: now.toISOString(),
           state: {
-            ...s,
+            ...durableState,
+            customers: lsGet<Customer[]>("customers", []),
+            salesInvoices: lsGet<LegacySalesInvoice[]>("salesInvoices", []).map(normalizeSalesInvoice),
+            purchaseInvoices: lsGet<PurchaseInvoice[]>("purchaseInvoices", []),
+            cashEntries: lsGet<CashEntry[]>("cashEntries", []),
+            salesReturns: lsGet<SalesReturn[]>("salesReturns", []),
+            purchaseReturns: lsGet<PurchaseReturn[]>("purchaseReturns", []),
+            auditLogs: lsGet<AuditLog[]>("auditLogs", []),
+            quotations: lsGet<Quotation[]>("quotations", []),
             stockMovements: durableStockMovements,
             users: safeUsers,
           },
@@ -971,7 +1078,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         lsSetBatch({
           autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-          ...shutdownPersistenceEntries(liveStateRef.current),
+          ...shutdownPersistenceEntries(liveStateRef.current, unloadedDeferredKeysRef.current),
         });
       } catch {
         // Ignore serialization errors during shutdown
@@ -1026,10 +1133,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // the optimistic cache update would poison the cache with empty arrays —
     // which previously led to the real data being overwritten on disk after login.
     if (isDesktop && (!auth.isAuthenticated || !desktopStorageHydrated)) return;
+    if (isDesktop && skipHydrationFlushRef.current) {
+      skipHydrationFlushRef.current = false;
+      unflushedChangesRef.current = false;
+      return;
+    }
+    if (!unflushedChangesRef.current) return;
     const timer = window.setTimeout(() => {
       lsSetBatch({
         autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
-        ...stateOwnedPersistenceEntries(liveStateRef.current),
+        ...stateOwnedPersistenceEntries(liveStateRef.current, unloadedDeferredKeysRef.current),
       });
       unflushedChangesRef.current = false;
     }, 2000);
@@ -1040,6 +1153,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // A main-process session exists only after every required authentication
     // factor succeeds. Reload renderer data at that point and never before it.
     setDesktopStorageHydrated(false);
+    phase9Mark("authentication-finalize-start");
     const storageReady = await reloadStorageCache();
     if (!storageReady) {
       await window.desktopAPI?.auth.logout?.();
@@ -1054,16 +1168,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // without this the migration reads them through the per-row fallback: 635
     // synchronous IPC round-trips on a five-year shop, which turned sign-in
     // into a forty-second blank screen.
-    if (!lsIsOldestFirst("stockMovements")) {
-      await lsLoadCollection("stockMovements");
-      const migrated = lsMigrateToOldestFirst<StockMovement>("stockMovements");
-      if (migrated === null || !lsIsOldestFirst("stockMovements")) {
-        await window.desktopAPI?.auth.logout?.();
-        setDesktopStorageHydrated(false);
-        return { ok: false, error: "not_authenticated" };
-      }
-    }
+    // Migration is performed by hydrateStockMovements before any route that
+    // can mutate stock renders. Login itself never materializes the ledger.
     loadStoredStateFromDesktop(user.role === "owner");
+    phase9Mark("authentication-state-loaded");
+    skipHydrationFlushRef.current = true;
     setDesktopStorageHydrated(true);
     const updatedUser = normalizeUser(user);
     setUsers((list) =>
@@ -1071,19 +1180,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? list.map((item) => (item.id === updatedUser.id ? updatedUser : item))
         : [updatedUser, ...list]
     );
-    logAudit("user_login", updatedUser.name, "تسجيل دخول ناجح", undefined, updatedUser);
+    // Everything hydrated above is already durable. The login audit is the
+    // one real mutation, so persist it explicitly while suppressing the
+    // otherwise redundant full-state hydration flush.
+    const loginAudit: AuditLog = {
+      id: uid("audit"),
+      action: "user_login",
+      entityLabel: updatedUser.name,
+      userId: updatedUser.id,
+      userName: updatedUser.name,
+      timestamp: new Date().toISOString(),
+      details: "تسجيل دخول ناجح",
+    };
+    const durableAuditLogs = [loginAudit, ...lsGet<AuditLog[]>("auditLogs", [])].slice(0, 1000);
+    setAuditLogs(durableAuditLogs);
+    lsSet("auditLogs", durableAuditLogs);
     setAuth({
       isAuthenticated: true,
       username: updatedUser.username,
       userId: updatedUser.id,
     });
+    phase9Mark("authentication-state-committed");
     return { ok: true };
-  }, [loadStoredStateFromDesktop, logAudit]);
+  }, [loadStoredStateFromDesktop]);
 
   const login = useCallback(async (username: string, passwordRaw: string): Promise<LoginResult> => {
     const attemptKey = loginAttemptKey(username);
     if (window.desktopAPI?.auth) {
+      phase9Mark("login-ipc-start");
       const result = await window.desktopAPI.auth.login(username, passwordRaw);
+      phase9Mark("login-ipc-complete");
       if (!result.ok) return result;
       if (!result.user) return { ok: false, error: "not_authenticated" };
       return finalizeDesktopAuthentication(result.user);
@@ -1128,6 +1254,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       logAudit("user_logout", user.name, "تسجيل خروج ناجح", undefined, user);
     }
     setDesktopStorageHydrated(false);
+    unloadedDeferredKeysRef.current = new Set(DEFERRED_COLLECTIONS);
+    setCollectionState(Object.fromEntries(
+      DEFERRED_COLLECTIONS.map((key) => [key, "unloaded"]),
+    ) as Record<DeferredCollection, CollectionHydrationState>);
     if (window.desktopAPI?.auth.logout) {
       void window.desktopAPI.auth.logout();
       clearDesktopRendererState();
@@ -1246,6 +1376,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
+    assertMoney(patch);
     logAudit("settings_updated", "إعدادات النظام", Object.keys(patch).join(", "));
     if (window.desktopAPI) {
       const {
@@ -1271,6 +1402,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Users
   const addUser: AppActions["addUser"] = (u) => {
+    assertMoney(u);
     const user: AppUser = {
       ...normalizeUser(u as AppUser),
       permissions: normalizeUser(u as AppUser).permissions,
@@ -1282,6 +1414,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return user;
   };
   const updateUser: AppActions["updateUser"] = (id, patch) => {
+    assertMoney(patch);
     const before = users.find((u) => u.id === id);
     setUsers((list) =>
       list.map((u) =>
@@ -1403,6 +1536,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Products
   const addProduct: AppActions["addProduct"] = (p) => {
+    assertMoney({ p });
     // BUG-01: respect an explicitly provided code (CSV import); otherwise
     // auto-generate from the ref-mirrored counter so bulk adds stay distinct.
     const provided = p.code?.trim();
@@ -1430,6 +1564,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return product;
   };
   const updateProduct: AppActions["updateProduct"] = (id, patch) => {
+    assertMoney({ id, patch });
     // A quantity typed into the product form is a stock movement like any
     // other. Without this the ledger could no longer reconstruct the
     // product's stock, and nothing recorded where the difference went.
@@ -1446,7 +1581,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             "product_updated",
             p.name,
             quantityDelta !== 0
-              ? `تعديل البيانات — الكمية ${quantityDelta > 0 ? "+" : ""}${quantityDelta} ${p.unit}`
+              ? `تعديل البيانات — الكمية: من ${before!.quantity} إلى ${patch.quantity} ${p.unit}`
               : "تعديل البيانات",
           );
           return { ...p, ...patch };
@@ -1581,6 +1716,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Suppliers
   const addSupplier: AppActions["addSupplier"] = (s) => {
+    assertMoney({ s });
     // BUG-01: counter via ref — bulk adds in one handler get distinct codes.
     const sup: Supplier = {
       ...s,
@@ -1595,6 +1731,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return sup;
   };
   const updateSupplier: AppActions["updateSupplier"] = (id, patch) => {
+    assertMoney({ id, patch });
     setSuppliers((list) =>
       list.map((s) => {
         if (s.id !== id) return s;
@@ -1622,6 +1759,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [suppliers, logAudit]);
 
   const addCommissionTier: AppActions["addCommissionTier"] = (supplierId, tier) => {
+    assertMoney({ supplierId, tier });
     setSuppliers(list => list.map(s => {
       if (s.id !== supplierId) return s;
       const newTier: CommissionTier = { ...tier, id: uid("tier") };
@@ -1630,6 +1768,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateCommissionTier: AppActions["updateCommissionTier"] = (supplierId, tierId, patch) => {
+    assertMoney({ supplierId, tierId, patch });
     setSuppliers(list => list.map(s => {
       if (s.id !== supplierId) return s;
       return {
@@ -1651,6 +1790,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Customers
   const addCustomer: AppActions["addCustomer"] = (c) => {
+    assertMoney({ c });
     // BUG-01: respect a provided code, else generate from the ref-mirrored counter.
     const provided = c.code?.trim();
     let code: string;
@@ -1677,6 +1817,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return cus;
   };
   const updateCustomer: AppActions["updateCustomer"] = (id, patch) => {
+    assertMoney({ id, patch });
     setCustomers((list) =>
       list.map((c) => {
         if (c.id === id) {
@@ -1704,6 +1845,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Drivers
   const addDriver: AppActions["addDriver"] = (d) => {
+    assertMoney({ d });
     const drv: Driver = {
       ...d,
       id: uid("drv"),
@@ -1714,6 +1856,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return drv;
   };
   const updateDriver: AppActions["updateDriver"] = (id, patch) => {
+    assertMoney({ id, patch });
     setDrivers((list) =>
       list.map((d) => {
         if (d.id === id) {
@@ -1735,11 +1878,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Offline employees
   const addOfflineEmployee = (data: Omit<OfflineEmployee, "id" | "createdAt">): OfflineEmployee => {
+    assertMoney(data);
     const emp: OfflineEmployee = { ...data, id: uid("oemp"), createdAt: new Date().toISOString() };
     setOfflineEmployees((list) => [emp, ...list]);
     return emp;
   };
   const updateOfflineEmployee = (id: ID, patch: Partial<Omit<OfflineEmployee, "id" | "createdAt">>) => {
+    assertMoney(patch);
     setOfflineEmployees((list) => list.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   };
   const deleteOfflineEmployee = (id: ID) => {
@@ -1747,6 +1892,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setOfflineTransactions((list) => list.filter((t) => t.employeeId !== id));
   };
   const addOfflineTransaction = (data: { employeeId: ID; type: OfflineEmployeeTransactionType; amount: number; month?: string; notes?: string; date: string }): OfflineEmployeeTransaction => {
+    assertMoney(data);
     const tx: OfflineEmployeeTransaction = { ...data, id: uid("otx"), createdAt: new Date().toISOString() };
     setOfflineTransactions((list) => [tx, ...list]);
     return tx;
@@ -1757,6 +1903,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Purchase invoices
   const addPurchaseInvoice: AppActions["addPurchaseInvoice"] = (inv) => {
+    if (typeof inv.total !== "number" || !Number.isFinite(inv.total)) throw new Error("invalid_money:total");
+    if (typeof inv.amountPaid !== "number" || !Number.isFinite(inv.amountPaid)) throw new Error("invalid_money:amountPaid");
+    
+    assertMoney({ inv });
+    if (window.desktopAPI) throw new Error("desktop_purchase_requires_durable_command");
     const id = uid("pur");
     // Cap amountPaid at total and surface any excess as supplier credit (overpayment).
     const amountPaid = Math.min(inv.amountPaid, inv.total);
@@ -1832,7 +1983,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     return full;
   };
+  const addPurchaseInvoiceAwait: AppActions["addPurchaseInvoiceAwait"] = async (inv) => {
+    if (typeof inv.total !== "number" || !Number.isFinite(inv.total)) throw new Error("invalid_money:total");
+    if (typeof inv.amountPaid !== "number" || !Number.isFinite(inv.amountPaid)) throw new Error("invalid_money:amountPaid");
+    
+    assertMoney(inv);
+    if (!window.desktopAPI) return addPurchaseInvoice(inv);
+    if (!window.desktopAPI.purchases?.create) throw new Error("purchase_api_unavailable");
+    if (saleCommitInFlightRef.current) throw new Error("financial_commit_in_progress");
+    saleCommitInFlightRef.current = true;
+    try {
+      if (!await flushPendingWritesNow(true)) throw new Error("pending_write_failed");
+      const result = await window.desktopAPI.purchases.create({ invoice: inv });
+      if (!result.ok || !result.invoice) throw new Error(result.error || "purchase_failed");
+      const patches = new Map((result.productPatches ?? []).map(row => [row.id, row]));
+      const nextProducts = products.map(row => ({ ...row, ...patches.get(row.id) }));
+      const nextInvoices = [result.invoice, ...purchaseInvoices];
+      const nextCash = [...(result.cashEntries ?? []), ...cashEntries];
+      const nextAudit = [...(result.auditEntries ?? []), ...auditLogs].slice(0, 1000);
+      const nextMovements = [...(result.movements ?? []).slice().reverse(), ...stockMovements];
+      adoptCommittedStorageRows(result.committedRows ?? {}, { products: nextProducts, purchaseInvoices: nextInvoices, cashEntries: nextCash, auditLogs: nextAudit, stockMovements: nextMovements });
+      setProducts(nextProducts); setPurchaseInvoices(nextInvoices); setCashEntries(nextCash); setAuditLogs(nextAudit); setStockMovements(nextMovements);
+      liveStateRef.current = { ...liveStateRef.current, products: nextProducts, purchaseInvoices: nextInvoices, cashEntries: nextCash, auditLogs: nextAudit, stockMovements: nextMovements };
+      window.dispatchEvent(new CustomEvent("autoparts:stock-committed", { detail: { branchStockPatches: result.branchStockPatches ?? [] } }));
+      if (result.revision !== undefined && !await window.desktopAPI.storage.adoptPurchase?.(result.revision)) throw new Error("purchase_committed_reload_required");
+      return result.invoice;
+    } finally { saleCommitInFlightRef.current = false; }
+  };
   const updatePurchaseInvoice: AppActions["updatePurchaseInvoice"] = (id, patch) => {
+    assertMoney({ id, patch });
     const inv = purchaseInvoices.find((i) => i.id === id);
     if (!inv) return;
 
@@ -1927,6 +2106,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     paymentMethod,
     notes
   ) => {
+    if (typeof amount !== "number" || !Number.isFinite(amount)) throw new Error("invalid_money:amount");
+    assertMoney({ amount });
     if (amount <= 0) return;
     const entry: import("../types").PaymentLogEntry = {
       id: uid("plog"),
@@ -2012,6 +2193,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Sales invoices
   const addSalesInvoice: AppActions["addSalesInvoice"] = async (inv, effects) => {
+    if (typeof inv.total !== "number" || !Number.isFinite(inv.total)) throw new Error("invalid_money:total");
+    if (typeof inv.amountReceived !== "number" || !Number.isFinite(inv.amountReceived)) throw new Error("invalid_money:amountReceived");
+    
+    assertMoney({ inv, effects });
     // The invoicing slice may keep this action while only catalog data has
     // changed. Compute the transaction from the latest committed store,
     // rather than that slice's older render closure.
@@ -2038,6 +2223,77 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     saleCommitInFlightRef.current = true;
     try {
+      // Desktop POS deliberately enters with historical collections unloaded.
+      // In that state submit a bounded command to the authoritative main
+      // process; it allocates the invoice number and commits stock, branch
+      // stock, cash, ledger, audit and projections in one SQL transaction.
+      // The legacy path below remains the web fallback and serves routes that
+      // explicitly hydrated history for edit/conversion workflows.
+      if (window.desktopAPI?.sales?.create && collectionState.salesInvoices !== "loaded") {
+        const invoiceCashierId = inv.createdByUserId ?? currentUser?.id;
+        const currentShift = shifts.find(
+          (shift) => shift.status === "open" && shift.cashierId === invoiceCashierId,
+        );
+        const rendererSaleStartedAt = performance.now();
+        const result = await window.desktopAPI.sales.create({
+          invoice: inv,
+          invoiceId: effects?.invoiceId,
+          customerCredit: effects?.customerCredit,
+          shiftId: inv.shiftId ?? currentShift?.id,
+          deliveryOrder: effects?.deliveryOrders?.[0],
+        });
+        if (!result.ok || !result.invoice) {
+          const discountErrors: Record<string, string> = {
+            discount_code_unavailable: "كود الخصم لم يعد متاحًا أو لا ينطبق على هذه الفاتورة",
+            discount_code_value_changed: "تغيرت قيمة كود الخصم؛ أعد تطبيق الكود ثم حاول مرة أخرى",
+            discount_code_limit_reached: "تم استنفاد عدد استخدامات كود الخصم",
+            discount_code_customer_limit_reached: "استخدم العميل كود الخصم بالحد الأقصى",
+          };
+          throw new Error(discountErrors[result.error || ""] || result.error || "تعذر حفظ فاتورة المبيعات كاملة. لم يتم تنفيذ أي جزء منها.");
+        }
+        const ipcResponseAt = performance.now();
+        const patches = new Map((result.productPatches ?? []).map((product) => [product.id, product]));
+        const nextProducts = products.map((product) => {
+          const patch = patches.get(product.id);
+          return patch ? { ...product, ...patch } : product;
+        });
+        const nextSalesInvoices = [result.invoice, ...salesInvoices.filter((item) => item.id !== result.invoice!.id)];
+        const nextCashEntries = [...(result.cashEntries ?? []), ...cashEntries];
+        const nextAuditLogs = [...(result.auditEntries ?? []), ...auditLogs].slice(0, 1000);
+        adoptCommittedStorageRows(result.committedRows ?? {}, {
+          products: nextProducts,
+          auditLogs: nextAuditLogs,
+        });
+        setProducts(nextProducts);
+        setSalesInvoices(nextSalesInvoices);
+        setCashEntries(nextCashEntries);
+        setAuditLogs(nextAuditLogs);
+        liveStateRef.current = {
+          ...liveStateRef.current,
+          products: nextProducts,
+          salesInvoices: nextSalesInvoices,
+          cashEntries: nextCashEntries,
+          auditLogs: nextAuditLogs,
+        };
+        setStockMovements((list) => list.length > 0 ? [...(result.movements ?? []).slice().reverse(), ...list] : list);
+        window.dispatchEvent(new CustomEvent("autoparts:sale-committed", {
+          detail: {
+            shippingChanged: Boolean(effects?.deliveryOrders),
+            branchStockPatches: result.branchStockPatches ?? [],
+          },
+        }));
+        window.dispatchEvent(new CustomEvent("partflow:phase14b-sale-timing", {
+          detail: {
+            invoiceId: result.invoice.id,
+            invoiceNumber: result.invoice.invoiceNumber,
+            ipcDurationMs: ipcResponseAt - rendererSaleStartedAt,
+            rendererSuccessHandlingMs: performance.now() - ipcResponseAt,
+            main: result.timings ?? null,
+          },
+        }));
+        return result.invoice;
+      }
+
       const normalizedPayment = normalizeInitialSalesPayment({
         amountReceived: inv.amountReceived,
         overpayment: inv.overpayment,
@@ -2265,7 +2521,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setStockMovements((list) =>
         list.length > 0 ? [...movements.slice().reverse(), ...list] : list,
       );
-      window.dispatchEvent(new Event("autoparts:sale-committed"));
+      window.dispatchEvent(new CustomEvent("autoparts:sale-committed", {
+        detail: { shippingChanged: Boolean(effects?.deliveryOrders) },
+      }));
       return full;
     } finally {
       saleCommitInFlightRef.current = false;
@@ -2273,6 +2531,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
   const recordSalesReceipt: AppActions["recordSalesReceipt"] = (id, amount, paymentMethod, notes) => {
+    if (typeof amount !== "number" || !Number.isFinite(amount)) throw new Error("invalid_money:amount");
+    assertMoney({ id, amount, paymentMethod, notes });
     if (amount <= 0) return;
     const entry: import("../types").PaymentLogEntry = {
       id: uid("slog"),
@@ -2318,6 +2578,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
   const updateSalesInvoice: AppActions["updateSalesInvoice"] = (id, patch) => {
+    assertMoney({ id, patch });
     const inv = salesInvoices.find((s) => s.id === id);
     if (!inv || inv.cancelled) return;
     // Existing deferred invoices remain serviceable after a downgrade, but a
@@ -2667,6 +2928,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (opts) => {
       const cashier = currentUserRef.current;
       if (!cashier) throw new Error("يجب تسجيل الدخول لفتح وردية");
+      assertMoney(opts);
       const openingCash = Number(opts.openingCash);
       if (!Number.isFinite(openingCash) || openingCash < 0) {
         throw new Error("الرصيد الافتتاحي يجب أن يكون رقمًا صحيحًا لا يقل عن صفر");
@@ -2724,6 +2986,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const closeShift: AppActions["closeShift"] = useCallback(
     (shiftId, closingCashActual, note) => {
+      assertMoney({ closingCashActual });
       const shift = shifts.find((item) => item.id === shiftId);
       if (!shift) throw new Error("الوردية غير موجودة");
       if (shift.status !== "open") throw new Error("هذه الوردية مقفولة بالفعل");
@@ -2762,6 +3025,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Returns
   const addSalesReturn: AppActions["addSalesReturn"] = (r) => {
+    if (typeof r.total !== "number" || !Number.isFinite(r.total)) throw new Error("invalid_money:total");
+    
+    assertMoney({ r });
     // Defense in depth (OBS-08): the UI blocks returns on cancelled invoices,
     // but a cancelled invoice already restored its stock — a return would
     // double-restore it and could refund cash from the retained credit.
@@ -2851,6 +3117,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addPurchaseReturn: AppActions["addPurchaseReturn"] = (r) => {
+    if (typeof r.total !== "number" || !Number.isFinite(r.total)) throw new Error("invalid_money:total");
+    
+    assertMoney({ r });
     const id = uid("pr");
     const purchaseReturnNums = purchaseReturns.map((x) => parseInt(x.returnNumber.replace(/\D/g, ""), 10)).filter((n) => !isNaN(n));
     const currentMax = purchaseReturnNums.length ? purchaseReturnNums.reduce((a, b) => (a > b ? a : b), 0) : 0;
@@ -2986,6 +3255,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Quotations
   const addQuotation: AppActions["addQuotation"] = (q) => {
+    assertMoney({ q });
     const full: Quotation = {
       ...q,
       id: uid("quot"),
@@ -2998,6 +3268,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateQuotation: AppActions["updateQuotation"] = (id, patch) => {
+    assertMoney({ id, patch });
     setQuotations((list) =>
       list.map((q) => {
         if (q.id === id && q.status === "draft") {
@@ -3078,6 +3349,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Cashbox
   const addCashEntry: AppActions["addCashEntry"] = (entry) => {
+    if (typeof entry.amount !== "number" || !Number.isFinite(entry.amount)) throw new Error("invalid_money:amount");
+    
+    assertMoney({ entry });
     const full = attachCashEntryToActiveShift({
       id: entry.id ?? uid("cash"),
       type: entry.type,
@@ -3117,6 +3391,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // reports at 441s and 415s. One pass over the invoices turns every one of
   // those call sites into a map lookup.
   const customerMoney = useMemo(() => {
+    phase9Mark("customer-money-index-start", { invoices: salesInvoices.length });
     const totals = new Map<string, { balance: number; credit: number }>();
     for (const invoice of salesInvoices) {
       let entry = totals.get(invoice.customerId);
@@ -3133,6 +3408,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         entry.balance += invoice.remaining - (invoice.overpayment ?? 0);
       }
     }
+    phase9Mark("customer-money-index-complete", { customers: totals.size });
     return totals;
   }, [salesInvoices]);
 
@@ -3204,6 +3480,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const applyCustomerCredit: AppActions["applyCustomerCredit"] = (customerId, invoiceId, amount) => {
+    if (typeof amount !== "number" || !Number.isFinite(amount)) throw new Error("invalid_money:amount");
+    assertMoney({ customerId, invoiceId, amount });
     if (amount <= 0) return;
     setSalesInvoices((list) => {
       const target = list.find((inv) => inv.id === invoiceId && inv.customerId === customerId);
@@ -3307,6 +3585,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Indexed for the same reason customerBalance is: the suppliers page and the
   // reports call this once per supplier.
   const supplierBalances = useMemo(() => {
+    phase9Mark("supplier-balance-index-start", { invoices: purchaseInvoices.length });
     const totals = new Map<string, number>();
     for (const invoice of purchaseInvoices) {
       totals.set(
@@ -3314,6 +3593,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         (totals.get(invoice.supplierId) ?? 0) + invoice.remaining - (invoice.overpayment ?? 0),
       );
     }
+    phase9Mark("supplier-balance-index-complete", { suppliers: totals.size });
     return totals;
   }, [purchaseInvoices]);
 
@@ -3466,14 +3746,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // authoritative rows before creating any backup; otherwise an unopened
     // inventory-history screen would turn a complete shop into a plausible
     // looking backup with an empty ledger.
-    await lsLoadCollection("stockMovements");
+    await Promise.all([
+      lsLoadCollection("stockMovements"),
+      ...DEFERRED_COLLECTIONS.map((key) => lsLoadCollection(key)),
+    ]);
     // SECURITY: Strip passwordHash from exported user data
     const safeUsers = redactUserPasswordHashes(users);
     return {
       version: "1.0",
       timestamp: new Date().toISOString(),
       state: {
-        settings, products, suppliers, customers, purchaseInvoices, salesInvoices,
+        settings, products, suppliers,
+        customers: lsGet<Customer[]>("customers", []),
+        purchaseInvoices: lsGet<PurchaseInvoice[]>("purchaseInvoices", []),
+        salesInvoices: lsGet<LegacySalesInvoice[]>("salesInvoices", []).map(normalizeSalesInvoice),
         autoPartsStarterCatalogVersion: AUTO_PARTS_STARTER_CATALOG_VERSION,
         // Read from STORAGE, not the in-memory cache. The cache is empty on
         // most launches, so exporting it would produce a backup with no stock
@@ -3481,7 +3767,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // inventory no longer reconciles with its own invoices.
         // Exported newest-first, the order backups have always used.
         stockMovements: lsGet<StockMovement[]>("stockMovements", []).slice().reverse(),
-        cashEntries, nextProductCode, nextSupplierCode, nextCustomerCode, users: safeUsers, salesReturns, purchaseReturns, drivers, auditLogs, quotations, stocktakes, shifts,
+        cashEntries: lsGet<CashEntry[]>("cashEntries", []),
+        nextProductCode, nextSupplierCode, nextCustomerCode, users: safeUsers,
+        salesReturns: lsGet<SalesReturn[]>("salesReturns", []),
+        purchaseReturns: lsGet<PurchaseReturn[]>("purchaseReturns", []),
+        drivers,
+        auditLogs: lsGet<AuditLog[]>("auditLogs", []),
+        quotations: lsGet<Quotation[]>("quotations", []),
+        stocktakes, shifts,
         offlineEmployees, offlineTransactions,
         vehicleCatalogSchemaVersion: lsGet<number>("vehicleCatalogSchemaVersion", 1),
         vehicleCatalogPreferences: lsGet("vehicleCatalogPreferences", {
@@ -3933,7 +4226,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addDriver,
       updateDriver,
       deleteDriver,
-      addPurchaseInvoice,
+      addPurchaseInvoiceAwait, addPurchaseInvoice,
       updatePurchaseInvoice,
       recordPurchasePayment,
       deletePurchaseInvoice,
@@ -4110,7 +4403,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       shifts, activeShift, openShift, closeShift, getShiftSummary,
       addSalesInvoice, updateSalesInvoice, recordSalesReceipt, cancelSalesInvoice,
       deleteSalesInvoice, applyCustomerCredit, settleAllDues, settleSupplierDues,
-      addPurchaseInvoice, updatePurchaseInvoice, recordPurchasePayment, deletePurchaseInvoice,
+      addPurchaseInvoiceAwait, addPurchaseInvoice, updatePurchaseInvoice, recordPurchasePayment, deletePurchaseInvoice,
       addSalesReturn, addPurchaseReturn,
       addCashEntry, currentCashBalance,
     }),
@@ -4147,8 +4440,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => ({ shifts, activeShift, openShift, closeShift, getShiftSummary }),
     [shifts, activeShift, openShift, closeShift, getShiftSummary]
   );
+  const hydrationValue = useMemo(
+    () => ({ collectionState, hydrateCollections, areCollectionsLoaded }),
+    [collectionState, hydrateCollections, areCollectionsLoaded],
+  );
 
   return (
+    <HydrationContext.Provider value={hydrationValue}>
     <SettingsContext.Provider value={settingsValue}>
       <AuditLogContext.Provider value={auditLogValue}>
         <ShiftsContext.Provider value={shiftsValue}>
@@ -4172,6 +4470,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         </ShiftsContext.Provider>
       </AuditLogContext.Provider>
     </SettingsContext.Provider>
+    </HydrationContext.Provider>
   );
 }
 

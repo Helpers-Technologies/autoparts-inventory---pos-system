@@ -28,4 +28,21 @@ describe("renderer persistence ownership", () => {
       });
     },
   );
+
+  it("omits unloaded history from debounce and graceful-close snapshots", () => {
+    const unloaded = new Set(["customers", "salesInvoices", "cashEntries"]);
+    const state = {
+      products: [{ id: "product-1" }],
+      customers: [],
+      salesInvoices: [],
+      cashEntries: [],
+    };
+
+    expect(stateOwnedPersistenceEntries(state, unloaded)).toEqual({
+      products: [{ id: "product-1" }],
+    });
+    expect(shutdownPersistenceEntries(state, unloaded)).toEqual({
+      products: [{ id: "product-1" }],
+    });
+  });
 });

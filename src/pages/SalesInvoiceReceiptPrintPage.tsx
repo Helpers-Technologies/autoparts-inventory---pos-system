@@ -47,6 +47,7 @@ export function SalesInvoiceReceiptPrintPage() {
       lines={inv.lines}
       total={inv.total}
       discount={inv.discount}
+      discountCode={inv.discountCode}
       amountPaid={inv.amountReceived}
       remaining={inv.remaining}
       notes={inv.notes}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildProductSearchIndex } from "../../../src/lib/partSearchIndex";
+import { buildProductSearchIndex, canReuseProductSearchIndex } from "../../../src/lib/partSearchIndex";
 import type { Product } from "../../../src/types";
 
 const mockProducts: Product[] = [
@@ -88,5 +88,17 @@ describe("ProductSearchIndex", () => {
     const results = index.search("Brembo", mockProducts);
     expect(results).toHaveLength(1);
     expect(results[0].id).toEqual("p-2");
+  });
+
+  it("reuses search structure for stock-only patches while returning current stock", () => {
+    const updated = mockProducts.map((product) => product.id === "p-1" ? { ...product, quantity: 9 } : product);
+    expect(canReuseProductSearchIndex(mockProducts, updated)).toBe(true);
+    const index = buildProductSearchIndex(mockProducts);
+    expect(index.search("OIL-100", updated)[0].quantity).toBe(9);
+  });
+
+  it("rebuilds when a searchable product field changes", () => {
+    const renamed = mockProducts.map((product) => product.id === "p-1" ? { ...product, name: "Different" } : product);
+    expect(canReuseProductSearchIndex(mockProducts, renamed)).toBe(false);
   });
 });

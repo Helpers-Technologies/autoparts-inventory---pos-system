@@ -1,9 +1,11 @@
 import type {
   AppUser,
+  AuditLog,
   BranchActivationResult,
   BranchCreationResult,
   BranchLicenseStatus,
   BostaIntegrationConfig,
+  CashEntry,
   CustomerAddressSnapshot,
   DeliveryOrder,
   LicenseStatus,
@@ -13,6 +15,10 @@ import type {
   MfaPolicyMode,
   MfaStatus,
   MfaUserStatus,
+  Product,
+  PurchaseInvoice,
+  SalesInvoice,
+  StockMovement,
 } from "./index";
 import type { MobileStockOp, MobileStockCommitResult } from "../features/mobile/mobileStockOps";
 
@@ -29,6 +35,21 @@ type DesktopUpdateRelease = {
   publishedAt: string | null;
   policy?: { message?: string; deadlineAt?: string };
   artifactSize?: number | null;
+};
+
+type ProjectionUpgradeStatus = {
+  state: "NOT_REQUIRED" | "REQUIRED" | "PREPARING" | "BUILDING" | "VALIDATING" | "FINALIZING" | "COMPLETE" | "FAILED" | "INTERRUPTED";
+  percent: number;
+  processedRecords: number;
+  totalRecords: number;
+  entity?: string;
+  chunk?: number;
+  chunks?: number;
+  detail?: string;
+  errorCode?: string;
+  completedAt?: string;
+  workerRssBytes?: number;
+  mainRssBytes?: number;
 };
 
 // A phone/tablet/browser paired with this shop, as returned by the portal's
@@ -485,6 +506,7 @@ declare global {
         ) => Promise<{ ok: boolean; error?: string; path?: string }>;
       };
       storage: {
+        adoptPurchase?: (revision: number) => Promise<boolean>;
         get: (key: string) => string | null;
         set: (key: string, value: string) => boolean;
         remove: (key: string) => boolean;
@@ -498,8 +520,57 @@ declare global {
         getBatch: () => Promise<Record<string, string>>;
         /** Every row of one collection, for those held back from getBatch. */
         getCollection?: (name: string) => Promise<Record<string, string>>;
+        getDashboardSummary?: () => Promise<unknown>;
         setBatch: (entries: Record<string, string>) => Promise<boolean>;
         commitSale: (entries: Record<string, string>) => Promise<boolean>;
+      };
+      query?: {
+        page: (entity: string, input: Record<string, unknown>) => Promise<{
+          ok: boolean; rows?: unknown[]; page?: number; pageSize?: number; total?: number;
+          totals?: { total: number; paid: number; remaining: number };
+          facets?: Record<string, number>;
+          queryMs?: number; payloadBytes?: number; error?: string;
+        }>;
+        detail: (entity: string, id: string) => Promise<{
+          ok: boolean; row?: unknown | null; queryMs?: number; payloadBytes?: number; error?: string;
+        }>;
+        globalSearch: (input: { q: string }) => Promise<{
+          ok: boolean; rows?: Array<{ kind: string; id: string; label: string; subtitle: string; to: string }>;
+          queryMs?: number; payloadBytes?: number; error?: string;
+        }>;
+        statement: (kind: "customer" | "supplier", partyId: string, input: Record<string, unknown>) => Promise<{
+          ok: boolean; rows?: unknown[]; total?: number; balance?: number; totals?: { total: number; paid: number; remaining: number };
+          queryMs?: number; payloadBytes?: number; error?: string;
+        }>;
+        duesParties: (input: Record<string, unknown>) => Promise<{
+          ok: boolean; rows?: unknown[]; total?: number; page?: number; pageSize?: number; error?: string;
+        }>;
+        catalogSearch: (entity: "customers" | "suppliers" | "products", input: { q?: string; limit?: number }) => Promise<{
+          ok: boolean;
+          rows?: Array<{ id: string; name: string; code?: string; phone?: string; balance?: number; openInvoices?: number }>;
+          queryMs?: number; payloadBytes?: number; error?: string;
+        }>;
+        catalogDetail: (entity: "customers" | "suppliers" | "products", id: string) => Promise<{
+          ok: boolean; row?: unknown | null; queryMs?: number; payloadBytes?: number; error?: string;
+        }>;
+        branchStockDetail: (branchId: string, productId: string) => Promise<{
+          ok: boolean; row?: { branchId: string; productId: string; quantity: number } | null; error?: string;
+        }>;
+      };
+      purchases?: {
+        create: (command: unknown) => Promise<{ ok: boolean; revision?: number; committedRows?: Record<string, string>; error?: string; invoice?: PurchaseInvoice; productPatches?: Array<Pick<Product, "id"> & Partial<Product>>; branchStockPatches?: BranchStock[]; cashEntries?: CashEntry[]; movements?: StockMovement[]; auditEntries?: AuditLog[] }>;
+      };
+      sales?: {
+        create: (command: unknown) => Promise<{
+          ok: boolean; invoice?: SalesInvoice; productPatches?: Array<Pick<Product, "id"> & Partial<Product>>; branchStockPatches?: BranchStock[];
+          cashEntries?: CashEntry[]; movements?: StockMovement[]; auditEntries?: AuditLog[];
+          committedRows?: Record<string, string>; timings?: Record<string, number>; error?: string;
+        }>;
+      };
+      projection?: {
+        getStatus: () => Promise<ProjectionUpgradeStatus>;
+        start: () => Promise<ProjectionUpgradeStatus>;
+        onProgress: (cb: (status: ProjectionUpgradeStatus) => void) => () => void;
       };
       backup: {
         writeFile: (

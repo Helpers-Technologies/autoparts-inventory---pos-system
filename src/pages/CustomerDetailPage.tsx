@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowRight,
@@ -34,7 +34,7 @@ import { useVehicleCatalog } from "../store/VehicleCatalogContext";
 import { useFeatures } from "../lib/useFeatures";
 import { useToast } from "../components/ui/Toast";
 import { formatCurrency, formatDate } from "../lib/format";
-import type { Customer } from "../types";
+import type { Customer, SalesInvoice } from "../types";
 import { hasPermission } from "../lib/permissions";
 import { printAppRoute } from "../lib/print";
 import { CustomerVehicleFormDialog } from "../features/vehicles/CustomerVehicleFormDialog";
@@ -42,6 +42,8 @@ import { AddressFields, type AddressDraft } from "../features/shipping/AddressFi
 import { defaultCustomerAddress } from "../lib/shipping";
 import { normalizePhoneInput, uid } from "../lib/utils";
 import { buildWhatsappHref } from "../lib/whatsappTemplate";
+import { useStatementPage } from "../lib/useStatementPage";
+import { useCollectionHydration } from "../store/HydrationContext";
 
 const EMPTY_ADDRESS: AddressDraft = { label: "العنوان الرئيسي", governorate: "", city: "", addressLine: "", isDefault: true };
 
@@ -65,13 +67,32 @@ export function CustomerDetailPage() {
   const canEdit = hasPermission(currentUser, "customers", "edit");
   const canDelete = hasPermission(currentUser, "customers", "delete");
 
-  const customer = customers.find((c) => c.id === id);
+  const queryBacked = Boolean(window.desktopAPI?.query?.catalogDetail);
+  const [remoteCustomer, setRemoteCustomer] = useState<Customer | null>(null);
+  const [customerLoading, setCustomerLoading] = useState(queryBacked);
+  const customer = customers.find((c) => c.id === id) ?? remoteCustomer ?? undefined;
+
+  useEffect(() => {
+    if (!queryBacked || !id || customers.some((item) => item.id === id)) {
+      setCustomerLoading(false);
+      return;
+    }
+    let active = true;
+    setCustomerLoading(true);
+    void window.desktopAPI!.query!.catalogDetail("customers", id).then((result) => {
+      if (!active) return;
+      setRemoteCustomer(result.ok ? (result.row as Customer | null) : null);
+      setCustomerLoading(false);
+    });
+    return () => { active = false; };
+  }, [id, queryBacked, customers]);
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [vehicleDialogOpen, setVehicleDialogOpen] = useState(false);
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [invoiceQuery, setInvoiceQuery] = useState("");
+  const [invoicePage, setInvoicePage] = useState(0);
   const [form, setForm] = useState<Omit<Customer, "id" | "createdAt">>({
     code: "",
     name: "",
@@ -82,21 +103,22 @@ export function CustomerDetailPage() {
     notes: "",
   });
   const [addressDraft, setAddressDraft] = useState<AddressDraft>(EMPTY_ADDRESS);
+  const statement = useStatementPage<SalesInvoice>("customer", id, { q: invoiceQuery, page: invoicePage, pageSize: 50 }, queryBacked);
+  const { hydrateCollections } = useCollectionHydration();
 
   const invoices = useMemo(
-    () => (customer ? salesInvoices.filter((s) => s.customerId === customer.id) : []),
-    [salesInvoices, customer]
+    () => queryBacked ? statement.rows : (customer ? salesInvoices.filter((s) => s.customerId === customer.id) : []),
+    [salesInvoices, customer, queryBacked, statement.rows]
   );
   const activeInvoices = useMemo(() => invoices.filter((s) => !s.cancelled), [invoices]);
   const vehicles = useMemo(
     () => (customer ? customerVehicles.filter((v) => v.customerId === customer.id && !v.archived) : []),
     [customerVehicles, customer]
   );
-  const balance = customer ? customerBalance(customer.id) : 0;
-  const totalPurchases = useMemo(
-    () => activeInvoices.reduce((sum, s) => sum + s.total, 0),
-    [activeInvoices]
-  );
+  const balance = queryBacked ? statement.balance : customer ? customerBalance(customer.id) : 0;
+  const totalPurchases = queryBacked
+    ? statement.totals.total
+    : activeInvoices.reduce((sum, sale) => sum + sale.total, 0);
 
   const filteredInvoices = useMemo(() => {
     const t = invoiceQuery.trim().toLowerCase();
@@ -108,6 +130,10 @@ export function CustomerDetailPage() {
         (inv.vehicleLabel ?? "").toLowerCase().includes(t)
     );
   }, [invoices, invoiceQuery]);
+
+  if (customerLoading) {
+    return <div role="status" className="grid min-h-48 place-items-center text-sm text-ink-muted">جاري تحميل بيانات العميل…</div>;
+  }
 
   if (!customer) {
     return (
@@ -140,7 +166,7 @@ export function CustomerDetailPage() {
     setEditOpen(true);
   }
 
-  function submitEdit() {
+  async function submitEdit() {
     if (!customer) return;
     if (!form.name.trim()) {
       toast.error("اسم العميل مطلوب");
@@ -171,13 +197,15 @@ export function CustomerDetailPage() {
     const previousDefault = defaultCustomerAddress(customer);
     const address = { ...addressDraft, id: previousDefault && !previousDefault.id.startsWith("legacy-") ? previousDefault.id : uid("address"), recipientName: addressDraft.recipientName?.trim() || form.name.trim(), phone: addressDraft.phone?.trim() || form.phone?.trim(), isDefault: true, createdAt: previousDefault?.createdAt ?? timestamp, updatedAt: timestamp };
     const others = customer.addresses?.filter((item) => item.id !== previousDefault?.id).map((item) => ({ ...item, isDefault: false })) ?? [];
+    if (queryBacked && !(await hydrateCollections(["customers"]))) return;
     updateCustomer(customer.id, { ...form, address: address.addressLine, addresses: [address, ...others] });
     toast.success("تم تحديث بيانات العميل");
     setEditOpen(false);
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!customer) return;
+    if (queryBacked && !(await hydrateCollections(["customers", "salesInvoices", "salesReturns", "cashEntries"]))) return;
     const ok = deleteCustomer(customer.id);
     if (ok) {
       toast.success("تم حذف العميل");
@@ -404,14 +432,14 @@ export function CustomerDetailPage() {
       <Card>
         <CardHeader
           title="سجل الفواتير"
-          subtitle={`${filteredInvoices.length} من ${invoices.length} فاتورة`}
+          subtitle={queryBacked ? `${filteredInvoices.length} من ${statement.total} فاتورة` : `${filteredInvoices.length} من ${invoices.length} فاتورة`}
           actions={
             invoices.length > 0 ? (
               <div className="relative w-56">
                 <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 end-3 text-ink-faint" />
                 <Input
                   value={invoiceQuery}
-                  onChange={(e) => setInvoiceQuery(e.target.value)}
+                  onChange={(e) => { setInvoiceQuery(e.target.value); setInvoicePage(0); }}
                   placeholder="بحث برقم الفاتورة أو السيارة"
                   className="pe-9 h-8 text-xs"
                 />
@@ -468,6 +496,17 @@ export function CustomerDetailPage() {
               </TBody>
             </Table>
           )}
+          {queryBacked && statement.total > 50 ? (
+            <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
+              <span className="text-xs text-ink-muted">
+                صفحة {invoicePage + 1} من {Math.ceil(statement.total / 50)} · {statement.total} فاتورة
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={invoicePage === 0 || statement.loading} onClick={() => setInvoicePage((page) => Math.max(0, page - 1))}>السابق</Button>
+                <Button size="sm" variant="outline" disabled={(invoicePage + 1) * 50 >= statement.total || statement.loading} onClick={() => setInvoicePage((page) => page + 1)}>التالي</Button>
+              </div>
+            </div>
+          ) : null}
         </CardBody>
       </Card>
 

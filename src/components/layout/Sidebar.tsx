@@ -32,6 +32,7 @@ import {
   ShieldCheck,
   Building2,
   BadgeDollarSign,
+  TicketPercent,
   Sparkles,
   Megaphone,
   Clock,
@@ -97,6 +98,12 @@ const GROUPS: NavGroup[] = [
         icon: Receipt,
         permission: "salesInvoices",
         feature: "salesInvoices",
+      },
+      {
+        to: "/discount-codes",
+        label: "أكواد الخصم",
+        icon: TicketPercent,
+        ownerOnly: true,
       },
       {
         to: "/shipping",

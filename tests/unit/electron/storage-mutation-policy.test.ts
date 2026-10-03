@@ -90,4 +90,9 @@ describe("renderer storage mutation policy", () => {
   it("treats the whats-new release marker as a string preference", () => {
     expect(authorize({ whatsNew_lastSeenVersion: "10.5.0" }, employee())[P + "whatsNew_lastSeenVersion"]).toBe(JSON.stringify("10.5.0"));
   });
+
+  it("recognizes chunked branch-stock rows instead of reporting unknown_storage_key", () => {
+    expect(policy.describeKey(P + "branchStocks#0001")).toEqual({ name: "branchStocks", suffix: "0001" });
+    expect(policy.describeKey(P + "branchStocks#meta")).toEqual({ name: "branchStocks", suffix: "meta" });
+  });
 });

@@ -584,11 +584,11 @@ export function LoginPage() {
 
         <footer className="flex shrink-0 flex-col items-center justify-between gap-2 border-t border-white/[0.07] py-3 text-sm text-slate-400 sm:flex-row">
           <div className="flex items-center gap-2">
-            <img src="./helpers_tech_logo.png" alt="Helpers Technologies" className="h-6 w-6 object-contain opacity-70" />
-            <span>تصميم وتطوير Helpers Technologies © 2026</span>
+            <img src="./dar_tech_logo.png" alt="Dar Tech" className="h-6 w-6 object-contain opacity-70" />
+            <span>تصميم وتطوير Dar Tech © 2026</span>
           </div>
           <div className="flex items-center gap-3">
-            <a href="https://helpers-tech.com/" target="_blank" rel="noreferrer" className="transition-colors hover:text-cyan-300">helpers-tech.com</a>
+            <a href="https://dartecheg.com/" target="_blank" rel="noreferrer" className="transition-colors hover:text-cyan-300">dartecheg.com</a>
             <span>·</span>
             <span>نظام قطع الغيار · v{__APP_VERSION__}</span>
           </div>

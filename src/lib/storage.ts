@@ -1,3 +1,6 @@
+import { assertMoney } from "./moneySafety";
+import { phase9Mark } from "./phase9Profile";
+
 const PREFIX = "autoparts_inventory_v1::";
 
 // ── Chunked collections ───────────────────────────────────────────────────
@@ -29,6 +32,7 @@ const CHUNKED_KEYS = new Set([
   "quotations",
   "shifts",
   "cashEntries",
+  "branchStocks",
 ]);
 
 // Deliberately NOT chunked, and each for a reason:
@@ -101,7 +105,12 @@ export async function loadStorageCache(): Promise<void> {
 export async function reloadStorageCache(): Promise<boolean> {
   if (!window.desktopAPI?.storage?.getBatch) return true;
   try {
+    phase9Mark("storage-reload-start");
     const batch: Record<string, string> = await window.desktopAPI.storage.getBatch();
+    phase9Mark("storage-reload-ipc-complete", {
+      rows: Object.keys(batch).length,
+      valueBytes: Object.values(batch).reduce((sum, value) => sum + value.length, 0),
+    });
     // Replace the authoritative snapshot instead of merging it. A key that was
     // removed/restored between sessions must not survive in the renderer cache
     // merely because the new batch does not contain it. Build the replacement
@@ -113,6 +122,7 @@ export async function reloadStorageCache(): Promise<boolean> {
     }
     rememberChunkCounts();
     _cacheReady = true;
+    phase9Mark("storage-reload-cache-complete");
     return true;
   } catch {
     // Keep the existing cache on failure.
@@ -690,6 +700,7 @@ export function lsFilterChunked<T>(key: string, select: (item: T) => boolean): T
 }
 
 export function lsSet<T>(key: string, value: T): void {
+  assertMoney(value, key);
   const fullKey = PREFIX + key;
   try {
     const json = JSON.stringify(value);
@@ -772,6 +783,12 @@ function chunkRowsFor(key: string, value: unknown, out: Record<string, string>):
     out[PREFIX + key] = JSON.stringify(value);
     return;
   }
+  // An existing empty manifest with one empty chunk is semantically identical
+  // to zero chunks. Rewriting its shape alone invalidates financial queries.
+  if (value.length === 0 && _cache.get(PREFIX + key) === CHUNKED_TOMBSTONE) {
+    const existingMeta = _cache.get(metaKey(key));
+    if (existingMeta && JSON.parse(existingMeta).total === 0) return;
+  }
   const chunks = Math.ceil(value.length / CHUNK_SIZE);
   const previous = _lastArray.get(key);
 
@@ -826,6 +843,7 @@ function chunkRowsFor(key: string, value: unknown, out: Record<string, string>):
 }
 
 export function lsSetBatch(entries: Record<string, unknown>): void {
+  assertMoney(entries);
   const batch: Record<string, string> = {};
   let changeCount = 0;
   for (const [key, value] of Object.entries(entries)) {
@@ -889,7 +907,22 @@ export function lsSetBatch(entries: Record<string, unknown>): void {
  * sync variant. Does NOT use the unchanged-ref skip: a restore must persist
  * every key even if a reference happens to match.
  */
-export async function lsSetBatchAwait(entries: Record<string, unknown>): Promise<boolean> {
+export async function lsSetBatchAwait(entries: Record<string, unknown>, pendingOnly = false): Promise<boolean> {
+  assertMoney(entries);
+  if (pendingOnly) {
+    const rows: Record<string, string> = {};
+    for (const [key, value] of Object.entries(entries)) {
+      if (_lastFlushedRef.get(key) === value) continue;
+      if (CHUNKED_KEYS.has(key)) chunkRowsFor(key, value, rows);
+      else if (_cache.get(PREFIX + key) !== JSON.stringify(value)) rows[PREFIX + key] = JSON.stringify(value);
+    }
+    if (!Object.keys(rows).length) return true;
+    if (!window.desktopAPI?.storage?.setBatch) throw new Error("durable_storage_unavailable");
+    const ok = await window.desktopAPI.storage.setBatch(rows);
+    if (ok === false) return false;
+    adoptCommittedStorageRows(rows, entries);
+    return true;
+  }
   const batch: Record<string, string> = {};
   for (const [key, value] of Object.entries(entries)) {
     const fullKey = PREFIX + key;
@@ -1129,7 +1162,10 @@ export async function withPendingPersistenceCollections<T>(keys: readonly string
 }
 
 /** Adopt acknowledged main-process rows, without fetching historical ledgers. */
-export function adoptCommittedStorageRows(rows: Record<string, string>): void {
+export function adoptCommittedStorageRows(
+  rows: Record<string, string>,
+  persistedValues: Record<string, unknown> = {},
+): void {
   const changedKeys = new Set<string>();
   for (const [key, json] of Object.entries(rows)) {
     if (!key.startsWith(PREFIX)) throw new Error("invalid_committed_storage_key");
@@ -1139,6 +1175,10 @@ export function adoptCommittedStorageRows(rows: Record<string, string>): void {
   for (const key of changedKeys) {
     _lastArray.delete(key);
     _lastFlushedRef.delete(key);
+  }
+  for (const [key, value] of Object.entries(persistedValues)) {
+    _lastFlushedRef.set(key, value);
+    if (Array.isArray(value)) rememberPersistedArray(key, value);
   }
   rememberChunkCounts();
 }

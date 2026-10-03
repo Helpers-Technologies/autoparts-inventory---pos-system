@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSettings } from "../../store/SettingsContext";
 import { formatCurrency, formatDate, resolvePaymentLabel } from "../../lib/format";
-import type { CustomerAddressSnapshot, DeliveryMethod, InvoiceLine, PaymentLogEntry, ReturnLine } from "../../types";
+import type { CustomerAddressSnapshot, DeliveryMethod, InvoiceLine, PaymentLogEntry, ReturnLine, Settings } from "../../types";
 import { useFeatures } from "../../lib/useFeatures";
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
   lines: InvoiceLine[];
   total: number;
   discount?: number;
+  discountCode?: string;
   amountPaid: number;
   remaining: number;
   notes?: string;
@@ -32,21 +33,27 @@ interface Props {
   shippingProviderName?: string;
   shippingFee?: number;
   collectOnDelivery?: boolean;
+  paymentType?: "cash" | "account";
+  settingsOverride?: Settings;
+  showToolbar?: boolean;
 }
 
-export function InvoicePrintLayout(props: Props) {
-  const { settings } = useSettings();
+export function InvoicePrintLayout({ settingsOverride, showToolbar = true, ...props }: Props) {
+  const { settings: contextSettings } = useSettings();
+  const settings = settingsOverride ?? contextSettings;
   const { isEnabled } = useFeatures();
   const expiryTrackingEnabled = isEnabled("expiryTracking");
   const creditSalesEnabled = isEnabled("creditSales");
 
   useEffect(() => {
+    if (!showToolbar) return;
     const prev = document.title;
     document.title = `${props.kind === "sales" ? "فاتورة مبيعات" : "فاتورة مشتريات"} ${props.invoiceNumber}`;
     return () => { document.title = prev; };
-  }, [props.invoiceNumber, props.kind]);
+  }, [props.invoiceNumber, props.kind, showToolbar]);
 
   const isSales = props.kind === "sales";
+  const isAccountSale = isSales && props.paymentType === "account";
   const isCollectOnDelivery = isSales && Boolean(props.collectOnDelivery);
   const returnsTotal = (props.returns ?? []).reduce((a, r) => a + r.total, 0);
   const paymentLog = props.paymentLog ?? [];
@@ -54,36 +61,36 @@ export function InvoicePrintLayout(props: Props) {
   const totalCollected = props.amountPaid + overpayment;
   const amountDueOnDelivery = Math.max(0, props.total - returnsTotal);
   const primaryMeta = [
-    { label: props.partyLabel, value: props.partyName, accent: true },
+    { label: props.partyLabel, value: props.partyName },
     {
       label: isCollectOnDelivery ? "حالة التحصيل" : "طريقة الدفع",
       value: isCollectOnDelivery ? "دفع عند الاستلام — غير محصّل" : props.paymentLabel ?? "—",
       warning: isCollectOnDelivery,
     },
-    ...(props.paymentDueDate
+    ...(isAccountSale && props.paymentDueDate
       ? [{ label: "تاريخ الاستحقاق", value: formatDate(props.paymentDueDate) }]
       : []),
     ...(props.driverName ? [{ label: "السائق", value: props.driverName }] : []),
   ];
 
   return (
-    <div className="min-h-screen bg-canvas py-8 px-4 print:p-0 print:bg-surface" dir="rtl">
+    <div className={showToolbar ? "min-h-screen bg-canvas py-8 px-4 print:p-0 print:bg-surface" : "bg-transparent print:p-0 print:bg-surface"} dir="rtl">
       <style dangerouslySetInnerHTML={{
         __html: `
           @media print {
-            @page { size: A4 portrait; margin: 0; }
+            @page { size: ${settings.printPaperSize} portrait; margin: 0; }
             body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .no-print { display: none !important; }
             .invoice-page { box-shadow: none !important; border-radius: 0 !important; }
           }
           @media screen {
-            .invoice-page { max-width: 210mm; }
+            .invoice-page { width: ${settings.printPaperSize === "A4" ? "210mm" : "148mm"}; max-width: 100%; }
           }
         `
       }} />
 
       {/* Screen toolbar */}
-      <div className="no-print max-w-[210mm] mx-auto flex items-center justify-between mb-4">
+      {showToolbar ? <div className="no-print max-w-[210mm] mx-auto flex items-center justify-between mb-4">
         <button
           onClick={() => window.history.back()}
           className="text-sm text-ink-muted hover:text-ink flex items-center gap-1.5 bg-surface border border-line rounded-lg px-3 h-9"
@@ -96,12 +103,12 @@ export function InvoicePrintLayout(props: Props) {
         >
           طباعة
         </button>
-      </div>
+      </div> : null}
 
-      {/* A4 page */}
+      {/* Invoice page */}
       <div
         className="force-light invoice-page mx-auto bg-surface shadow-xl print:shadow-none"
-        style={{ minHeight: "297mm", display: "flex", flexDirection: "column" }}
+        style={{ width: settings.printPaperSize === "A4" ? "210mm" : "148mm", maxWidth: "100%", minHeight: settings.printPaperSize === "A4" ? "297mm" : "210mm", display: "flex", flexDirection: "column" }}
       >
         {/* Page body with padding */}
         <div style={{ padding: "15mm 14mm 9mm", display: "flex", flexDirection: "column", flex: 1 }}>
@@ -111,13 +118,13 @@ export function InvoicePrintLayout(props: Props) {
             {/* Company info */}
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{
-                width: 52, height: 52, borderRadius: 10, overflow: "hidden", flexShrink: 0,
+                width: 72, height: 72, borderRadius: 12, overflow: "hidden", flexShrink: 0,
                 background: settings.logoImage ? "transparent" : "linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                color: "white", fontWeight: 700, fontSize: 16
+                color: "white", fontWeight: 800, fontSize: 20,
               }}>
                 {settings.logoImage
-                  ? <img src={settings.logoImage} alt="Logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                  ? <img src={settings.logoImage} alt="شعار المحل" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                   : settings.logoText}
               </div>
               <div>
@@ -127,9 +134,8 @@ export function InvoicePrintLayout(props: Props) {
                 {settings.companyNameAr && settings.companyName && settings.companyNameAr !== settings.companyName && (
                   <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{settings.companyName}</div>
                 )}
-                <div style={{ marginTop: 4, fontSize: 11, color: "#64748b" }}>
-                  التاريخ: <span style={{ fontWeight: 700, color: "#334155" }}>{formatDate(props.date)}</span>
-                </div>
+                {settings.shopPhone ? <div style={{ marginTop: 5, fontSize: 10.5, color: "#64748b" }}>موبايل المحل: {settings.shopPhone}</div> : null}
+                {props.branchName ? <div style={{ marginTop: 2, fontSize: 10.5, color: "#64748b" }}>الفرع: {props.branchName}</div> : null}
               </div>
             </div>
 
@@ -141,10 +147,11 @@ export function InvoicePrintLayout(props: Props) {
               <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-end" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                   <span style={{ fontSize: 11, color: "#64748b" }}>رقم الفاتورة</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", fontFamily: "monospace", background: "#f1f5f9", padding: "1px 8px", borderRadius: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", background: "#f1f5f9", padding: "1px 8px", borderRadius: 4 }}>
                     {props.invoiceNumber}
                   </span>
                 </div>
+                <div style={{ fontSize: 11, color: "#64748b" }}>التاريخ: {formatDate(props.date)}</div>
               </div>
             </div>
           </div>
@@ -157,16 +164,14 @@ export function InvoicePrintLayout(props: Props) {
                   key={item.label}
                   label={item.label}
                   value={item.value}
-                  accent={item.accent}
                   warning={item.warning}
                   divided={index < primaryMeta.length - 1}
                 />
               ))}
             </div>
-            {isSales && (props.vehicleLabel || props.branchName) ? (
+            {isSales && props.vehicleLabel ? (
               <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "5px 28px", padding: "6px 10px", background: "#f8fafc", borderTop: "1px solid #e2e8f0" }}>
                 {props.vehicleLabel ? <InlineMeta label="سيارة العميل" value={props.vehicleLabel} /> : null}
-                {props.branchName ? <InlineMeta label="الفرع" value={props.branchName} /> : null}
               </div>
             ) : null}
           </div>
@@ -192,7 +197,6 @@ export function InvoicePrintLayout(props: Props) {
                 <tr>
                   <Th center style={{ width: 28 }}>#</Th>
                   <Th>الصنف</Th>
-                  <Th center style={{ width: 52 }}>الوحدة</Th>
                   <Th center style={{ width: 52 }}>الكمية</Th>
                   <Th center style={{ width: 108 }}>السعر</Th>
                   <Th center style={{ width: 124 }}>الإجمالي</Th>
@@ -205,7 +209,7 @@ export function InvoicePrintLayout(props: Props) {
                     <Td>
                       <span style={{ fontWeight: 600, color: "#0f172a" }}>{l.productName}</span>
                       {l.partNumber && (
-                        <span style={{ display: "block", fontSize: 10, color: "#64748b", fontFamily: "monospace", direction: "ltr", textAlign: "right" }}>
+                        <span style={{ display: "block", fontSize: 10, color: "#64748b", direction: "ltr", textAlign: "right" }}>
                           {l.partNumber}{l.partBrand ? ` · ${l.partBrand}` : ""}{l.warrantyMonths ? ` · ضمان ${l.warrantyMonths} شهر` : ""}
                         </span>
                       )}
@@ -215,10 +219,9 @@ export function InvoicePrintLayout(props: Props) {
                         </span>
                       )}
                     </Td>
-                    <Td center muted>{l.unit}</Td>
                     <Td center bold>{l.quantity}</Td>
-                    <Td center mono>{formatCurrency(l.price, settings.currency)}</Td>
-                    <Td center mono bold accent>{formatCurrency(l.subtotal, settings.currency)}</Td>
+                    <Td center>{formatCurrency(l.price, settings.currency)}</Td>
+                    <Td center bold accent>{formatCurrency(l.subtotal, settings.currency)}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -236,8 +239,7 @@ export function InvoicePrintLayout(props: Props) {
                   <tr>
                     <Th center style={{ width: 28 }}>#</Th>
                     <Th>الصنف</Th>
-                    <Th center style={{ width: 52 }}>الوحدة</Th>
-                    <Th center style={{ width: 52 }}>الكمية</Th>
+                  <Th center style={{ width: 52 }}>الكمية</Th>
                     <Th center style={{ width: 108 }}>السعر</Th>
                     <Th center style={{ width: 124 }}>الإجمالي</Th>
                   </tr>
@@ -247,10 +249,9 @@ export function InvoicePrintLayout(props: Props) {
                     <tr key={l.id} style={{ background: idx % 2 === 1 ? "#fff5f5" : "#ffffff" }}>
                       <Td center muted>{idx + 1}</Td>
                       <Td><span style={{ fontWeight: 600, color: "#0f172a" }}>{l.productName}</span></Td>
-                      <Td center muted>{l.unit}</Td>
                       <Td center bold>{l.quantity}</Td>
-                      <Td center mono>{formatCurrency(l.price, settings.currency)}</Td>
-                      <Td center mono bold>{formatCurrency(l.subtotal, settings.currency)}</Td>
+                      <Td center>{formatCurrency(l.price, settings.currency)}</Td>
+                      <Td center bold>{formatCurrency(l.subtotal, settings.currency)}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -269,7 +270,7 @@ export function InvoicePrintLayout(props: Props) {
               {props.discount ? (
                 <>
                   <TotalRow label="إجمالي البنود" value={formatCurrency(props.total - (props.shippingFee ?? 0) + props.discount, settings.currency)} />
-                  <TotalRow label="خصم" value={`- ${formatCurrency(props.discount, settings.currency)}`} discount />
+                  <TotalRow label={props.discountCode ? `خصم (${props.discountCode})` : "خصم"} value={`- ${formatCurrency(props.discount, settings.currency)}`} discount />
                   {props.shippingFee ? <TotalRow label="رسوم التوصيل" value={`+ ${formatCurrency(props.shippingFee, settings.currency)}`} /> : null}
                   <TotalRow label="إجمالي الفاتورة" value={formatCurrency(props.total, settings.currency)} bold />
                 </>
@@ -301,7 +302,7 @@ export function InvoicePrintLayout(props: Props) {
                   pending
                   bold
                 />
-              ) : paymentLog.length > 0
+              ) : isAccountSale && paymentLog.length > 0
                 ? paymentLog.map((entry, i) => (
                     <TotalRow
                       key={entry.id}
@@ -325,7 +326,7 @@ export function InvoicePrintLayout(props: Props) {
                   credit
                 />
               )}
-              {!isCollectOnDelivery && (paymentLog.length > 0 || overpayment > 0) && (
+              {!isCollectOnDelivery && isAccountSale && (paymentLog.length > 0 || overpayment > 0) && (
                 <TotalRow
                   label={isSales ? "إجمالي المسدّد" : "إجمالي ما تم سداده"}
                   value={formatCurrency(totalCollected, settings.currency)}
@@ -333,7 +334,7 @@ export function InvoicePrintLayout(props: Props) {
                   bold
                 />
               )}
-              {isSales && creditSalesEnabled && !isCollectOnDelivery && props.customerName && props.customerBalance !== undefined && (
+              {isAccountSale && creditSalesEnabled && !isCollectOnDelivery && props.customerName && props.customerBalance !== undefined && (
                 <TotalRow
                   label={
                     props.customerBalance < 0
@@ -353,11 +354,13 @@ export function InvoicePrintLayout(props: Props) {
                   deduction={props.customerBalance > 0}
                 />
               )}
-              <TotalRow
-                label={isCollectOnDelivery ? "المطلوب تحصيله عند التسليم" : isSales ? "المتبقي على العميل" : "المتبقي للمورد"}
-                value={formatCurrency(isCollectOnDelivery ? amountDueOnDelivery : props.remaining, settings.currency)}
-                highlight
-              />
+              {(isCollectOnDelivery || !isSales || isAccountSale || props.remaining > 0) ? (
+                <TotalRow
+                  label={isCollectOnDelivery ? "المطلوب تحصيله عند التسليم" : isAccountSale ? "المتبقي على العميل" : isSales ? "المتبقي" : "المتبقي للمورد"}
+                  value={formatCurrency(isCollectOnDelivery ? amountDueOnDelivery : props.remaining, settings.currency)}
+                  highlight
+                />
+              ) : null}
             </div>
           </div>
 
@@ -391,12 +394,11 @@ export function InvoicePrintLayout(props: Props) {
 
 /* ── Small helper components ── */
 
-function MetaItem({ label, value, accent, warning, divided }: { label: string; value: string; accent?: boolean; warning?: boolean; divided?: boolean }) {
+function MetaItem({ label, value, warning, divided }: { label: string; value: string; accent?: boolean; warning?: boolean; divided?: boolean }) {
   return (
     <div style={{
       padding: "7px 10px",
       borderLeft: divided ? "1px solid #e2e8f0" : undefined,
-      boxShadow: accent ? "inset -3px 0 0 #2563eb" : undefined,
       minHeight: 45,
     }}>
       <div style={{ fontSize: 8.5, color: "#94a3b8", marginBottom: 2 }}>{label}</div>
@@ -515,7 +517,7 @@ function TotalRow({
       color: textColor,
     }}>
       <span style={{ fontSize: highlight ? 13 : 11.5, fontWeight: highlight || bold ? 700 : 500, lineHeight: 1.3 }}>{label}</span>
-      <span style={{ fontSize: highlight ? 14 : 12, fontWeight: 700, fontFamily: "monospace", whiteSpace: "nowrap" }}>{value}</span>
+      <span style={{ fontSize: highlight ? 14 : 12, fontWeight: 700, whiteSpace: "nowrap" }}>{value}</span>
     </div>
   );
 }

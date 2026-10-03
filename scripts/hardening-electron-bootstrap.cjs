@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { app, ipcMain, session } = require('electron');
-const work = path.resolve(__dirname, '../reports/production-hardening-2026-09');
+const work = path.resolve(process.env.PARTFLOW_PHASE14_WORK_ROOT || path.resolve(__dirname, '../reports/production-hardening-2026-09'));
 if (process.env.HW_E2E !== '1' || !process.env.HW_E2E_DB_PATH) throw new Error('ISOLATED_E2E_DATABASE_REQUIRED');
 const dbPath = path.resolve(process.env.HW_E2E_DB_PATH);
 if (!dbPath.startsWith(work + path.sep)) throw new Error('ISOLATED_HARDENING_DB_REQUIRED');

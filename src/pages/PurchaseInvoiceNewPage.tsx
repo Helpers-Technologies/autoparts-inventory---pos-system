@@ -46,7 +46,7 @@ export function PurchaseInvoiceNewPage() {
   const { products: allProducts, suppliers: allSuppliers } = useCatalog();
   const products = useMemo(() => allProducts.filter((p) => !p.archived), [allProducts]);
   const suppliers = useMemo(() => allSuppliers.filter((s) => !s.archived), [allSuppliers]);
-  const { purchaseInvoices, addPurchaseInvoice } = useInvoicing();
+  const { purchaseInvoices, addPurchaseInvoiceAwait } = useInvoicing();
   const { settings } = useSettings();
   const { isEnabled } = useFeatures();
   const expiryTrackingEnabled = isEnabled("expiryTracking");
@@ -202,7 +202,7 @@ export function PurchaseInvoiceNewPage() {
     setLines((arr) => arr.filter((l) => l.id !== id));
   }
 
-  function submit() {
+  async function submit() {
     if (!supplierId) {
       toast.error("اختر المورد");
       return;
@@ -211,12 +211,12 @@ export function PurchaseInvoiceNewPage() {
       toast.error("أضف بنود الفاتورة");
       return;
     }
-    const invalidIdx = lines.findIndex((l) => !l.productId || l.quantity <= 0);
+    const invalidIdx = lines.findIndex((l) => !l.productId || !Number.isFinite(l.quantity) || !Number.isFinite(l.price) || l.price < 0 || l.quantity <= 0);
     if (invalidIdx >= 0) {
       toast.error(`السطر ${invalidIdx + 1}: تأكد من اختيار المنتج وإدخال كمية صحيحة`);
       return;
     }
-    if (amountPaid < 0 || amountPaid > total) {
+    if (!Number.isFinite(amountPaid) || !Number.isFinite(total) || amountPaid < 0 || amountPaid > total) {
       toast.error("المبلغ المدفوع غير صحيح");
       return;
     }
@@ -243,7 +243,8 @@ export function PurchaseInvoiceNewPage() {
       };
     });
 
-    const inv = addPurchaseInvoice({
+    try {
+    const inv = await addPurchaseInvoiceAwait({
       invoiceNumber,
       date,
       supplierId,
@@ -257,7 +258,7 @@ export function PurchaseInvoiceNewPage() {
 
     // Route the received stock to the receiving branch itself, instead of
     // letting the branch-stock reconciler dump the new quantity on main.
-    if (branchId) {
+    if (branchId && !window.desktopAPI) {
       pro.receivePurchaseStock(branchId, invLines.map((line) => ({ productId: line.productId, quantity: line.quantity })));
     }
 
@@ -270,6 +271,7 @@ export function PurchaseInvoiceNewPage() {
     isDirtyRef.current = false;
     toast.success("تم حفظ الفاتورة", `تم إضافة الكميات للمخزون`);
     navigate(`/purchases/${inv.id}`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "purchase_failed"); }
   }
 
   return (
@@ -406,8 +408,8 @@ export function PurchaseInvoiceNewPage() {
                         <Input
                           type="number"
                           min={1}
-                          value={l.quantity}
-                          onChange={(e) => updateLine(l.id, { quantity: Number(e.target.value) })}
+                          value={Number.isFinite(l.quantity) ? l.quantity : ""}
+                          onChange={(e) => updateLine(l.id, { quantity: (e.target.value.trim() === "" ? NaN : Number(e.target.value)) })}
                         />
                       </TD>
                       <TD>
@@ -415,8 +417,8 @@ export function PurchaseInvoiceNewPage() {
                           type="number"
                           step="0.01"
                           min={0}
-                          value={l.price}
-                          onChange={(e) => updateLine(l.id, { price: Number(e.target.value) })}
+                          value={Number.isFinite(l.price) ? l.price : ""}
+                          onChange={(e) => updateLine(l.id, { price: (e.target.value.trim() === "" ? NaN : Number(e.target.value)) })}
                         />
                       </TD>
                       {expiryTrackingEnabled && (
@@ -464,8 +466,8 @@ export function PurchaseInvoiceNewPage() {
                 min={0}
                 step="0.01"
                 max={total}
-                value={amountPaid}
-                onChange={(e) => setAmountPaid(Number(e.target.value))}
+                value={Number.isFinite(amountPaid) ? amountPaid : ""}
+                onChange={(e) => setAmountPaid((e.target.value.trim() === "" ? NaN : Number(e.target.value)))}
               />
             </Field>
             <div className="flex gap-2">
